@@ -100,7 +100,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
     var subtitle: String {
         switch self {
         case .account: "Profile, password, recovery codes, application tokens, and sign out."
-        case .client: "Connection, appearance, accent, and desktop behavior."
+        case .client: "Connection, default browser, appearance, accent, and desktop behavior."
         case .usage: "Model tokens and usage by chat, tool, MCP server, and skill."
         case .migrations: "Import skills, MCP, conversations, projects, memory and instructions."
         case .backend: "Install or update the local Sloppy backend from GitHub Releases."

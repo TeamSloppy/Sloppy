@@ -12,16 +12,35 @@ struct BrowserLibrarySheet: View {
     @State private var query = ""
 
     var body: some View {
+        if section == .time {
+            BrowserTimeView(state: state)
+        } else if section == .notes {
+            BrowserNotesView(state: state)
+        } else if section == .tasks {
+            BrowserTasksView(state: state)
+        } else {
+            libraryBody
+        }
+    }
+
+    private var libraryBody: some View {
         NavigationStack {
             Group {
                 switch section {
+                case .time, .notes, .tasks: EmptyView()
                 case .history:
                     List {
+                        Section {
+                            Toggle("Sync history with iCloud", isOn: Binding(
+                                get: { state.history.syncEnabled }, set: { state.history.syncEnabled = $0 }))
+                                .accessibilityIdentifier("browser-history-sync")
+                            Text(state.history.syncMessage).font(.caption).foregroundStyle(.secondary)
+                        }
                         ForEach(state.history.sites.filter { matches($0.title, $0.url) }) { site in
                             pageRow(title: site.title, url: site.url)
                         }
+                        if state.history.sites.isEmpty { Text("No browsing history yet").foregroundStyle(.secondary) }
                     }
-                    .overlay { if state.history.sites.isEmpty { empty("No browsing history yet", icon: "clock") } }
                 case .bookmarks:
                     List {
                         if let tab = state.selectedTab, let url = tab.url {

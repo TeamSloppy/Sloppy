@@ -27,6 +27,9 @@ final class WorkspaceWebViewModel {
     var retainedController: (any WorkspaceWebViewControlling)?
     var onDownload: (@MainActor (WKDownload) -> Void)?
     var onPageChange: (@MainActor () -> Void)?
+    var navigationBlock: (@MainActor (URL) -> String?)?
+    var timeBlock: BrowserTimeBlock?
+    var blockedNavigationURL: URL?
     var currentURL: URL? { didSet { onPageChange?() } }
     var addressText: String = ""
     var pageTitle: String? { didSet { onPageChange?() } }
@@ -65,6 +68,7 @@ final class WorkspaceWebViewModel {
         let runtime = WorkspaceBrowserToolRuntime(textSelection: textSelection)
 #endif
         runtime.onDownload = onDownload
+        runtime.navigationBlock = { [weak self] url in self?.navigationBlock?(url) }
         runtime.onStateChange = { [weak self] webView, error in
             guard let self else { return }
             if currentURL != webView.url {
@@ -115,6 +119,13 @@ final class WorkspaceWebViewModel {
 
     func openAddress() {
         controller?.open(addressText)
+    }
+
+    func applyTimeBlock(_ block: BrowserTimeBlock?) {
+        if (timeBlock == nil) != (block == nil) {
+            nativeWebView?.setAllMediaPlaybackSuspended(block != nil, completionHandler: nil)
+        }
+        timeBlock = block
     }
 
     func reload() {

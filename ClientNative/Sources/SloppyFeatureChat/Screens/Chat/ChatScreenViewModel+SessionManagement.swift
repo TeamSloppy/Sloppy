@@ -22,6 +22,9 @@ extension ChatScreenViewModel {
         Task { @MainActor in
             do {
                 try await apiClient.deleteAgentSession(agentId: session.agentId, sessionId: session.id)
+                await cacheStore.removeSession(session)
+                sessionLoadGeneration += 1
+                isLoadingSessions = false
                 modelPreferences.removeSession(
                     server: apiClient.endpoint.cacheNamespace,
                     agentId: session.agentId,
@@ -89,6 +92,7 @@ extension ChatScreenViewModel {
 
         let parent = sessions.first { $0.id == parentSessionId }
         let projectId = parent?.projectId ?? activeProjectId
+        let taskId = parent?.taskId ?? activeTaskId
         let workspaceId = parent?.workspaceId
         let responseTitle = message.textContent
             .split(whereSeparator: \.isNewline)
@@ -110,9 +114,12 @@ extension ChatScreenViewModel {
                 let summary = try await apiClient.createAgentSession(
                     agentId: agent.id,
                     title: title,
-                    parentSessionId: parentSessionId,
                     projectId: projectId,
-                    workspaceId: workspaceId
+                    taskId: taskId,
+                    workspaceId: workspaceId,
+                    separateChat: true,
+                    forkFromSessionId: parentSessionId,
+                    forkThroughMessageId: message.id
                 )
                 upsertSessionSummary(summary)
                 selectSession(

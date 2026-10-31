@@ -15,6 +15,9 @@ public enum ConsoleRemoteEvent: Sendable {
     case relayError(code: String, peerID: UUID)
     case peerReady(UUID)
     case packetFailed(kind: String, peerID: UUID, reason: String)
+    case socketTCPConnected(String)
+    case socketTLSCompleted(String?)
+    case socketUpgradeResponse(Int)
 }
 
 public struct ConsoleRemotePacket: Codable, Sendable {
@@ -76,10 +79,10 @@ public actor ConsoleRemoteConnection {
     private var disconnectHandler: (@Sendable () async -> Void)?
     private var eventHandler: (@Sendable (ConsoleRemoteEvent) -> Void)?
     private var closeReason = "local_disconnect"
-    public init(deviceID: UUID, signingPrivateKey: Data, identity: RemoteTLSIdentity, relayURL: URL, pins: [UUID: Data]) {
+    public init(deviceID: UUID, signingPrivateKey: Data, identity: RemoteTLSIdentity, relayURL: URL, pins: [UUID: Data], authenticateDevice: (@Sendable () async throws -> ManagedDeviceSession)? = nil) {
         self.deviceID = deviceID; self.signingPrivateKey = signingPrivateKey; self.identity = identity; self.relayURL = relayURL; self.pins = pins
         self.transportFactory = { RelayWebSocketConnection() }
-        self.authenticateDevice = nil
+        self.authenticateDevice = authenticateDevice
     }
     init(deviceID: UUID, signingPrivateKey: Data, identity: RemoteTLSIdentity, relayURL: URL, pins: [UUID: Data], transportFactory: @escaping @Sendable () -> any ConsoleRemoteTransport, authenticateDevice: @escaping @Sendable () async throws -> ManagedDeviceSession) {
         self.deviceID = deviceID; self.signingPrivateKey = signingPrivateKey; self.identity = identity; self.relayURL = relayURL; self.pins = pins
@@ -128,7 +131,9 @@ public actor ConsoleRemoteConnection {
         try Task.checkCancellation()
         guard session.device.id == deviceID, session.device.signingPublicKey == identity.signingPublicKey else { throw RemoteTLSError.invalidPeer }
         eventHandler?(.connecting)
-        let socket = transportFactory(); try await socket.connect(url: relayURL, token: session.token)
+        let socket = transportFactory()
+        if let webSocket = socket as? RelayWebSocketConnection { await webSocket.setDiagnostics(eventHandler) }
+        try await socket.connect(url: relayURL, token: session.token)
         do { try Task.checkCancellation() }
         catch { await socket.close(); throw error }
         let connectionID = UUID()
@@ -177,7 +182,11 @@ public actor ConsoleRemoteConnection {
         }
         pendingSends[peerID] = PendingSend(id: id, task: task)
         do {
-            try await task.value
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
             if pendingSends[peerID]?.id == id { pendingSends[peerID] = nil }
         } catch {
             if pendingSends[peerID]?.id == id { pendingSends[peerID] = nil }
@@ -187,6 +196,7 @@ public actor ConsoleRemoteConnection {
     }
     private func sendOnce(_ packet: ConsoleRemotePacket, to peerID: UUID) async throws {
         try await connect()
+        try Task.checkCancellation()
         if peers[peerID] == nil {
             guard let certificate = pins[peerID], peers.count < 20 else { throw RemoteTLSError.invalidPeer }
             // Reserve the peer before TLS initialization suspends this actor.
@@ -218,6 +228,7 @@ public actor ConsoleRemoteConnection {
         }
         guard let peer = peers[peerID] else { throw RemoteTLSError.closed }
         let tls = try await peer.tls.value
+        try Task.checkCancellation()
         try await emit(tls.send(ConsoleWire.encode(packet)), to: peerID, sessionID: peer.sessionID)
     }
     private func receive(_ data: Data) async throws {

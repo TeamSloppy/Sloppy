@@ -82,7 +82,7 @@ struct AgentConnectionStatusView: View {
 /// A local browser can run without starting or installing Core.
 struct StandaloneBrowserShell: View {
     let root: RootShellViewModel
-    @State private var browser = BrowserWorkspaceState()
+    private var browser: BrowserWorkspaceState { root.browserWorkspace }
     @State private var showsAssistant = false
 
     var body: some View {
@@ -95,8 +95,11 @@ struct StandaloneBrowserShell: View {
                 }
             }
             .inspector(isPresented: $showsAssistant) {
-                AgentConnectionStatusView(root: root, onConfigure: root.showConnectionSetup)
-                    .inspectorColumnWidth(min: 320, ideal: 420, max: 600)
+                // SwiftUI can construct a closed inspector. Defer instance credential access until it is shown.
+                if showsAssistant {
+                    AgentConnectionStatusView(root: root, onConfigure: root.showConnectionSetup)
+                        .inspectorColumnWidth(min: 320, ideal: 420, max: 600)
+                }
             }
             .onDisappear { browser.checkpoint() }
     }

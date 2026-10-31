@@ -34,6 +34,7 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     var onNavigationFinished: (@MainActor (WKWebView) -> Void)?
     var onDownload: (@MainActor (WKDownload) -> Void)?
     var onNavigationStarted: (@MainActor () -> Void)?
+    var navigationBlock: (@MainActor (URL) -> String?)?
     private var navigationError: Error?
     private var navigationPending = false
     private var titleObservation: NSKeyValueObservation?
@@ -304,6 +305,12 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
         self.webView(webView, didFail: navigation, withError: error)
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        if navigationAction.targetFrame?.isMainFrame != false,
+           let url = navigationAction.request.url, let reason = navigationBlock?(url) {
+            navigationPending = false
+            navigationError = WorkspaceBrowserRuntimeError.timeLimit(reason)
+            return .cancel
+        }
         if onDownload != nil, navigationAction.shouldPerformDownload,
            ["http", "https", "blob", "data"].contains(navigationAction.request.url?.scheme?.lowercased() ?? "") {
             return .download
@@ -346,8 +353,10 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
 
 enum WorkspaceBrowserRuntimeError: Error, LocalizedError {
     case unavailable, invalidURL, invalidArguments, snapshotFailed, navigationTimedOut
+    case timeLimit(String)
     var errorDescription: String? {
         switch self {
+        case .timeLimit(let message): message
         case .unavailable: "The in-app browser is unavailable."
         case .invalidURL: "Use an HTTP or HTTPS URL."
         case .invalidArguments: "Invalid browser command arguments."

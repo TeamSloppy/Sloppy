@@ -99,6 +99,7 @@ struct DesktopSettingsTests {
         window.makeFirstResponder(nil)
         #expect(AppKitTestAccessibility.press(try await element("settings.section.client")))
         try await Task.sleep(for: .milliseconds(200))
+        _ = try await element("settings.default-browser")
         try capture("general-860")
         #expect(AppKitTestAccessibility.press(try await element("settings.close")))
         #expect(dismissed == 1)

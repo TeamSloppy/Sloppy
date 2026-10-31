@@ -419,6 +419,8 @@ actor CoreIdentityAuthService {
         }
         stored.passwordHash = PasswordHash.make(for: request.newPassword, iterations: passwordHashIterations)
         usersByID[userID] = stored
+        accessTokens = accessTokens.filter { $0.value.userID != userID }
+        refreshTokens = refreshTokens.filter { $0.value.userID != userID }
         saveState()
         return makeSession(for: stored.profile)
     }

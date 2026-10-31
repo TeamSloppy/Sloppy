@@ -27,7 +27,7 @@ struct MobileRootShellView<ConnectionContent: View>: View {
         self.safeAreaInsets = safeAreaInsets
         self.endpointOverride = endpointOverride
         self.connectionContent = connectionContent
-        let initialLaunch = launch ?? MobileBrowserLaunchState()
+        let initialLaunch = launch ?? root.mobileBrowserLaunch
         if launch == nil, root.connectionSetupRequested { initialLaunch.browser.isBrowsing = false }
         _launch = State(initialValue: initialLaunch)
     }
@@ -103,7 +103,7 @@ struct MobileRootShellView<ConnectionContent: View>: View {
         .task(id: scenePhase) {
             launch.browser.checkpoint()
             guard scenePhase == .active else { return }
-            await root.restoreMobileConnectionInBackground(whileBrowsing: { launch.browser.isBrowsing })
+            await root.restoreMobileConnectionInBackground()
         }
         .onDisappear { launch.browser.checkpoint(); agentChat?.stopBrowserConnection() }
         .onChange(of: root.showsStandaloneBrowser) { _, browsing in

@@ -1,5 +1,6 @@
 import ACP
 import ACPModel
+import AgentRuntime
 import Foundation
 import Logging
 import Testing
@@ -94,6 +95,7 @@ private actor MockACPTransportClient: ACPTransportClient {
     private var setModeCount = 0
     private var sendPromptCount = 0
     private var terminateCount = 0
+    private(set) var cancelledSessionIDs: [String] = []
     private var setModeIDs: [String] = []
     private var sentPromptTexts: [String] = []
     private var sentPromptImageCounts: [Int] = []
@@ -171,7 +173,7 @@ private actor MockACPTransportClient: ACPTransportClient {
         return promptResponse
     }
 
-    func cancelSession(sessionId _: SessionId) async throws {}
+    func cancelSession(sessionId: SessionId) async throws { cancelledSessionIDs.append(sessionId.value) }
 
     func terminate() async {
         terminateCount += 1
@@ -234,6 +236,44 @@ private func makeInitializeResponse(loadSession: Bool) -> InitializeResponse {
         ),
         agentInfo: AgentInfo(name: "Mock Agent", version: "1.0.0")
     )
+}
+
+@Test("interruptTree sends ACP cancellation to every descendant but leaves other sessions running")
+func acpInterruptTreeCancelsDescendants() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("acp-tree-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let agentsURL = root.appendingPathComponent("agents")
+    let catalog = AgentCatalogFileStore(agentsRootURL: agentsURL)
+    let store = AgentSessionFileStore(agentsRootURL: agentsURL)
+    let runtimeConfig = AgentRuntimeConfig(type: .acp, acp: .init(targetId: "local"))
+    _ = try catalog.createAgent(.init(id: "agent-1", displayName: "Agent", role: "Test", runtime: runtimeConfig), availableModels: [])
+    let parent = try store.createSession(agentID: "agent-1", request: .init())
+    let child = try store.createSession(agentID: "agent-1", request: .init(parentSessionId: parent.id))
+    let grandchild = try store.createSession(agentID: "agent-1", request: .init(parentSessionId: child.id))
+    let other = try store.createSession(agentID: "agent-1", request: .init())
+    let clients = (0..<4).map { index in
+        MockACPTransportClient(initializeResponse: makeInitializeResponse(loadSession: true),
+            newSessionResponse: .init(sessionId: SessionId("upstream-\(index)")))
+    }
+    let queue = MockACPClientQueue(clients: clients)
+    let manager = ACPSessionManager(config: .init(enabled: true, targets: [
+        .init(id: "local", title: "Local ACP", transport: .stdio, command: "/bin/echo")
+    ]), workspaceRootURL: root, agentsRootURL: agentsURL, logger: makeNoOpLogger(),
+        clientFactory: ACPClientFactory { _ in queue.next() })
+    for session in [parent, child, grandchild, other] {
+        _ = try await manager.postMessage(agentID: "agent-1", sloppySessionID: session.id, runtime: runtimeConfig,
+            content: [.text(TextContent(text: "hello"))], localSessionHadPriorMessages: false, primerContent: nil,
+            onChunk: { _ in }, onEvent: { _ in })
+    }
+    let orchestrator = AgentSessionOrchestrator(runtime: RuntimeSystem(), sessionStore: store,
+        agentCatalogStore: catalog, acpSessionManager: manager, availableModels: [])
+    let result = try await orchestrator.controlSession(agentID: "agent-1", sessionID: parent.id,
+        request: .init(action: .interruptTree, requestedBy: "test"))
+    for index in 0..<3 { #expect(await clients[index].cancelledSessionIDs == ["upstream-\(index)"]) }
+    #expect(await clients[3].cancelledSessionIDs.isEmpty)
+    #expect(Set(result.appendedEvents.filter { $0.runStatus?.stage == .interrupted }.map(\.sessionId))
+        == Set([parent.id, child.id, grandchild.id]))
+    await manager.shutdown()
 }
 
 private func makeSessionManagerFixture(

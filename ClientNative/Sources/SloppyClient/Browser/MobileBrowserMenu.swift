@@ -26,6 +26,12 @@ struct MobileBrowserMenu: View {
                     } header: { Text(url.host ?? tab.title).textCase(nil) }
                 }
                 Section {
+                    Button { onLibrary(.time) } label: { Label("Time & Focus", systemImage: "timer") }
+                        .accessibilityIdentifier("browser-time-button")
+                    Button { onLibrary(.notes) } label: { Label("Notes", systemImage: "note.text") }
+                        .accessibilityIdentifier("browser-notes-button")
+                    Button { onLibrary(.tasks) } label: { Label("Tasks", systemImage: "checklist") }
+                        .accessibilityIdentifier("browser-tasks-button")
                     Button { onLibrary(.history) } label: { Label("History", systemImage: "clock.arrow.circlepath") }
                     Button { onLibrary(.bookmarks) } label: { Label("Bookmarks", systemImage: "book") }
                     Button { onLibrary(.downloads) } label: { Label("Downloads", systemImage: "arrow.down.circle") }

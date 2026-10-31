@@ -50,6 +50,11 @@ public actor ClientCacheStore {
     private var fallbackSessions: [String: [String: ChatSessionSummary]] = [:]
     private var fallbackSessionDetails: [String: [String: ChatSessionDetail]] = [:]
     private var fallbackMessages: [String: CachedMessageSearchResult] = [:]
+    private struct SessionKey: Hashable {
+        var agentId: String
+        var sessionId: String
+    }
+    private var removedSessions: Set<SessionKey> = []
 
     public init(path: String? = nil, namespace: String? = nil) {
         let encoder = JSONEncoder()
@@ -156,6 +161,7 @@ public actor ClientCacheStore {
     }
 
     public func cacheSessions(agentId: String, projectId: String?, sessions: [ChatSessionSummary]) async {
+        let sessions = sessions.filter { !sessionWasRemoved(agentId: agentId, sessionId: $0.id) }
 #if canImport(CSQLite3)
         guard let db else {
             var byAgent = fallbackSessions[agentId] ?? [:]
@@ -234,6 +240,7 @@ public actor ClientCacheStore {
             binds = [.text(agentId)]
         }
         return decodeRows(sql: sql, binds: binds, db: db, as: ChatSessionSummary.self)
+            .filter { !sessionWasRemoved(agentId: agentId, sessionId: $0.id) }
 #else
         let sessions = Array((fallbackSessions[agentId] ?? [:]).values)
         return filterAndSortSessions(sessions, projectId: projectId)
@@ -241,6 +248,7 @@ public actor ClientCacheStore {
     }
 
     public func cacheSessionDetail(agentId: String, detail: ChatSessionDetail) async {
+        guard !sessionWasRemoved(agentId: agentId, sessionId: detail.summary.id) else { return }
 #if canImport(CSQLite3)
         guard let db else {
             var byAgent = fallbackSessionDetails[agentId] ?? [:]
@@ -315,7 +323,29 @@ public actor ClientCacheStore {
 #endif
     }
 
+    public func removeSession(_ session: ChatSessionSummary) async {
+        let agentId = session.agentId
+        let sessionId = session.id
+        removedSessions.insert(SessionKey(agentId: agentId, sessionId: sessionId))
+        fallbackSessions[agentId]?.removeValue(forKey: session.storageID)
+        fallbackSessions[agentId]?.removeValue(forKey: sessionId)
+        fallbackSessionDetails[agentId]?.removeValue(forKey: sessionId)
+        fallbackMessages = fallbackMessages.filter { $0.value.agentId != agentId || $0.value.sessionId != sessionId }
+#if canImport(CSQLite3)
+        guard let db, execute(sql: "BEGIN IMMEDIATE;", db: db) else { return }
+        let binds: [SQLiteBind] = [.text(agentId), .text(sessionId)]
+        let removed = execute(sql: "INSERT OR IGNORE INTO removed_sessions(agent_id, session_id) VALUES(?, ?);", binds: binds, db: db)
+            && execute(sql: "DELETE FROM cached_message_fts WHERE message_id IN (SELECT message_id FROM cached_messages WHERE agent_id = ? AND session_id = ?);", binds: binds, db: db)
+            && execute(sql: "DELETE FROM cached_messages WHERE agent_id = ? AND session_id = ?;", binds: binds, db: db)
+            && execute(sql: "DELETE FROM cached_session_details WHERE agent_id = ? AND session_id = ?;", binds: binds, db: db)
+            && execute(sql: "DELETE FROM cached_sessions WHERE agent_id = ? AND session_id IN (?, ?);",
+                       binds: [.text(agentId), .text(sessionId), .text(session.storageID)], db: db)
+        _ = execute(sql: removed ? "COMMIT;" : "ROLLBACK;", db: db)
+#endif
+    }
+
     public func loadSessionDetail(agentId: String, sessionId: String) async -> ChatSessionDetail? {
+        guard !sessionWasRemoved(agentId: agentId, sessionId: sessionId) else { return nil }
 #if canImport(CSQLite3)
         guard let db else {
             return fallbackSessionDetails[agentId]?[sessionId]
@@ -380,6 +410,7 @@ public actor ClientCacheStore {
         FROM cached_message_fts f
         JOIN cached_messages m ON m.message_id = f.message_id
         WHERE cached_message_fts MATCH ?
+          AND NOT EXISTS (SELECT 1 FROM removed_sessions r WHERE r.agent_id = m.agent_id AND r.session_id = m.session_id)
         ORDER BY m.created_at DESC
         LIMIT ?;
         """
@@ -453,6 +484,19 @@ public actor ClientCacheStore {
         }
     }
 
+    private func sessionWasRemoved(agentId: String, sessionId: String) -> Bool {
+        let key = SessionKey(agentId: agentId, sessionId: sessionId)
+        if removedSessions.contains(key) { return true }
+#if canImport(CSQLite3)
+        if let db, firstTextRow(sql: "SELECT session_id FROM removed_sessions WHERE agent_id = ? AND session_id = ?;",
+                               binds: [.text(agentId), .text(sessionId)], db: db) != nil {
+            removedSessions.insert(key)
+            return true
+        }
+#endif
+        return false
+    }
+
     private func encode<T: Encodable>(_ value: T) -> String? {
         guard let data = try? encoder.encode(value) else { return nil }
         return String(data: data, encoding: .utf8)
@@ -474,6 +518,7 @@ public actor ClientCacheStore {
             }
             return (nil, message)
         }
+        sqlite3_busy_timeout(db, 1_000)
 
         let schemaSQL = """
         CREATE TABLE IF NOT EXISTS cached_agents(
@@ -483,6 +528,11 @@ public actor ClientCacheStore {
         CREATE TABLE IF NOT EXISTS cached_projects(
             id TEXT PRIMARY KEY,
             json_payload TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS removed_sessions(
+            agent_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            PRIMARY KEY(agent_id, session_id)
         );
         CREATE TABLE IF NOT EXISTS cached_sessions(
             agent_id TEXT NOT NULL,

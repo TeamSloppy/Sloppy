@@ -111,7 +111,7 @@ private final class BrowserBridgeURLProtocol: URLProtocol, @unchecked Sendable {
             stream.close()
         }
         let requestBody = body
-        Task {
+        Task { @Sendable [self, handler, requestBody] in
             guard let handler, let url = request.url,
                   let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else {
                 client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))

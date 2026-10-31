@@ -28,6 +28,8 @@ let package = Package(
         .package(path: "../Packages/SloppyConsoleProtocol"),
         .package(path: "../Packages/SloppyComputerControl"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
+        .package(url: "https://github.com/swift-server/async-http-client.git", exact: "1.30.3"),
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.74.0"),
         .package(path: "Vendor/Textual"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.0.0"),
     ],
@@ -40,7 +42,9 @@ let package = Package(
                 "CSQLite3",
                 .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
                 .product(name: "SloppyConsoleProtocol", package: "SloppyConsoleProtocol"),
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
+                .product(name: "NIOPosix", package: "swift-nio")
             ],
             path: "Sources/SloppyClientCore"
         ),
@@ -48,6 +52,7 @@ let package = Package(
             name: "SloppyClientUI",
             dependencies: [
                 "SloppyClientCore",
+                .product(name: "Textual", package: "textual"),
                 .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol")
             ],
             path: "Sources/SloppyClientUI",

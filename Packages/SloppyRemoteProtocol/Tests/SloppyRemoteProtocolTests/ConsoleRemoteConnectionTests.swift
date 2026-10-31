@@ -6,6 +6,33 @@ import Testing
 
 @Suite("Console peer transport", .serialized)
 struct ConsoleRemoteConnectionTests {
+    @Test func cancelledQueuedSendIsNotDeliveredAfterTheConnectionRecovers() async throws {
+        let fixture = try Fixture()
+        let received = PacketMailbox()
+        await fixture.host.setHandler { _, _, packet in
+            await received.append(packet.payload)
+            return nil
+        }
+        try await fixture.host.connect()
+        await fixture.relay.pauseNextLargeFrame(from: fixture.clientID)
+        let first = Task {
+            try await fixture.client.send(ConsoleRemotePacket(kind: "request", payload: Data(repeating: 1, count: 1_700_000)), to: fixture.hostID)
+        }
+        try await fixture.relay.waitForPausedFrame()
+        let cancelled = Task {
+            try await fixture.client.send(ConsoleRemotePacket(kind: "request", payload: Data("cancelled".utf8)), to: fixture.hostID)
+        }
+        cancelled.cancel()
+        await fixture.relay.resumePausedFrame()
+        try await first.value
+        await #expect(throws: CancellationError.self) { try await cancelled.value }
+        try await fixture.client.send(ConsoleRemotePacket(kind: "request", payload: Data("after".utf8)), to: fixture.hostID)
+        try await received.waitForCount(2)
+        #expect(await received.values.last == Data("after".utf8))
+        #expect(await received.values.contains(Data("cancelled".utf8)) == false)
+        await fixture.close()
+    }
+
     @Test func firstHealthRequestUsesTheRelayEnvelopeFormat() async throws {
         let fixture = try Fixture()
         await fixture.host.setHandler { _, _, packet in

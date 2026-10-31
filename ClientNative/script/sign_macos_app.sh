@@ -60,6 +60,28 @@ done
 APP_SIGNING_OPTIONS=(--preserve-metadata=entitlements)
 if [[ -n "$ENTITLEMENTS" ]]; then
     APP_SIGNING_OPTIONS=(--entitlements "$ENTITLEMENTS")
+    # Raw source plists contain Xcode variables. Only a provisioned signature can
+    # use iCloud; keep ordinary Developer ID/ad hoc builds launchable without it.
+    KVS_KEY="com.apple.developer.ubiquity-kvstore-identifier"
+    if /usr/libexec/PlistBuddy -c "Print :$KVS_KEY" "$ENTITLEMENTS" >/dev/null 2>&1; then
+        SIGNING_ENTITLEMENTS_DIR="$(mktemp -d)"
+        trap 'rm -rf "$SIGNING_ENTITLEMENTS_DIR"' EXIT
+        FILTERED_ENTITLEMENTS="$SIGNING_ENTITLEMENTS_DIR/SloppyClient.entitlements"
+        cp "$ENTITLEMENTS" "$FILTERED_ENTITLEMENTS"
+        KVS_IDENTIFIER=""
+        PROFILE="$APP_PATH/Contents/embedded.provisionprofile"
+        if [[ "$IDENTITY" != "-" && -f "$PROFILE" ]]; then
+            security cms -D -i "$PROFILE" > "$SIGNING_ENTITLEMENTS_DIR/profile.plist"
+            KVS_IDENTIFIER="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:$KVS_KEY" "$SIGNING_ENTITLEMENTS_DIR/profile.plist" 2>/dev/null || true)"
+        fi
+        if [[ -n "$KVS_IDENTIFIER" && "$KVS_IDENTIFIER" != *'*'* ]]; then
+            /usr/libexec/PlistBuddy -c "Set :$KVS_KEY $KVS_IDENTIFIER" "$FILTERED_ENTITLEMENTS"
+        else
+            /usr/libexec/PlistBuddy -c "Delete :$KVS_KEY" "$FILTERED_ENTITLEMENTS"
+            echo "warning: no iCloud key-value provisioning profile; browser history will stay local in this build." >&2
+        fi
+        APP_SIGNING_OPTIONS=(--entitlements "$FILTERED_ENTITLEMENTS")
+    fi
 fi
 codesign "${SIGNING_OPTIONS[@]}" "${APP_SIGNING_OPTIONS[@]}" \
     --identifier "$BUNDLE_IDENTIFIER" "$APP_PATH"

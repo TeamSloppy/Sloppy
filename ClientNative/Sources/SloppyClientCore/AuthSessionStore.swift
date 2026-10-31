@@ -12,6 +12,7 @@ public enum AuthSessionRecoveryResult: Sendable, Equatable {
     case recovered(AuthSession)
     case failed
     case unavailable
+    case superseded
 }
 
 public enum AuthSessionNotifications {
@@ -29,7 +30,12 @@ public actor AuthSessionStore {
     private let persistence: AuthSessionPersistence
     private var sessions: [String: AuthSession] = [:]
     private var loadedServerKeys: Set<String> = []
-    private var refreshTasks: [String: Task<AuthSession?, Never>] = [:]
+    private struct RefreshOperation {
+        let id = UUID()
+        let task: Task<AuthSession?, any Error>
+    }
+    private var refreshTasks: [String: RefreshOperation] = [:]
+    private var sessionRevisions: [String: UUID] = [:]
 
     public init(persistence: AuthSessionPersistence = .keychain) {
         self.persistence = persistence
@@ -43,6 +49,7 @@ public actor AuthSessionStore {
 
     public func save(_ session: AuthSession, for baseURL: URL) {
         let key = Self.serverKey(for: baseURL)
+        invalidateRecovery(forKey: key)
         loadedServerKeys.insert(key)
         sessions[key] = session
         persist(session, forKey: key)
@@ -71,8 +78,7 @@ public actor AuthSessionStore {
 
     public func clear(for baseURL: URL) {
         let key = Self.serverKey(for: baseURL)
-        refreshTasks[key]?.cancel()
-        refreshTasks[key] = nil
+        invalidateRecovery(forKey: key)
         loadedServerKeys.insert(key)
         sessions[key] = nil
         deletePersistedSession(forKey: key)
@@ -83,20 +89,24 @@ public actor AuthSessionStore {
         rejectedAccessToken: String?,
         refresh: @escaping @Sendable (String) async -> AuthSession?
     ) async -> AuthSessionRecoveryResult {
+        // Preserve the nonthrowing API for callers whose refresh callback cannot fail transiently.
+        (try? await recoverSession(for: baseURL, rejectedAccessToken: rejectedAccessToken,
+                                  refreshSession: refresh)) ?? .unavailable
+    }
+
+    public func recoverSession(
+        for baseURL: URL,
+        rejectedAccessToken: String?,
+        refreshSession: @escaping @Sendable (String) async throws -> AuthSession?
+    ) async throws -> AuthSessionRecoveryResult {
         let key = Self.serverKey(for: baseURL)
         loadSessionIfNeeded(forKey: key)
+        let revision = sessionRevisions[key]
 
         if let current = sessions[key],
            let rejectedAccessToken,
            current.accessToken != rejectedAccessToken {
             return .recovered(current)
-        }
-
-        if let refreshTask = refreshTasks[key] {
-            if let session = await refreshTask.value {
-                return .recovered(session)
-            }
-            return .failed
         }
 
         guard let current = sessions[key] else {
@@ -108,15 +118,26 @@ public actor AuthSessionStore {
             return .failed
         }
 
-        let refreshTask = Task { await refresh(refreshToken) }
-        refreshTasks[key] = refreshTask
-        let refreshed = await refreshTask.value
-        refreshTasks[key] = nil
+        let operation: RefreshOperation
+        if let running = refreshTasks[key] {
+            operation = running
+        } else {
+            operation = RefreshOperation(task: Task { try await refreshSession(refreshToken) })
+            refreshTasks[key] = operation
+        }
+        let refreshed: AuthSession?
+        do {
+            refreshed = try await operation.task.value
+        } catch {
+            guard sessionRevisions[key] == revision else { return .superseded }
+            if refreshTasks[key]?.id == operation.id { refreshTasks[key] = nil }
+            throw error
+        }
+        guard sessionRevisions[key] == revision else { return .superseded }
+        if refreshTasks[key]?.id == operation.id { refreshTasks[key] = nil }
 
         guard let refreshed else {
-            loadedServerKeys.insert(key)
-            sessions[key] = nil
-            deletePersistedSession(forKey: key)
+            clear(for: baseURL)
             return .failed
         }
 
@@ -124,6 +145,11 @@ public actor AuthSessionStore {
         sessions[key] = refreshed
         persist(refreshed, forKey: key)
         return .recovered(refreshed)
+    }
+
+    private func invalidateRecovery(forKey key: String) {
+        sessionRevisions[key] = UUID()
+        refreshTasks.removeValue(forKey: key)?.task.cancel()
     }
 
     private static func serverKey(for baseURL: URL) -> String {

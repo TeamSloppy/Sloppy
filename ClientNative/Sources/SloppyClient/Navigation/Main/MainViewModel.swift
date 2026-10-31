@@ -1941,6 +1941,9 @@ final class MainViewModel {
             automationViewModel: ProjectAutomationViewModel(
                 apiClient: SloppyAPIClient(endpoint: projectEndpoint)
             ),
+            workflowViewModel: ProjectWorkflowViewModel(
+                apiClient: SloppyAPIClient(endpoint: projectEndpoint)
+            ),
             chatViewModel: chatState.viewModel,
             selectedSection: selectedSection
         )
@@ -1956,6 +1959,8 @@ final class MainViewModel {
         switch section {
         case .kanban:
             break // The visible board owns its cancellable loading task.
+        case .workflows:
+            break // The visible workflow view owns loading and refresh cancellation.
         case .workspaces:
             Task {
                 await state.workspaceViewModel.resolve(

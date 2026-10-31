@@ -81,8 +81,10 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
     public var workspaceId: String?
     /// When set, the new session starts with a copy of this session's history instead of recovering from a parent.
     public var forkFromSessionId: String?
-    /// With `forkFromSessionId`, copies history strictly before the message with this ID; nil copies everything.
+    /// With `forkFromSessionId`, copies history strictly before this message. Omit both boundaries to copy everything.
     public var forkBeforeMessageId: String?
+    /// With `forkFromSessionId`, copies history through this message, including the message itself.
+    public var forkThroughMessageId: String?
 
     public init(
         title: String? = nil,
@@ -94,7 +96,8 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         taskId: String? = nil,
         workspaceId: String? = nil,
         forkFromSessionId: String? = nil,
-        forkBeforeMessageId: String? = nil
+        forkBeforeMessageId: String? = nil,
+        forkThroughMessageId: String? = nil
     ) {
         self.title = title
         self.parentSessionId = parentSessionId
@@ -106,6 +109,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         self.workspaceId = workspaceId
         self.forkFromSessionId = forkFromSessionId
         self.forkBeforeMessageId = forkBeforeMessageId
+        self.forkThroughMessageId = forkThroughMessageId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -119,6 +123,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         case workspaceId
         case forkFromSessionId
         case forkBeforeMessageId
+        case forkThroughMessageId
     }
 
     public init(from decoder: Decoder) throws {
@@ -133,6 +138,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
         forkFromSessionId = try container.decodeIfPresent(String.self, forKey: .forkFromSessionId)
         forkBeforeMessageId = try container.decodeIfPresent(String.self, forKey: .forkBeforeMessageId)
+        forkThroughMessageId = try container.decodeIfPresent(String.self, forKey: .forkThroughMessageId)
     }
 }
 

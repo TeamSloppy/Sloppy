@@ -3,7 +3,7 @@ import SloppyClientUI
 
 enum BrowserSidebarSelection: Hashable { case home, tab(UUID) }
 enum BrowserLibrarySection: String, Identifiable {
-    case history, downloads, bookmarks
+    case history, downloads, bookmarks, time, notes, tasks
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
 }
@@ -22,14 +22,14 @@ struct BrowserSidebar: View {
     let onSettings: () -> Void
     let onCollect: ([BrowserTabRecord]) -> Void
     @State private var groupDraft: BrowserGroupDraft?
+    @Environment(\.theme) private var theme
 #if os(macOS)
     @State private var showsExtensions = false
     @State private var hoveredTabID: UUID?
 #endif
 
     var body: some View {
-        sidebarList
-        .listStyle(.sidebar)
+        sidebarContent
 #if os(macOS)
         .scrollEdgeEffectStyle(.hard, for: .top)
 #endif
@@ -43,9 +43,17 @@ struct BrowserSidebar: View {
             VStack(spacing: 0) {
                 Divider()
                 HStack {
-                    Spacer()
+#if os(macOS)
+                    modeButtons
+#endif
+                    Spacer(minLength: 0)
                     Menu {
                         Button("Settings", systemImage: "gearshape", action: onSettings)
+#if !os(macOS)
+                        Button("Time & Focus", systemImage: "timer") { onLibrary(.time) }
+                        Button("Notes", systemImage: "note.text") { onLibrary(.notes) }
+                        Button("Tasks", systemImage: "checklist") { onLibrary(.tasks) }
+#endif
                         Button("History", systemImage: "clock") { onLibrary(.history) }
                         Button("Downloads", systemImage: "arrow.down.circle") { onLibrary(.downloads) }
                         Button("Bookmarks", systemImage: "bookmark") { onLibrary(.bookmarks) }
@@ -63,7 +71,7 @@ struct BrowserSidebar: View {
                     .menuIndicator(.hidden)
                     .menuStyle(.borderlessButton)
 #endif
-                    .frame(width: 44, height: 44)
+                    .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
                     .accessibilityLabel("Browser menu")
                     .accessibilityIdentifier("browser-menu")
@@ -80,6 +88,55 @@ struct BrowserSidebar: View {
 #endif
     }
 
+#if os(macOS)
+    private var modeButtons: some View {
+        HStack(spacing: 4) {
+            ForEach(BrowserSidebarMode.allCases) { mode in
+                Button {
+                    state.sidebarMode = mode
+                    state.isSearchPresented = false
+                    state.columnVisibility = .all
+                } label: {
+                    Image(systemName: mode.icon)
+                        .font(.system(size: 15))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                        .background {
+                            if state.sidebarMode == mode {
+                                RoundedRectangle(cornerRadius: 7).fill(theme.colors.textPrimary.opacity(0.10))
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(KeyEquivalent(mode.shortcut), modifiers: .command)
+                .help("\(mode.title) (⌘\(String(mode.shortcut)))")
+                .accessibilityLabel(mode.title)
+                .accessibilityValue(state.sidebarMode == mode ? "Selected" : "")
+                .accessibilityAddTraits(state.sidebarMode == mode ? .isSelected : [])
+                .accessibilityIdentifier("browser-sidebar-mode-\(mode.rawValue)")
+            }
+        }
+    }
+#endif
+
+    @ViewBuilder
+    private var sidebarContent: some View {
+#if os(macOS)
+        Group {
+            switch state.sidebarMode {
+            case .sites: sidebarList.listStyle(.sidebar)
+            case .time: BrowserTimeView(state: state)
+            case .tasks: BrowserTasksView(state: state)
+            case .notes: BrowserSidebarNotes(state: state)
+            }
+        }
+        .environment(\.browserSidebarLayout, true)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+#else
+        sidebarList.listStyle(.sidebar)
+#endif
+    }
 
     @ViewBuilder
     private var sidebarList: some View {
@@ -128,6 +185,16 @@ struct BrowserSidebar: View {
         homeRow
             .tag(BrowserSidebarSelection.home)
             .accessibilityIdentifier("browser-home-button")
+#if !os(macOS)
+        Button { onLibrary(.time) } label: {
+            Label("Time & Focus", systemImage: "timer")
+        }
+        .accessibilityIdentifier("browser-time-button")
+        Button { onLibrary(.notes) } label: { Label("Notes", systemImage: "note.text") }
+            .accessibilityIdentifier("browser-notes-button")
+        Button { onLibrary(.tasks) } label: { Label("Tasks", systemImage: "checklist") }
+            .accessibilityIdentifier("browser-tasks-button")
+#endif
         Section {
             tabRows(groupID: nil)
             ForEach(state.groups) { group in

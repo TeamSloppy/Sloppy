@@ -78,6 +78,7 @@ struct RootShellView: View {
             .onOpenURL { url in
                 viewModel.handleDeepLink(url)
             }
+            .modifier(BrowserHandoffModifier(root: viewModel))
             .task {
                 await viewModel.observeAuthenticationRequirements()
             }
@@ -208,6 +209,7 @@ private struct RootShellContent: View {
                     deepLinkRequest: rootViewModel.appDeepLinkRequest,
                     onConsumeDeepLink: rootViewModel.consumeDeepLink,
                     approvalRequiredSessionIDs: rootViewModel.pendingApprovalSessionIDs,
+                    browserWorkspace: rootViewModel.browserWorkspace,
                     onBrowserTextAnnotationTarget: rootViewModel.makeBrowserTextAnnotationReceiver
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {

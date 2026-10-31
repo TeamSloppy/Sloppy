@@ -41,6 +41,42 @@ Zephium is an interaction reference: https://github.com/zephium-browser/Zephium.
 Its canvas keeps research sources and results available outside a chat transcript;
 Collect tabs on canvas brings that idea to Sloppy's current canvas.
 
+## Handoff and shared history
+
+The selected Browse page advertises Handoff on Mac, iPhone and iPad. Accepting it
+opens the page in a new Sloppy browser tab, including before connecting to Core.
+Blank tabs, failed pages and the Work surface do not advertise a page. The transfer
+contains the HTTP(S) URL and title; cookies, forms and WebKit sessions stay local.
+Credentials embedded in URLs are removed. Handoff requires compatible signed apps
+from the same development team and the system's Handoff requirements:
+[Apple Handoff documentation](https://developer.apple.com/documentation/foundation/implementing-handoff-in-your-app).
+
+In **History**, enable **Sync history with iCloud** on each device using the same
+Apple Account. This is off by default and works independently of Core. Local
+history keeps up to 2,000 URLs. Each device publishes up to 200 recent URLs within
+32 KiB; up to 16 device snapshots are retained. Titles and visit dates merge by URL;
+visit counts use the largest known count rather than summing replicated copies.
+The payload is bounded below the
+[iCloud key-value storage quota](https://developer.apple.com/library/archive/documentation/General/Conceptual/iCloudDesignGuide/Chapters/DesigningForKey-ValueDataIniCloud.html).
+
+Updates are asynchronous. Without iCloud, history remains available locally.
+Clearing history while sync is enabled clears visits on synced devices when they
+next connect, including devices that were offline. Turning sync off stops transfers
+on that device and keeps its local history. An Apple Account change turns sync off;
+enable it again only when you want to share the retained local history with that account.
+
+All browser app targets declare `team.sloppy.client.browse` and share the
+`$(TeamIdentifierPrefix)team.sloppy.client` key-value store entitlement. Signed
+device/distribution provisioning must include iCloud Key-value storage. Unsigned
+builds and simulator tests do not prove Handoff or iCloud delivery. The manual Mac
+signing script uses the key-value identifier from an embedded provisioning profile;
+without one it removes this restricted entitlement and the History screen explains
+that sync is unavailable in that build. Acceptance:
+on two signed devices, enable sync, visit different pages while one is offline,
+reconnect and confirm both histories; clear on one and confirm the old entries
+stay absent after the other reconnects. Accept Handoff in both directions and
+verify the selected URL, including query and fragment, opens in Browse.
+
 ## iPhone and iPad
 
 Browse opens immediately on mobile, before connecting to Core or relay. Its

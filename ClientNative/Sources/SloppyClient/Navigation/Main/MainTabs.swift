@@ -15,6 +15,7 @@ struct DesktopTabSplitState: Equatable {
 
 enum ProjectModeSection: String, CaseIterable, Hashable, Identifiable {
     case kanban
+    case workflows
     case workspaces
     case automation
     case chats
@@ -24,6 +25,7 @@ enum ProjectModeSection: String, CaseIterable, Hashable, Identifiable {
     var title: String {
         switch self {
         case .kanban: "Kanban"
+        case .workflows: "Workflows"
         case .workspaces: "Workspaces"
         case .automation: "Automation"
         case .chats: "Chats"
@@ -33,6 +35,7 @@ enum ProjectModeSection: String, CaseIterable, Hashable, Identifiable {
     var systemImage: String {
         switch self {
         case .kanban: "rectangle.split.3x1"
+        case .workflows: "arrow.triangle.branch"
         case .workspaces: "square.grid.2x2"
         case .automation: "gearshape.2"
         case .chats: "bubble.left.and.bubble.right"
@@ -159,6 +162,7 @@ final class ProjectKanbanTabState {
     let viewModel: ProjectKanbanViewModel
     let workspaceViewModel: CanvasWorkspaceViewModel
     let automationViewModel: ProjectAutomationViewModel
+    let workflowViewModel: ProjectWorkflowViewModel
     let chatViewModel: ChatScreenViewModel
     var selectedSection: ProjectModeSection
 
@@ -166,12 +170,14 @@ final class ProjectKanbanTabState {
         viewModel: ProjectKanbanViewModel,
         workspaceViewModel: CanvasWorkspaceViewModel,
         automationViewModel: ProjectAutomationViewModel,
+        workflowViewModel: ProjectWorkflowViewModel,
         chatViewModel: ChatScreenViewModel,
         selectedSection: ProjectModeSection
     ) {
         self.viewModel = viewModel
         self.workspaceViewModel = workspaceViewModel
         self.automationViewModel = automationViewModel
+        self.workflowViewModel = workflowViewModel
         self.chatViewModel = chatViewModel
         self.selectedSection = selectedSection
     }

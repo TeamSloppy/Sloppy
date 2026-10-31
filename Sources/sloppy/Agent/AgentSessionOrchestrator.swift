@@ -1195,25 +1195,14 @@ actor AgentSessionOrchestrator {
         sessionID: String,
         request: AgentSessionControlRequest
     ) async throws -> AgentSessionMessageResponse {
-        if let runtime = try? agentCatalogStore.getAgentConfig(
+        let usesACP = (try? agentCatalogStore.getAgentConfig(
             agentID: agentID,
             availableModels: availableModels,
             persistedModelAllowed: persistedModelAllowed()
-        ).runtime,
-           runtime.type == .acp,
-           let acpSessionManager
-        {
+        ).runtime.type) == .acp && acpSessionManager != nil
+        if usesACP {
             if request.action != .interrupt && request.action != .interruptTree {
                 throw OrchestratorError.invalidPayload
-            }
-            do {
-                try await acpSessionManager.controlSession(
-                    agentID: agentID,
-                    sloppySessionID: sessionID,
-                    action: .interrupt
-                )
-            } catch {
-                throw OrchestratorError.storageFailure
             }
         }
 
@@ -1287,6 +1276,17 @@ actor AgentSessionOrchestrator {
             }
 
             if request.action == .interrupt || request.action == .interruptTree {
+                if usesACP, let acpSessionManager {
+                    do {
+                        try await acpSessionManager.controlSession(
+                            agentID: agentID,
+                            sloppySessionID: targetSessionID,
+                            action: .interrupt
+                        )
+                    } catch {
+                        throw OrchestratorError.storageFailure
+                    }
+                }
                 let channelID = sessionChannelID(agentID: agentID, sessionID: targetSessionID)
                 interruptedSessionRunChannels.insert(channelID)
                 _ = await runtime.abortChannel(channelId: channelID, reason: request.reason ?? "Interrupted by user")

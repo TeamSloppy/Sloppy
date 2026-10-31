@@ -90,7 +90,7 @@ struct SidebarChromeRenderingTests {
         let window = makeWindow(host, width: 260, height: 240)
         defer { window.orderOut(nil) }
         try await Task.sleep(for: .milliseconds(200))
-        for (section, code) in zip(ProjectModeSection.allCases, [18, 19, 20, 21]) {
+        for (section, code) in zip(ProjectModeSection.allCases, [18, 23, 19, 20, 21]) {
             let event = try keyEvent(section.shortcutCharacter, code: UInt16(code), window: window)
             #expect(host.performKeyEquivalent(with: event))
             #expect(selected == section)

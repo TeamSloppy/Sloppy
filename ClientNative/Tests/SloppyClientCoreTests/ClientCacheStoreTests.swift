@@ -153,4 +153,36 @@ struct ClientCacheStoreTests {
         #expect(restoredSessions.map(\.id) == [session.id])
         #expect(restoredDetail?.messages.first?.textContent == "Restored without the network")
     }
+
+    @Test("deletion removes offline history and search, and rejects stale cache writes", arguments: [false, true])
+    func deletionInvalidatesOfflineSession(useFallback: Bool) async throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("deleted-cache-\(UUID()).sqlite3")
+        defer { try? FileManager.default.removeItem(at: path) }
+        let store = ClientCacheStore(path: useFallback ? "/dev/null/not-a-database" : path.path)
+        let removed = ChatSessionSummary(id: "removed", agentId: "agent", title: "Deleted", projectId: "project")
+        let kept = ChatSessionSummary(id: "kept", agentId: "agent", title: "Kept", projectId: "project")
+        let detail = ChatSessionDetail(summary: removed, messages: [
+            .init(id: "removed-message", role: .assistant, segments: [.init(kind: .text, text: "uniquedeletedtext")])
+        ])
+        await store.cacheSessions(agentId: "agent", projectId: nil, sessions: [removed, kept])
+        await store.cacheSessionDetail(agentId: "agent", detail: detail)
+        #expect(await store.searchMessages(query: "uniquedeletedtext").count == 1)
+        await store.removeSession(removed)
+        // Responses already in flight before deletion must not resurrect the record.
+        await store.cacheSessions(agentId: "agent", projectId: nil, sessions: [removed, kept])
+        await store.cacheSessionDetail(agentId: "agent", detail: detail)
+        #expect(await store.loadSessions(agentId: "agent").map(\.id) == [kept.id])
+        #expect(await store.loadSessions(agentId: "agent", projectId: "project").map(\.id) == [kept.id])
+        #expect(await store.loadSessionDetail(agentId: "agent", sessionId: removed.id) == nil)
+        #expect(await store.searchMessages(query: "uniquedeletedtext").isEmpty)
+        if !useFallback {
+            let reopened = ClientCacheStore(path: path.path)
+            // Other chat tabs use separate cache actors over the same SQLite file.
+            await reopened.cacheSessions(agentId: "agent", projectId: nil, sessions: [removed, kept])
+            await reopened.cacheSessionDetail(agentId: "agent", detail: detail)
+            #expect(await reopened.loadSessions(agentId: "agent").map(\.id) == [kept.id])
+            #expect(await reopened.loadSessionDetail(agentId: "agent", sessionId: removed.id) == nil)
+            #expect(await reopened.searchMessages(query: "uniquedeletedtext").isEmpty)
+        }
+    }
 }

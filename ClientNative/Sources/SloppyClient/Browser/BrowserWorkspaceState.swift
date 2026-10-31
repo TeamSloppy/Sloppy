@@ -97,6 +97,10 @@ final class BrowserWorkspaceState {
     private let defaults: UserDefaults
     let history: WorkspaceBrowserHistory
     let library: BrowserLibrary
+    let time: BrowserTimeStore
+    let organizer: BrowserOrganizerStore
+    @ObservationIgnored private var timeTrackingActive = false
+    @ObservationIgnored private let timeTrackingID = UUID()
 #if os(macOS)
     let extensions: BrowserExtensions
     @ObservationIgnored private(set) var extensionBridge: BrowserExtensionBridge?
@@ -112,6 +116,8 @@ final class BrowserWorkspaceState {
     var isCollecting = false
     var isSearchPresented = false
     var columnVisibility = NavigationSplitViewVisibility.all
+    var sidebarMode = BrowserSidebarMode.sites
+    let sidebarDrafts = BrowserSidebarDrafts()
     var searchText = ""
     var searchInNewTab = true
 
@@ -119,6 +125,8 @@ final class BrowserWorkspaceState {
         self.defaults = defaults
         self.history = history ?? .shared
         library = BrowserLibrary(defaults: defaults)
+        time = defaults === UserDefaults.standard ? .shared : BrowserTimeStore(defaults: defaults)
+        organizer = defaults === UserDefaults.standard ? .shared : BrowserOrganizerStore(defaults: defaults)
 #if os(macOS)
         extensions = BrowserExtensions(defaults: defaults)
 #endif
@@ -390,6 +398,14 @@ final class BrowserWorkspaceState {
     private func preparePage(_ id: UUID) {
         guard pages[id] == nil, let tab = tabs.first(where: { $0.id == id }) else { return }
         let page = WorkspaceWebViewModel(history: history)
+        page.navigationBlock = { [weak self, weak page] url in
+            guard let self, let page else { return nil }
+            time.updateClock()
+            let reason = time.block(for: url)
+            page.applyTimeBlock(reason)
+            page.blockedNavigationURL = reason == nil ? nil : url
+            return reason?.message
+        }
 #if os(macOS)
         page.webExtensionController = extensions.controller
         page.onBrowserStateChange = { [weak self] in self?.extensionBridge?.changed(id) }
@@ -412,8 +428,34 @@ final class BrowserWorkspaceState {
     }
 
     private func persist() {
+        updateTimeUsage()
         let snapshot = Snapshot(tabs: tabs, selectedID: selectedID, isBrowsing: isBrowsing, searchEngine: searchEngine, groups: groups, splits: splits)
         if let data = try? JSONEncoder().encode(snapshot) { defaults.set(data, forKey: Self.storageKey) }
+    }
+
+    func setTimeTrackingActive(_ active: Bool) {
+        timeTrackingActive = active
+        updateTimeUsage()
+    }
+
+    func updateTimeUsage() {
+        let url = timeTrackingActive && isBrowsing && !isSearchPresented && selectedPage?.timeBlock == nil
+            ? selectedPage?.currentURL : nil
+        if timeTrackingActive { time.sample(url: url, owner: timeTrackingID) }
+        else { time.stopSampling(owner: timeTrackingID) }
+        for (id, page) in pages {
+            let target = page.blockedNavigationURL ?? page.currentURL ?? tabs.first(where: { $0.id == id })?.url
+            let reason = time.block(for: target)
+            if reason != nil, page.timeBlock == nil {
+                page.nativeWebView?.stopLoading()
+            }
+            page.applyTimeBlock(reason)
+            if reason == nil, let pending = page.blockedNavigationURL {
+                page.blockedNavigationURL = nil
+                page.addressText = pending.absoluteString
+                page.openAddress()
+            }
+        }
     }
 
     var activeSplit: BrowserSplitGroup? {

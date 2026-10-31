@@ -62,6 +62,10 @@ final class RootShellViewModel {
     private(set) var proactiveFindings: [ProactiveFinding] = []
     var menuBarQuickActionRequest: MenuBarQuickActionRequest?
     var appDeepLinkRequest: AppDeepLinkRequest?
+    @ObservationIgnored lazy var browserWorkspace = BrowserWorkspaceState()
+    #if os(iOS)
+    @ObservationIgnored lazy var mobileBrowserLaunch = MobileBrowserLaunchState(browser: browserWorkspace)
+    #endif
     var presentedSettings: ClientSettingsDestination?
     private(set) var pendingChatApprovalTracker = PendingChatApprovalTracker()
 
@@ -75,6 +79,7 @@ final class RootShellViewModel {
     private var notificationBaseURL: URL?
     private let logger: Logger
     private var mobileConnectionRevision = UUID()
+    private var mobileConnectionRecovery = MobileConnectionRecovery()
     #if os(macOS)
     private let desktopOverlay = SloppyDesktopOverlay()
     private var openMainWindow: (@MainActor () -> Void)?
@@ -102,6 +107,27 @@ final class RootShellViewModel {
     }
 
     func handleDeepLink(_ url: URL) {
+        if let webURL = BrowserSearchEngine.websiteURL(url) {
+            if !launchPreferences.hasCompletedWelcome {
+                launchPreferences.completeWelcome(mode: .browser)
+            }
+            presentedSettings = nil
+            presentedProactivity = nil
+            consoleConnectionCode = nil
+            appDeepLinkRequest = nil
+            connectionSetupRequested = false
+            if case .chat = appState {
+                // The connected workspace shares the same local browser.
+            } else {
+                showsStandaloneBrowser = true
+            }
+            browserWorkspace.isSearchPresented = false
+            browserWorkspace.open(webURL, inNewTab: true)
+            #if os(macOS)
+            presentMainWindow()
+            #endif
+            return
+        }
         if let code = ConsoleConnectionCode.parse(url) {
             prepareForInstanceLink()
             presentedSettings = nil
@@ -373,6 +399,8 @@ final class RootShellViewModel {
         guard hasConfiguredInstance else { showConnectionSetup(); return }
         lastConnectionError = nil
         if case .chat = appState {
+            await resetRemoteTransportIfNeeded()
+            guard !Task.isCancelled else { return }
             connectionMonitor.start(endpoint: settings.activeInstanceEndpoint)
             return
         }
@@ -385,6 +413,15 @@ final class RootShellViewModel {
         }
     }
 
+    private func resetRemoteTransportIfNeeded() async {
+        guard case .managed(_, let hostID) = settings.activeInstanceEndpoint else { return }
+        if await ConsoleRemoteClientRegistry.shared.contains(hostID: hostID) {
+            await ConsoleRemoteClientRegistry.shared.disconnectAll()
+        } else {
+            await ManagedRemoteConnection.shared.disconnect()
+        }
+    }
+
     private func didConnectInstance() {
         launchPreferences.hasConfiguredInstance = true
         lastConnectionError = nil
@@ -393,6 +430,7 @@ final class RootShellViewModel {
     }
 
     private func connectionFailed(_ error: Error) {
+        logger.error("app.connection.failed", metadata: ["error": .string(Self.errorDescription(error))])
         stopConnectedServices()
         connectionSetupRequested = false
         lastConnectionError = Self.errorDescription(error)
@@ -463,6 +501,11 @@ final class RootShellViewModel {
 
     func handleScenePhase(_ scenePhase: ScenePhase) {
         #if os(iOS)
+        logger.info("app.lifecycle.phase", metadata: ["phase": .string(String(describing: scenePhase))])
+        if scenePhase == .background {
+            mobileConnectionRecovery.didEnterBackground()
+            connectionMonitor.stop()
+        }
         if scenePhase == .active {
             liveActivityCoordinator.applicationDidBecomeActive()
         }
@@ -734,27 +777,53 @@ final class RootShellViewModel {
 
 #if os(iOS)
     /// The view's task owns this loop; backgrounding cancels it, foregrounding retries.
-    func restoreMobileConnectionInBackground(whileBrowsing: () -> Bool) async {
+    func restoreMobileConnectionInBackground() async {
         guard launchPreferences.hasCompletedWelcome else { return }
+        if mobileConnectionRecovery.consumeForegroundRecovery(), case .chat = appState {
+            let startedAt = Date()
+            logger.info("app.connection.foreground-recovery-started")
+            defer {
+                if Task.isCancelled { mobileConnectionRecovery.didEnterBackground() }
+                logger.info("app.connection.foreground-recovery-finished", metadata: [
+                    "duration_ms": .stringConvertible(Int(Date().timeIntervalSince(startedAt) * 1_000)),
+                ])
+            }
+            // iOS may suspend a socket without delivering its close until the
+            // next write. Keep the workspace mounted, but negotiate fresh transport.
+            await resetRemoteTransportIfNeeded()
+            guard !Task.isCancelled else { return }
+            connectionMonitor.start(endpoint: settings.activeInstanceEndpoint)
+        }
         await MobileConnectionRetryLoop.run {
-            guard hasConfiguredInstance else { return }
-            if appState == .splash || (whileBrowsing() && appState == .connectionSetup) {
+            guard hasConfiguredInstance else { return .idle }
+            if MobileConnectionRecovery.shouldRestore(state: appState, setupRequested: connectionSetupRequested) {
                 let revision = mobileConnectionRevision
                 do {
                     try await restoreSavedConnection(revision: revision)
                 } catch {
-                    guard acceptsConnectionResult(revision) else { return }
+                    guard acceptsConnectionResult(revision) else { return .idle }
                     connectionFailed(error)
                 }
+                return MobileConnectionRecovery.shouldRestore(state: appState, setupRequested: connectionSetupRequested)
+                    ? .retry : .idle
             }
+            return .idle
         }
     }
 #endif
 
     private func restoreSavedConnection(revision: UUID) async throws {
+        let startedAt = Date()
+        logger.info("app.connection.restore-started")
+        defer {
+            logger.info("app.connection.restore-finished", metadata: [
+                "duration_ms": .stringConvertible(Int(Date().timeIntervalSince(startedAt) * 1_000)),
+            ])
+        }
         let signedIn = await ConsoleAccountClient.shared.isSignedIn()
         guard acceptsConnectionResult(revision) else { return }
         if signedIn {
+            logger.info("app.connection.restore-route", metadata: ["route": "console"])
             let snapshot = try await ConsoleAccountClient.shared.snapshot()
             guard acceptsConnectionResult(revision) else { return }
             let unverified = await ConsoleRemoteClientRegistry.shared.installDirectory(snapshot)
@@ -785,6 +854,7 @@ final class RootShellViewModel {
             }
             appState = .connectionSetup
         } else if let credential = ManagedRemoteCredentialStore.load(), credential.device.kind == .mobile {
+            logger.info("app.connection.restore-route", metadata: ["route": "managed-remote"])
             let hosts = try await ManagedRemoteClient(relayURL: credential.relayURL).hosts()
             guard acceptsConnectionResult(revision) else { return }
             try await ManagedRemoteConnection.shared.connect()
@@ -794,6 +864,7 @@ final class RootShellViewModel {
             didConnectInstance()
             appState = .chat(credential.relayURL)
         } else if !settings.savedServers.isEmpty || launchPreferences.hasConfiguredInstance {
+            logger.info("app.connection.restore-route", metadata: ["route": "direct"])
             await resolveConnection(to: settings.baseURL, revision: revision)
         } else {
             appState = .connectionSetup

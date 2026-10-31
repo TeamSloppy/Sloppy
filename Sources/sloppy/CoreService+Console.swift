@@ -23,14 +23,18 @@ extension CoreService {
         let local = await store.identity()
         let environment = await store.environment()
         let console = ConsoleCloudDeviceClient(baseURL: environment.consoleURL, deviceID: local.deviceID, privateKey: local.signingPrivateKey)
-        let remote = ConsoleRemoteConnection(deviceID: local.deviceID, signingPrivateKey: local.signingPrivateKey, identity: identity, relayURL: environment.relayURL, pins: [:])
+        let relayURL = environment.consoleURL.appendingPathComponent("relay")
+        let remote = ConsoleRemoteConnection(deviceID: local.deviceID, signingPrivateKey: local.signingPrivateKey, identity: identity, relayURL: relayURL, pins: [:])
         guard !Task.isCancelled else { return }
         let bridgeContext = ConsoleModelBridge.Context(remote: remote, cloud: console, store: store, identity: identity, local: local, binding: binding)
         let workspace = workspaceRootURL
         await remote.setEventHandler { [weak self] event in
             guard let logger = self?.logger else { return }
             switch event {
-            case .connecting: logger.info("console.relay.connecting")
+            case .connecting: logger.info("console.relay.connecting", metadata: ["relay": .string(relayURL.absoluteString)])
+            case .socketTCPConnected(let address): logger.info("console.relay.tcp_connected", metadata: ["remote": .string(address)])
+            case .socketTLSCompleted(let protocolName): logger.info("console.relay.tls_completed", metadata: ["protocol": .string(protocolName ?? "none")])
+            case .socketUpgradeResponse(let status): logger.info("console.relay.upgrade_response", metadata: ["status": .stringConvertible(status)])
             case .connected(let ttl): logger.info("console.relay.connected", metadata: ["session_expires_in": .stringConvertible(Int(ttl))])
             case .disconnected(let reason): logger.warning("console.relay.disconnected", metadata: ["reason": .string(reason)])
             case .sessionRenewal: logger.info("console.relay.session_renewal")

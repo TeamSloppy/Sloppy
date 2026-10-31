@@ -58,6 +58,7 @@ extension CoreService {
             throw AgentSessionError.invalidPayload
         }
         if let userID, request.kind == .chat, let projectID = request.projectId,
+           request.forkFromSessionId == nil,
            request.parentSessionId == nil, request.taskId == nil, request.workspaceId == nil,
            request.separateChat != true,
            try agentCatalogStore.getAgentRuntimeConfig(agentID: normalizedAgentID).type == .native {
@@ -133,8 +134,11 @@ extension CoreService {
     private func forkedSessionEvents(agentID: String, request: inout AgentSessionCreateRequest) throws -> [AgentSessionEvent] {
         guard let rawSourceID = request.forkFromSessionId else { return [] }
         let beforeMessageID = request.forkBeforeMessageId
+        let throughMessageID = request.forkThroughMessageId
+        guard beforeMessageID == nil || throughMessageID == nil else { throw AgentSessionError.invalidPayload }
         request.forkFromSessionId = nil
         request.forkBeforeMessageId = nil
+        request.forkThroughMessageId = nil
         request.parentSessionId = nil
         guard let sourceID = normalizedSessionID(rawSourceID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw AgentSessionError.invalidSessionID
@@ -151,6 +155,12 @@ extension CoreService {
                 throw AgentSessionError.invalidPayload
             }
             events = Array(events[..<cut])
+        }
+        if let throughMessageID {
+            guard let cut = events.firstIndex(where: { $0.message?.id == throughMessageID }) else {
+                throw AgentSessionError.invalidPayload
+            }
+            events = Array(events[...cut])
         }
         let history: Set<AgentSessionEventType> = [.message, .toolCall, .toolResult]
         return events.filter { history.contains($0.type) }

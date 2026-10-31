@@ -35,6 +35,10 @@ struct ClientSettingsSection: View {
                 .padding(16)
             }
 
+            #if os(macOS) || os(iOS)
+            DefaultBrowserSettingsSection()
+            #endif
+
             SettingsSectionCard("Appearance") {
                 HStack(spacing: 12) {
                     appearanceOption("Light", scheme: .light)

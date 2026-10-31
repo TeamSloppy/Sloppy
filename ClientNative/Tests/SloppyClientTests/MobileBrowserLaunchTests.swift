@@ -65,6 +65,7 @@ struct MobileBrowserLaunchTests {
         await MobileConnectionRetryLoop.run {
             attempts += 1
             #expect(launch.browser.isBrowsing)
+            return .retry
         } wait: { seconds in
             delays.append(seconds)
             if delays.count == 7 { throw Finished() }
@@ -79,6 +80,7 @@ struct MobileBrowserLaunchTests {
         let task = Task {
             await MobileConnectionRetryLoop.run {
                 attempts += 1
+                return .retry
             } wait: { _ in
                 try await Task.sleep(for: .seconds(60))
             }
@@ -95,5 +97,44 @@ struct MobileBrowserLaunchTests {
         #expect(!MobileConnectionFailure.invalidatesSavedSession(APIError.httpError(statusCode: 503, body: nil)))
         #expect(MobileConnectionFailure.invalidatesSavedSession(APIError.httpError(statusCode: 401, body: nil)))
         #expect(MobileConnectionFailure.invalidatesSavedSession(APIError.httpError(statusCode: 403, body: nil)))
+    }
+
+    @Test func workRetriesAfterFailureWithoutReopeningConnectionSettings() throws {
+        let (launch, defaults, name) = try launch()
+        defer { defaults.removePersistentDomain(forName: name) }
+        launch.browser.isBrowsing = false
+        #expect(MobileConnectionRecovery.shouldRestore(state: .splash, setupRequested: false))
+        #expect(MobileConnectionRecovery.shouldRestore(state: .connectionSetup, setupRequested: false))
+        #expect(!MobileConnectionRecovery.shouldRestore(state: .connectionSetup, setupRequested: true))
+        #expect(!MobileConnectionRecovery.shouldRestore(state: .chat(URL(string: "https://relay.example")!), setupRequested: false))
+    }
+
+    @Test func idleIterationsDoNotAccumulateRetryDelay() async {
+        let results: [MobileConnectionRetryLoop.AttemptResult] = [.retry, .retry, .idle, .idle, .retry, .retry]
+        var attempt = 0
+        var delays: [Int] = []
+        struct Finished: Error {}
+        await MobileConnectionRetryLoop.run {
+            defer { attempt += 1 }
+            return results[attempt]
+        } wait: { seconds in
+            delays.append(seconds)
+            if delays.count == results.count { throw Finished() }
+        }
+        #expect(delays == [2, 4, 2, 2, 2, 4])
+    }
+
+    @Test func foregroundRecoveryRunsOnceAfterEachBackgroundPeriod() {
+        var recovery = MobileConnectionRecovery()
+        let initial = recovery.consumeForegroundRecovery()
+        #expect(!initial)
+        recovery.didEnterBackground()
+        let resumed = recovery.consumeForegroundRecovery()
+        let duplicate = recovery.consumeForegroundRecovery()
+        #expect(resumed)
+        #expect(!duplicate)
+        recovery.didEnterBackground()
+        let resumedAgain = recovery.consumeForegroundRecovery()
+        #expect(resumedAgain)
     }
 }

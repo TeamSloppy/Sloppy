@@ -186,6 +186,11 @@ struct ProjectModeView: View {
                 onOpenTask: onOpenTaskOverride ?? onOpenTask,
                 onOpenTaskChat: onOpenTaskChat
             )
+        case .workflows:
+            ProjectWorkflowView(
+                viewModel: state.workflowViewModel,
+                projectId: project.id
+            )
         case .workspaces:
 
             CanvasWorkspaceSurface(

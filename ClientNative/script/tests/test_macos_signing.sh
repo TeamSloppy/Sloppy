@@ -9,11 +9,15 @@ export SIGNING_TEST_IDENTITIES="$SIGNING_TEST_ROOT/identities"
 mkdir -p "$SIGNING_TEST_ROOT/bin"
 cat > "$SIGNING_TEST_ROOT/bin/security" <<'SH'
 #!/usr/bin/env bash
-cat "$SIGNING_TEST_IDENTITIES"
+if [[ "${1:-}" == cms ]]; then cat "$SIGNING_TEST_PROFILE"; else cat "$SIGNING_TEST_IDENTITIES"; fi
 SH
 cat > "$SIGNING_TEST_ROOT/bin/codesign" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SIGNING_TEST_LOG"
+while [[ $# -gt 1 ]]; do
+    if [[ "$1" == --entitlements ]]; then cp "$2" "$SIGNING_TEST_LOG.entitlements"; break; fi
+    shift
+done
 SH
 chmod +x "$SIGNING_TEST_ROOT/bin/security" "$SIGNING_TEST_ROOT/bin/codesign"
 export PATH="$SIGNING_TEST_ROOT/bin:$PATH"
@@ -45,7 +49,22 @@ IDENTITIES
 bash "$SIGNING_SCRIPT_DIR/sign_macos_app.sh" "$APP" auto "$SIGNING_SCRIPT_DIR/../SupportingFiles/macOS/SloppyClient.entitlements"
 [[ "$(rg -c -- '--sign DEVELOPERID' "$SIGNING_TEST_LOG")" == 6 ]]
 rg -q -- '--entitlements .*SloppyClient.entitlements --identifier team.sloppy.client' "$SIGNING_TEST_LOG"
+! /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.ubiquity-kvstore-identifier' "$SIGNING_TEST_LOG.entitlements" >/dev/null 2>&1
+/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' "$SIGNING_TEST_LOG.entitlements" | rg -q true
 [[ "$(tail -n 1 "$SIGNING_TEST_LOG")" == "--verify --deep --strict --verbose=2 $APP" ]]
+
+# Provisioned signatures use the profile's concrete identifier, never raw Xcode variables.
+export SIGNING_TEST_PROFILE="$SIGNING_TEST_ROOT/profile.plist"
+cat > "$SIGNING_TEST_PROFILE" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Entitlements</key><dict>
+<key>com.apple.developer.ubiquity-kvstore-identifier</key><string>8PYCRS3EA3.team.sloppy.client</string>
+</dict></dict></plist>
+PLIST
+touch "$APP/Contents/embedded.provisionprofile"
+bash "$SIGNING_SCRIPT_DIR/sign_macos_app.sh" "$APP" auto "$SIGNING_SCRIPT_DIR/../SupportingFiles/macOS/SloppyClient.entitlements"
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.ubiquity-kvstore-identifier' "$SIGNING_TEST_LOG.entitlements")" == '8PYCRS3EA3.team.sloppy.client' ]]
+rm "$APP/Contents/embedded.provisionprofile"
 
 # A development certificate is preferred to ad hoc when Developer ID is absent.
 printf '%s\n' '1) DEVELOPMENT "Apple Development: Developer (8PYCRS3EA3)"' > "$SIGNING_TEST_IDENTITIES"

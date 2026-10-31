@@ -3,12 +3,26 @@ import NIOCore
 import NIOEmbedded
 import NIOPosix
 import NIOWebSocket
+import NIOSSL
 import Synchronization
 import Testing
 @testable import SloppyRemoteProtocol
 
 @Suite("Relay WebSocket readiness")
 struct RelayWebSocketConnectionTests {
+    @Test func webSocketTLSOffersHTTP1WithoutWeakeningCertificateVerification() {
+        let configuration = RelayWebSocketConnection.tlsConfiguration()
+        #expect(configuration.applicationProtocols == ["http/1.1"])
+        #expect(configuration.minimumTLSVersion == .tlsv12)
+        #expect(configuration.certificateVerification == .fullVerification)
+    }
+    @Test(arguments: ["https://relay.example", "https://relay.example/", "https://console.example/relay", "https://console.example/relay/"])
+    func webSocketUpgradePreservesTheGatewayBasePath(_ address: String) throws {
+        let url = try #require(URL(string: address))
+        let expected = url.path.hasPrefix("/relay") ? "/relay/v1/relay/ws" : "/v1/relay/ws"
+        #expect(RelayWebSocketConnection.webSocketURI(for: url) == expected)
+    }
+
     @Test func dnsFailureThrowsAndAllowsAnotherConnectionAttempt() async throws {
         // A DNS label longer than 63 bytes is invalid, regardless of connectivity.
         let url = try #require(URL(string: "https://" + String(repeating: "a", count: 256) + ".invalid"))

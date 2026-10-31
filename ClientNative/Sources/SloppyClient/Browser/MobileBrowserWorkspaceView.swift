@@ -142,6 +142,7 @@ struct MobileBrowserWorkspaceView: View {
             }
         }
         .onDisappear { state.checkpoint(); tabSwipe = nil }
+        .modifier(BrowserTimeTracking(state: state, isCovered: sheet != nil || showsTabs))
         .onChange(of: state.selectedID) { _, selectedID in
             if let tabSwipe, tabSwipe.sourceID != selectedID { self.tabSwipe = nil }
             toolbarCollapse.expand()

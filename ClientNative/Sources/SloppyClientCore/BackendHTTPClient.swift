@@ -233,13 +233,15 @@ public actor BackendHTTPClient {
         contentType: String = "application/json"
     ) async throws -> Data {
         if case .managed(_, let targetDeviceID) = endpoint {
+            let startedAt = Date()
             let response: RemoteCoreResponse
             if await ConsoleRemoteClientRegistry.shared.contains(hostID: targetDeviceID) {
-                response = try await ConsoleRemoteClientRegistry.shared.request(hostID: targetDeviceID, method: method, path: normalizedTargetPath(path), body: bodyData)
+                response = try await ConsoleRemoteClientRegistry.shared.request(hostID: targetDeviceID, method: method, path: normalizedTargetPath(path), body: bodyData, timeout: timeout ?? 30)
             } else {
-                response = try await ManagedRemoteConnection.shared.sendCoreRequest(to: targetDeviceID, method: method, path: normalizedTargetPath(path), body: bodyData)
+                response = try await ManagedRemoteConnection.shared.sendCoreRequest(to: targetDeviceID, method: method, path: normalizedTargetPath(path), body: bodyData, timeout: .seconds(timeout ?? 30))
             }
             logger.info("http.managed.completed", metadata: [
+                "duration_ms": .stringConvertible(Int(Date().timeIntervalSince(startedAt) * 1_000)),
                 "method": .string(method), "path": .string(path),
                 "status": .stringConvertible(response.status), "bytes": .stringConvertible(response.body.count),
             ])
@@ -276,12 +278,13 @@ public actor BackendHTTPClient {
             ]
         )
 
-        let recovery = await authSessionStore.recoverSession(
+        let recovery = try await authSessionStore.recoverSession(
             for: baseURL,
-            rejectedAccessToken: initialToken
-        ) { [weak self] refreshToken in
-            await self?.refreshSession(using: refreshToken)
-        }
+            rejectedAccessToken: initialToken,
+            refreshSession: { refreshToken in try await self.refreshSession(using: refreshToken) }
+        )
+        guard recovery != .superseded else { throw CancellationError() }
+        try Task.checkCancellation()
 
         if case .recovered(let refreshedSession) = recovery {
             logger.info(
@@ -506,7 +509,7 @@ public actor BackendHTTPClient {
         return value.hasPrefix("/") ? value : "/\(value)"
     }
 
-    private func refreshSession(using refreshToken: String) async -> AuthSession? {
+    private func refreshSession(using refreshToken: String) async throws -> AuthSession? {
         struct RefreshPayload: Encodable { var refreshToken: String }
 
         do {
@@ -521,10 +524,8 @@ public actor BackendHTTPClient {
             )
             try validate(response: result.response, data: result.data)
             return try decode(AuthSession.self, from: result.data)
-        } catch {
-            let description = (error as? APIError)?.diagnosticDescription
-                ?? (error as NSError).localizedDescription
-            logger.warning("Could not refresh authentication session: \(description)")
+        } catch let error as APIError where error.statusCode == 401 || error.statusCode == 403 {
+            logger.warning("Could not refresh authentication session: \(error.diagnosticDescription)")
             return nil
         }
     }

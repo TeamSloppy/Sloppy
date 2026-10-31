@@ -343,6 +343,41 @@ struct BackendHTTPClientAuthRecoveryTests {
         #expect(await store.session(for: baseURL) == returnedSession)
     }
 
+    @Test("transient refresh failures preserve credentials and allow a later retry", arguments: [500, 503, 0])
+    func transientRefreshPreservesSession(refreshStatus: Int) async throws {
+        let baseURL = try #require(URL(string: "https://transient-refresh.sloppy.test"))
+        let store = AuthSessionStore(persistence: .memory)
+        let original = AuthSession(accessToken: "expired", refreshToken: "still-valid")
+        await store.save(original, for: baseURL)
+        StubURLProtocol.install { request in
+            if request.url?.path == "/v1/auth/refresh" {
+                if refreshStatus == 0 { throw URLError(.timedOut) }
+                return try Self.response(for: request, status: refreshStatus, body: Data())
+            }
+            return try Self.response(for: request, status: 401, body: Data())
+        }
+        defer { StubURLProtocol.reset() }
+        let client = BackendHTTPClient(baseURL: baseURL, session: Self.makeSession(), authSessionStore: store)
+        do {
+            _ = try await client.getData("/v1/projects")
+            Issue.record("Expected the transient refresh error")
+        } catch {
+            if refreshStatus == 0 { #expect((error as? URLError)?.code == .timedOut) }
+            else { #expect((error as? APIError)?.statusCode == refreshStatus) }
+        }
+        #expect(await store.session(for: baseURL) == original)
+        let refreshed = AuthSession(accessToken: "fresh", refreshToken: "rotated")
+        StubURLProtocol.install { request in
+            if request.url?.path == "/v1/auth/refresh" {
+                return try Self.response(for: request, status: 200, body: JSONEncoder().encode(refreshed))
+            }
+            let status = request.value(forHTTPHeaderField: "Authorization") == "Bearer fresh" ? 200 : 401
+            return try Self.response(for: request, status: status, body: Data("ok".utf8))
+        }
+        #expect(try await client.getData("/v1/projects") == Data("ok".utf8))
+        #expect(await store.session(for: baseURL) == refreshed)
+    }
+
     private static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]

@@ -16,6 +16,7 @@ struct BrowserWorkspaceView: View {
     @State private var compactColumn = NavigationSplitViewColumn.detail
 
     var body: some View {
+        Group {
 #if os(macOS)
         // Disabling hit testing on the native split view drops its titlebar safe area.
         // The search overlay already intercepts clicks on the content underneath.
@@ -41,6 +42,10 @@ struct BrowserWorkspaceView: View {
                     .presentationDetents([.height(searchHeight)])
                     .presentationDragIndicator(.visible)
             }
+#endif
+        }
+#if !os(iOS)
+        .modifier(BrowserTimeTracking(state: state, isCovered: librarySection != nil))
 #endif
     }
 
@@ -214,7 +219,15 @@ struct BrowserWorkspacePage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            webContent
+            Group {
+                if let block = page.timeBlock {
+                    ContentUnavailableView("Take a moment", systemImage: "hourglass", description: Text(block.message + " Open Time & Focus to manage your timer and limits."))
+                        .padding(.top, topContentInset)
+                        .accessibilityIdentifier("browser-time-block")
+                } else {
+                    webContent
+                }
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("browser-web-page")
                 .overlay(alignment: .top) {

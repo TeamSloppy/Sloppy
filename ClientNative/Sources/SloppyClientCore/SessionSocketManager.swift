@@ -12,6 +12,8 @@ public actor SessionSocketManager {
     private let sessionId: String
     private let logger: Logger
     private let decoder: JSONDecoder
+    private let managedStreamProvider: @Sendable (UUID, String) async throws -> AsyncStream<RemoteStreamFrame>
+    private let retrySleep: @Sendable (Duration) async throws -> Void
 
     private var task: URLSessionWebSocketTask?
     private var managedTask: Task<Void, Never>?
@@ -24,13 +26,17 @@ public actor SessionSocketManager {
         baseURL: URL = URL(string: "http://localhost:25101")!,
         agentId: String,
         sessionId: String,
-        logger: Logger = Logger(label: "sloppy.session-socket")
+        logger: Logger = Logger(label: "sloppy.session-socket"),
+        managedStreamProvider: (@Sendable (UUID, String) async throws -> AsyncStream<RemoteStreamFrame>)? = nil,
+        retrySleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.init(
             endpoint: .direct(baseURL: baseURL),
             agentId: agentId,
             sessionId: sessionId,
-            logger: logger
+            logger: logger,
+            managedStreamProvider: managedStreamProvider,
+            retrySleep: retrySleep
         )
     }
 
@@ -38,13 +44,20 @@ public actor SessionSocketManager {
         endpoint: SloppyInstanceEndpoint,
         agentId: String,
         sessionId: String,
-        logger: Logger = Logger(label: "sloppy.session-socket")
+        logger: Logger = Logger(label: "sloppy.session-socket"),
+        managedStreamProvider: (@Sendable (UUID, String) async throws -> AsyncStream<RemoteStreamFrame>)? = nil,
+        retrySleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.endpoint = endpoint
         self.baseURL = endpoint.coordinatorBaseURL
         self.agentId = agentId
         self.sessionId = sessionId
         self.logger = logger
+        self.managedStreamProvider = managedStreamProvider ?? { hostID, path in
+            let (_, frames) = try await ManagedRemoteConnection.shared.openStream(to: hostID, kind: "session.stream", path: path)
+            return frames
+        }
+        self.retrySleep = retrySleep
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
@@ -92,17 +105,9 @@ public actor SessionSocketManager {
 
         if case .managed(_, let targetDeviceID) = endpoint {
             let path = "/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))/ws"
-            do {
-                let (_, frames) = try await ManagedRemoteConnection.shared.openStream(
-                    to: targetDeviceID,
-                    kind: "session.stream",
-                    path: path
-                )
-                managedTask = Task { await managedReceiveLoop(frames) }
-            } catch {
-                logger.warning("Managed session stream failed: \(error)")
-                await reconnectManaged()
-            }
+            // Return the consumer's stream immediately, even while Relay is
+            // unavailable. One cancellable task owns all connection attempts.
+            managedTask = Task { await runManagedConnection(hostID: targetDeviceID, path: path) }
             return
         }
 
@@ -141,22 +146,32 @@ public actor SessionSocketManager {
             guard !disposed, !Task.isCancelled else { return }
             if frame.action == .data, let data = frame.data {
                 if let update = try? decoder.decode(ChatStreamUpdate.self, from: data) {
+                    reconnectDelay = 1.0
                     continuation?.yield(update)
                 } else {
                     logger.warning("Failed to decode managed session stream payload.")
                 }
             }
         }
-        guard !disposed, !Task.isCancelled else { return }
-        continuation?.yield(ChatStreamUpdate(kind: .sessionReady, cursor: 0))
-        await reconnectManaged()
     }
 
-    private func reconnectManaged() async {
-        let delay = reconnectDelay
-        reconnectDelay = min(delay * 2, 30)
-        try? await Task.sleep(for: .seconds(delay))
-        if !disposed { await openSocket() }
+    private func runManagedConnection(hostID: UUID, path: String) async {
+        while !disposed, !Task.isCancelled {
+            do {
+                let frames = try await managedStreamProvider(hostID, path)
+                guard !disposed, !Task.isCancelled else { return }
+                await managedReceiveLoop(frames)
+            } catch {
+                guard !disposed, !Task.isCancelled else { return }
+                logger.warning("Managed session stream failed: \(error)")
+            }
+            guard !disposed, !Task.isCancelled else { return }
+            continuation?.yield(ChatStreamUpdate(kind: .sessionReady, cursor: 0))
+            let delay = reconnectDelay
+            reconnectDelay = min(delay * 2, 30)
+            do { try await retrySleep(.seconds(delay)) }
+            catch { return }
+        }
     }
 
     private func receiveLoop(task: URLSessionWebSocketTask) async {

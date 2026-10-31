@@ -3,10 +3,12 @@ import Foundation
 public struct HealthCheckResult: Sendable {
     public let isHealthy: Bool
     public let failureMessage: String?
+    public let requiresTransportReconnect: Bool
 
-    public init(isHealthy: Bool, failureMessage: String? = nil) {
+    public init(isHealthy: Bool, failureMessage: String? = nil, requiresTransportReconnect: Bool = false) {
         self.isHealthy = isHealthy
         self.failureMessage = failureMessage
+        self.requiresTransportReconnect = requiresTransportReconnect
     }
 }
 
@@ -77,9 +79,13 @@ public actor HealthService {
             }
         } catch {
             let nsError = error as NSError
+            let reconnect = (error as? URLError).map {
+                [.timedOut, .networkConnectionLost, .cannotConnectToHost].contains($0.code)
+            } ?? false
             return HealthCheckResult(
                 isHealthy: false,
-                failureMessage: "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)"
+                failureMessage: "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)",
+                requiresTransportReconnect: reconnect
             )
         }
     }
@@ -582,7 +588,9 @@ public actor SessionService {
         projectId: String? = nil,
         taskId: String? = nil,
         workspaceId: String? = nil,
-        separateChat: Bool = false
+        separateChat: Bool = false,
+        forkFromSessionId: String? = nil,
+        forkThroughMessageId: String? = nil
     ) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
             var title: String?
@@ -592,6 +600,8 @@ public actor SessionService {
             var taskId: String?
             var workspaceId: String?
             var separateChat: Bool
+            var forkFromSessionId: String?
+            var forkThroughMessageId: String?
         }
         let normalizedProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTaskId = taskId?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -604,7 +614,9 @@ public actor SessionService {
                 projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil,
                 taskId: normalizedTaskId?.isEmpty == false ? normalizedTaskId : nil,
                 workspaceId: normalizedWorkspaceId?.isEmpty == false ? normalizedWorkspaceId : nil,
-                separateChat: separateChat
+                separateChat: separateChat,
+                forkFromSessionId: forkFromSessionId,
+                forkThroughMessageId: forkThroughMessageId
             )
         )
     }

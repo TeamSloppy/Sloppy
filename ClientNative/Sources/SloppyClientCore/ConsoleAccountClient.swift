@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Logging
 import Security
 @_exported import SloppyConsoleProtocol
 import SloppyRemoteProtocol
@@ -32,6 +33,7 @@ public enum ConsoleAccountError: LocalizedError, Sendable, Equatable {
 public actor ConsoleAccountClient {
     public static let shared = ConsoleAccountClient()
     public static let consoleURL = URL(string: "https://console.sloppy.team")!
+    static let relayGatewayURL = consoleURL.appendingPathComponent("relay")
     public struct Snapshot: Codable, Sendable {
         public var account: ConsoleAccount
         public var organizations: [ConsoleOrganization]
@@ -52,6 +54,14 @@ public actor ConsoleAccountClient {
     private var proofTasks: [ProofKey: Task<SignedInstanceAccessProof, any Error>] = [:]
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
     private let transport: Transport?
+    private let logger = Logger(label: "sloppy.console-account")
+    private let nativeHTTP = ConsoleHTTPTransport(primary: { request in
+        let session = URLSession(configuration: .ephemeral, delegate: ConsoleAccountNoRedirect(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw ConsoleAccountError.unavailable }
+        return (data, http)
+    })
     private let deviceCredential: @Sendable () throws -> ConsoleDeviceCredential
     private let deviceName: String
 
@@ -82,6 +92,20 @@ public actor ConsoleAccountClient {
         tokenExpiresAt = .distantFuture
     }
     public func isSignedIn() -> Bool { token != nil }
+
+    func authenticateRelayDevice(_ credential: ConsoleDeviceCredential) async throws -> ManagedDeviceSession {
+        struct Challenge: Decodable { var id: UUID; var nonce: Data }
+        struct Response: Encodable { var challengeID: UUID; var signature: Data }
+        let challenge: Challenge = try await request("relay/v1/device-auth/challenge", method: "POST",
+            body: ConsoleWire.encode(["deviceID": credential.deviceID.uuidString]), authenticated: false)
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: credential.privateKey)
+        let response = try await rawRequest("relay/v1/device-auth/session", method: "POST",
+            body: ConsoleWire.encode(Response(challengeID: challenge.id, signature: key.signature(for: challenge.nonce))),
+            authenticated: false)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ManagedDeviceSession.self, from: response)
+    }
     public func loginURL(verifier: String, state: String, stepUp: Bool = true) -> URL {
         var url = URLComponents(url: Self.consoleURL.appendingPathComponent("auth/start"), resolvingAgainstBaseURL: false)!
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
@@ -197,21 +221,31 @@ public actor ConsoleAccountClient {
         try ConsoleWire.decode(T.self, from: await rawRequest(path, method: method, body: body, authenticated: authenticated))
     }
     private func rawRequest(_ path: String, method: String = "GET", body: Data? = nil, authenticated: Bool = true) async throws -> Data {
-        var request = URLRequest(url: Self.consoleURL.appendingPathComponent(path)); request.httpMethod = method; request.httpBody = body; request.timeoutInterval = 20
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if authenticated { try await refreshIfNeeded(); guard let token else { throw ConsoleAccountError.signInRequired }; request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
-        let data: Data, http: HTTPURLResponse
-        if let transport {
-            (data, http) = try await transport(request)
-        } else {
-            let session = URLSession(configuration: .ephemeral, delegate: ConsoleAccountNoRedirect(), delegateQueue: nil)
-            defer { session.invalidateAndCancel() }
-            let (value, response) = try await session.data(for: request)
-            guard let response = response as? HTTPURLResponse else { throw ConsoleAccountError.unavailable }
-            (data, http) = (value, response)
+        let startedAt = Date()
+        logger.info("console.request.started", metadata: ["method": .string(method), "path": .string(path)])
+        defer {
+            logger.info("console.request.finished", metadata: [
+                "method": .string(method), "path": .string(path),
+                "duration_ms": .stringConvertible(Int(Date().timeIntervalSince(startedAt) * 1_000)),
+            ])
         }
-        guard (200..<300).contains(http.statusCode) else { throw ConsoleAccountError.response(status: http.statusCode, data: data) }
-        return data
+        do {
+            var request = URLRequest(url: Self.consoleURL.appendingPathComponent(path)); request.httpMethod = method; request.httpBody = body; request.timeoutInterval = 20
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if authenticated { try await refreshIfNeeded(); guard let token else { throw ConsoleAccountError.signInRequired }; request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+            let data: Data, http: HTTPURLResponse
+            if let transport {
+                (data, http) = try await transport(request)
+            } else {
+                (data, http) = try await nativeHTTP.send(request)
+            }
+            logger.info("console.request.response", metadata: ["path": .string(path), "status": .stringConvertible(http.statusCode)])
+            guard (200..<300).contains(http.statusCode) else { throw ConsoleAccountError.response(status: http.statusCode, data: data) }
+            return data
+        } catch {
+            logger.error("console.request.failed", metadata: ["path": .string(path), "error": .string(error.localizedDescription)])
+            throw error
+        }
     }
     public static func randomToken() -> String {
         Data((0..<32).map { _ in UInt8.random(in: 0...255) }).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
@@ -249,4 +283,25 @@ public actor ConsoleAccountClient {
 
 private final class ConsoleAccountNoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) { completionHandler(nil) }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        let logger = Logger(label: "sloppy.console-network")
+        for transaction in metrics.transactionMetrics {
+            func elapsed(_ start: Date?, _ end: Date?) -> Int {
+                guard let start, let end else { return -1 }
+                return max(0, Int(end.timeIntervalSince(start) * 1_000))
+            }
+            logger.info("console.request.metrics", metadata: [
+                "path": .string(transaction.request.url?.path ?? "unknown"),
+                "protocol": .string(transaction.networkProtocolName ?? "none"),
+                "reused": .stringConvertible(transaction.isReusedConnection),
+                "proxy": .stringConvertible(transaction.isProxyConnection),
+                "remote": .string(transaction.remoteAddress ?? "unknown"),
+                "dns_ms": .stringConvertible(elapsed(transaction.domainLookupStartDate, transaction.domainLookupEndDate)),
+                "connect_ms": .stringConvertible(elapsed(transaction.connectStartDate, transaction.connectEndDate)),
+                "tls_ms": .stringConvertible(elapsed(transaction.secureConnectionStartDate, transaction.secureConnectionEndDate)),
+                "response_wait_ms": .stringConvertible(elapsed(transaction.requestEndDate, transaction.responseStartDate)),
+                "total_ms": .stringConvertible(Int(metrics.taskInterval.duration * 1_000)),
+            ])
+        }
+    }
 }

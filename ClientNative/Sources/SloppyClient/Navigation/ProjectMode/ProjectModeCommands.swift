@@ -4,6 +4,7 @@ extension ProjectModeSection {
     var shortcutCharacter: Character {
         switch self {
         case .kanban: "1"
+        case .workflows: "5"
         case .workspaces: "2"
         case .automation: "3"
         case .chats: "4"

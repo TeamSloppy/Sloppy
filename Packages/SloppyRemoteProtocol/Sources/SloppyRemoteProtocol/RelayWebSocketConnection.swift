@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOHTTP1
 import NIOPosix
+import NIOTLS
 #if canImport(NIOSSL)
 import NIOSSL
 #endif
@@ -12,32 +13,38 @@ import NIOWebSocket
 public actor RelayWebSocketConnection {
     private static let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     private var channel: (any Channel)?
+    private var diagnostics: (@Sendable (ConsoleRemoteEvent) -> Void)?
     public let messages: AsyncThrowingStream<Data, any Error>
     private let continuation: AsyncThrowingStream<Data, any Error>.Continuation
     public init() {
         let pair = AsyncThrowingStream<Data, any Error>.makeStream(bufferingPolicy: .bufferingNewest(16))
         messages = pair.stream; continuation = pair.continuation
     }
+    func setDiagnostics(_ handler: (@Sendable (ConsoleRemoteEvent) -> Void)?) { diagnostics = handler }
     public func connect(url: URL, token: String) async throws {
         guard channel == nil, url.scheme == "https", let host = url.host, url.user == nil, url.password == nil else { throw RemoteTLSError.invalidPeer }
         let eventLoop = Self.group.next()
         let ready = eventLoop.makePromise(of: Void.self)
         let continuation = continuation
+        let diagnostics = diagnostics
         let frames = RelayFrameHandler(continuation: continuation, ready: ready)
-        let requester = UpgradeRequestHandler(host: host, token: token, onFailure: { frames.failReadiness($0) })
+        let requester = UpgradeRequestHandler(host: host, uri: Self.webSocketURI(for: url), token: token, diagnostics: diagnostics, onFailure: { frames.failReadiness($0) })
         let upgrader = NIOWebSocketClientUpgrader(maxFrameSize: 4 * 1024 * 1024 + 65536) { channel, _ in
             // Upgrade precedes the Relay's asynchronous device registration.
             // Only relay_ready confirms that it can route the first TLS frame.
-            channel.pipeline.addHandler(frames)
+            diagnostics?(.socketUpgradeResponse(101))
+            return channel.pipeline.addHandler(frames)
         }
         var connection: (any Channel)?
         do {
-            let ssl = try NIOSSLContext(configuration: .makeClientConfiguration())
+            let ssl = try NIOSSLContext(configuration: Self.tlsConfiguration())
             let connected = try await ClientBootstrap(group: eventLoop).connectTimeout(.seconds(10))
                 .channelInitializer { channel in
                     do {
                         let handler = try NIOSSLClientHandler(context: ssl, serverHostname: host)
                         return channel.pipeline.addHandler(handler).flatMap {
+                            channel.pipeline.addHandler(RelayTLSObserver(diagnostics: diagnostics))
+                        }.flatMap {
                             channel.pipeline.addHTTPClientHandlers(withClientUpgrade: (upgraders: [upgrader], completionHandler: { context in context.pipeline.removeHandler(requester, promise: nil) }))
                         }.flatMap { channel.pipeline.addHandler(requester) }
                     } catch { return channel.eventLoop.makeFailedFuture(error) }
@@ -61,21 +68,54 @@ public actor RelayWebSocketConnection {
         try await channel.writeAndFlush(WebSocketFrame(fin: true, opcode: .text, maskKey: .random(), data: buffer)).get()
     }
     public func close() async { continuation.finish(); try? await channel?.close().get(); channel = nil }
+
+    static func webSocketURI(for baseURL: URL) -> String {
+        let target = baseURL.appendingPathComponent("v1/relay/ws")
+        return URLComponents(url: target, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? "/v1/relay/ws"
+    }
+
+    static func tlsConfiguration() -> TLSConfiguration {
+        var configuration = TLSConfiguration.makeClientConfiguration()
+        configuration.minimumTLSVersion = .tlsv12
+        configuration.applicationProtocols = ["http/1.1"]
+        return configuration
+    }
+}
+
+private final class RelayTLSObserver: ChannelInboundHandler, @unchecked Sendable {
+    typealias InboundIn = ByteBuffer
+    private let diagnostics: (@Sendable (ConsoleRemoteEvent) -> Void)?
+    init(diagnostics: (@Sendable (ConsoleRemoteEvent) -> Void)?) { self.diagnostics = diagnostics }
+    func channelActive(context: ChannelHandlerContext) {
+        diagnostics?(.socketTCPConnected(context.channel.remoteAddress?.description ?? "unknown"))
+        context.fireChannelActive()
+    }
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if let tlsEvent = event as? TLSUserEvent, case .handshakeCompleted(let protocolName) = tlsEvent {
+            diagnostics?(.socketTLSCompleted(protocolName))
+        }
+        context.fireUserInboundEventTriggered(event)
+    }
 }
 
 private final class UpgradeRequestHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = HTTPClientResponsePart
     private let host: String
+    private let uri: String
     private let token: String
     private let onFailure: @Sendable (any Error) -> Void
-    init(host: String, token: String, onFailure: @escaping @Sendable (any Error) -> Void) { self.host = host; self.token = token; self.onFailure = onFailure }
+    private let diagnostics: (@Sendable (ConsoleRemoteEvent) -> Void)?
+    init(host: String, uri: String, token: String, diagnostics: (@Sendable (ConsoleRemoteEvent) -> Void)?, onFailure: @escaping @Sendable (any Error) -> Void) { self.host = host; self.uri = uri; self.token = token; self.diagnostics = diagnostics; self.onFailure = onFailure }
     func channelActive(context: ChannelHandlerContext) {
         var headers = HTTPHeaders(); headers.add(name: "Host", value: host); headers.add(name: "Authorization", value: "Bearer " + token)
-        context.write(NIOAny(HTTPClientRequestPart.head(HTTPRequestHead(version: .http1_1, method: .GET, uri: "/v1/relay/ws", headers: headers))), promise: nil)
+        context.write(NIOAny(HTTPClientRequestPart.head(HTTPRequestHead(version: .http1_1, method: .GET, uri: uri, headers: headers))), promise: nil)
         context.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)), promise: nil)
     }
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        if case .head(let head) = unwrapInboundIn(data), head.status != .switchingProtocols { onFailure(RemoteTLSError.invalidPeer); context.close(promise: nil) }
+        if case .head(let head) = unwrapInboundIn(data) {
+            diagnostics?(.socketUpgradeResponse(Int(head.status.code)))
+            if head.status != .switchingProtocols { onFailure(RemoteTLSError.invalidPeer); context.close(promise: nil) }
+        }
     }
     func errorCaught(context: ChannelHandlerContext, error: any Error) { onFailure(error); context.close(promise: nil) }
     func channelInactive(context: ChannelHandlerContext) { onFailure(RemoteTLSError.closed); context.fireChannelInactive() }
@@ -146,6 +186,7 @@ public actor RelayWebSocketConnection {
         messages = pair.stream
         continuation = pair.continuation
     }
+    func setDiagnostics(_ handler: (@Sendable (ConsoleRemoteEvent) -> Void)?) {}
     public func connect(url: URL, token: String) async throws { throw RemoteTLSError.unsupportedPlatform }
     public func send(_ data: Data) async throws { throw RemoteTLSError.unsupportedPlatform }
     public func close() { continuation.finish() }
