@@ -14,6 +14,7 @@ import UIKit
 public struct ChatComposerOverlay: View {
     public let viewModel: ChatScreenViewModel
     public let contentWidth: CGFloat
+    public let composerHorizontalInset: CGFloat?
     public let composerBottomInset: CGFloat
     public let tabs: [WorkspaceTab]
     public let tabActions: ChatComposerTabActions?
@@ -24,12 +25,14 @@ public struct ChatComposerOverlay: View {
     public init(
         viewModel: ChatScreenViewModel,
         contentWidth: CGFloat,
+        composerHorizontalInset: CGFloat? = nil,
         composerBottomInset: CGFloat,
         tabs: [WorkspaceTab],
         tabActions: ChatComposerTabActions?
     ) {
         self.viewModel = viewModel
         self.contentWidth = contentWidth
+        self.composerHorizontalInset = composerHorizontalInset
         self.composerBottomInset = composerBottomInset
         self.tabs = tabs
         self.tabActions = tabActions
@@ -44,7 +47,7 @@ public struct ChatComposerOverlay: View {
 #endif
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, idiom == .phone ? theme.spacing.m : 0)
+        .padding(.horizontal, composerHorizontalInset ?? (idiom == .phone ? theme.spacing.m : 0))
         .padding(.bottom, composerBottomInset)
         #if os(macOS)
         .background(alignment: .bottom) {

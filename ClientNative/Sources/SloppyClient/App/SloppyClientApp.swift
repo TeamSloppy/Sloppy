@@ -236,7 +236,11 @@ struct SloppyClientApp: App {
             rootContent
         }
 #elseif DEBUG && os(iOS)
-        if ProcessInfo.processInfo.arguments.contains("--authentication-ui-fixture") {
+        if ProcessInfo.processInfo.arguments.contains("--browser-offline-root-fixture") {
+            BrowserOfflineRootFixture()
+        } else if ProcessInfo.processInfo.arguments.contains("--browser-ui-fixture") {
+            BrowserMobileFixture()
+        } else if ProcessInfo.processInfo.arguments.contains("--authentication-ui-fixture") {
             AuthenticationScreen(
                 baseURL: URL(string: "https://mobile-review-ui.invalid")!,
                 challenge: AuthChallenge(mode: "login_password",

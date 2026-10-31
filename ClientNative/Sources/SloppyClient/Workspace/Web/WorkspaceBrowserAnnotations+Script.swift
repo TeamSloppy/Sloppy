@@ -14,6 +14,7 @@ extension WorkspaceBrowserAnnotations {
     const r = element.getBoundingClientRect();
     const left = Math.max(0, r.left), top = Math.max(0, r.top);
     return { nonce, pageURL: location.href, title: document.title.slice(0, 200), selector: path.join(' > '), tag: element.localName,
+      elementID: element.id.slice(0, 1024), classNames: [...element.classList].slice(0, 64).map(name => name.slice(0, 128)),
       x: left / innerWidth, y: top / innerHeight,
       width: Math.max(0, Math.min(innerWidth, r.right) - left) / innerWidth,
       height: Math.max(0, Math.min(innerHeight, r.bottom) - top) / innerHeight };

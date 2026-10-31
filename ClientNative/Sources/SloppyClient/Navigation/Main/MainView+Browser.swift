@@ -6,7 +6,7 @@ import SloppyFeatureChat
 extension MainView {
     var workAndBrowseContent: some View {
         ZStack {
-            if browserWorkspace.isBrowsing {
+            if embedsBrowser && browserWorkspace.isBrowsing {
                 BrowserWorkspaceView(state: browserWorkspace, onAskAgent: startBrowserChat, onCollect: collectBrowserTabs,
                                      onSettings: { viewModel.onOpenSettings(.general) },
                                      onAnnotateSelection: browserTextAnnotationTarget,
@@ -16,9 +16,15 @@ extension MainView {
             }
         }
         .task(id: browserChatConnectionID) {
+            guard embedsBrowser else { return }
             await browserAgentChat.synchronizeBrowser(browserWorkspace)
         }
-        .onDisappear { browserAgentChat.stopBrowserConnection() }
+        .onDisappear { if embedsBrowser { browserAgentChat.stopBrowserConnection() } }
+        .task(id: browserCollectionRequest?.id) {
+            guard let request = browserCollectionRequest else { return }
+            onConsumeBrowserCollection()
+            collectBrowserTabs(request.tabs)
+        }
 #if os(macOS)
         .focusedSceneValue(\.toggleMainSidebar, ToggleMainSidebarAction(perform: toggleMainSidebar))
 #endif

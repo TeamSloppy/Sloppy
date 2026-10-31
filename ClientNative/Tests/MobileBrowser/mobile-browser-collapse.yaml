@@ -1,0 +1,53 @@
+appId: team.sloppy.client
+name: Browser controls collapse while reading
+---
+# Start the isolated browser fixture at /long.html first.
+- launchApp:
+    stopApp: false
+- assertVisible: Browser Edge Layout
+- assertVisible:
+    id: browser-new-tab
+# Keep the gesture inside the page, above both toolbar presentations.
+- swipe:
+    start: "50%, 65%"
+    end: "50%, 25%"
+    duration: 500
+- assertVisible:
+    id: browser-compact-toolbar
+- assertNotVisible:
+    id: browser-new-tab
+- assertVisible:
+    id: browser-agent-toggle
+- swipe:
+    start: "50%, 65%"
+    end: "50%, 25%"
+    duration: 500
+- swipe:
+    start: "50%, 25%"
+    end: "50%, 65%"
+    duration: 500
+- assertVisible:
+    id: browser-new-tab
+- swipe:
+    start: "50%, 65%"
+    end: "50%, 25%"
+    duration: 500
+- assertVisible:
+    id: browser-compact-toolbar
+- tapOn:
+    id: browser-address
+- assertVisible:
+    id: browser-search-input
+- tapOn: Cancel
+- assertVisible:
+    id: browser-new-tab
+- swipe:
+    start: "50%, 65%"
+    end: "50%, 25%"
+    duration: 500
+- assertVisible:
+    id: browser-compact-toolbar
+- tapOn:
+    id: browser-agent-toggle
+- assertVisible:
+    id: browser-new-tab

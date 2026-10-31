@@ -70,6 +70,7 @@ final class RootShellViewModel {
     private var notificationListenerTask: Task<Void, Never>?
     private var notificationBaseURL: URL?
     private let logger: Logger
+    private var mobileConnectionRevision = UUID()
     #if os(macOS)
     private let desktopOverlay = SloppyDesktopOverlay()
     private var openMainWindow: (@MainActor () -> Void)?
@@ -135,6 +136,8 @@ final class RootShellViewModel {
     }
 
     func connectManagedRemote() {
+        mobileConnectionRevision = UUID()
+        let revision = mobileConnectionRevision
         guard let credential = ManagedRemoteCredentialStore.load(),
               credential.device.kind == .mobile else {
             showConnectionSetup()
@@ -145,11 +148,14 @@ final class RootShellViewModel {
             do {
                 let client = ManagedRemoteClient(relayURL: credential.relayURL)
                 let hosts = try await client.hosts()
+                guard acceptsConnectionResult(revision) else { return }
                 settings.installManagedHosts(hosts, relayURL: credential.relayURL)
                 try await ManagedRemoteConnection.shared.connect()
+                guard acceptsConnectionResult(revision) else { return }
                 connectionMonitor.start(baseURL: credential.relayURL)
                 appState = .chat(credential.relayURL)
             } catch {
+                guard acceptsConnectionResult(revision) else { return }
                 showConnectionSetup()
                 showBanner(for: AppNotification(
                     type: .systemError,
@@ -247,6 +253,7 @@ final class RootShellViewModel {
     }
 
     func startConnected(url: URL) {
+        mobileConnectionRevision = UUID()
         logger.info(
             "app.connection.connected",
             metadata: ["server": .string(Self.serverDescription(url))]
@@ -276,22 +283,26 @@ final class RootShellViewModel {
     }
 
     func startCloudConnected(url: URL) {
+        mobileConnectionRevision = UUID()
         logger.info("app.connection.cloud-connected")
         connectionMonitor.start(endpoint: settings.activeInstanceEndpoint)
         appState = .chat(url)
     }
 
     func connect(to url: URL) {
+        mobileConnectionRevision = UUID()
+        let revision = mobileConnectionRevision
         logger.info(
             "app.connection.requested",
             metadata: ["server": .string(Self.serverDescription(url))]
         )
         Task { @MainActor in
-            await resolveConnection(to: url)
+            await resolveConnection(to: url, revision: revision)
         }
     }
 
     func showConnectionSetup() {
+        mobileConnectionRevision = UUID()
         stopConnectedServices()
         autoConnectCloud = false
         appState = .connectionSetup
@@ -509,12 +520,13 @@ final class RootShellViewModel {
         }
     }
 
-    private func resolveConnection(to baseURL: URL) async {
+    private func resolveConnection(to baseURL: URL, revision: UUID? = nil) async {
         let apiClient = SloppyAPIClient(baseURL: baseURL)
         let challenge: AuthChallenge
         do {
             challenge = try await apiClient.fetchConnectionAuthChallenge()
         } catch let error as APIError where error.statusCode == 404 {
+            guard acceptsConnectionResult(revision) else { return }
             logger.info(
                 "app.authentication.unsupported-by-server",
                 metadata: ["server": .string(Self.serverDescription(baseURL))]
@@ -522,6 +534,7 @@ final class RootShellViewModel {
             startConnected(url: baseURL)
             return
         } catch {
+            guard acceptsConnectionResult(revision) else { return }
             logger.error(
                 "app.connection.auth-resolution-failed",
                 metadata: [
@@ -533,6 +546,7 @@ final class RootShellViewModel {
             return
         }
 
+        guard acceptsConnectionResult(revision) else { return }
         logger.info(
             "app.authentication.resolved",
             metadata: [
@@ -546,9 +560,17 @@ final class RootShellViewModel {
             if await apiClient.hasStoredAuthSession() {
                 do {
                     _ = try await apiClient.fetchCurrentAuthUser()
+                    guard acceptsConnectionResult(revision) else { return }
                     startConnected(url: baseURL)
                     return
                 } catch {
+                    guard acceptsConnectionResult(revision) else { return }
+#if os(iOS)
+                    guard MobileConnectionFailure.invalidatesSavedSession(error) else {
+                        showConnectionSetup()
+                        return
+                    }
+#endif
                     logger.warning(
                         "app.authentication.saved-session-rejected",
                         metadata: ["server": .string(Self.serverDescription(baseURL))]
@@ -572,11 +594,13 @@ final class RootShellViewModel {
                 "app.authentication.presented",
                 metadata: ["mode": .string(challenge.mode), "server": .string(Self.serverDescription(baseURL))]
             )
+            guard acceptsConnectionResult(revision) else { return }
             appState = .authentication(baseURL, challenge, message)
             return
         }
 
         let dashboardAuthEnabled = (try? await apiClient.fetchDashboardAuthStatus().enabled) ?? false
+        guard acceptsConnectionResult(revision) else { return }
         guard dashboardAuthEnabled else {
             startConnected(url: baseURL)
             return
@@ -584,9 +608,17 @@ final class RootShellViewModel {
         if await apiClient.hasStoredAuthSession() {
             do {
                 try await apiClient.validateCurrentAuthToken()
+                guard acceptsConnectionResult(revision) else { return }
                 startConnected(url: baseURL)
                 return
             } catch {
+                guard acceptsConnectionResult(revision) else { return }
+#if os(iOS)
+                guard MobileConnectionFailure.invalidatesSavedSession(error) else {
+                    showConnectionSetup()
+                    return
+                }
+#endif
                 logger.warning(
                     "app.authentication.saved-token-rejected",
                     metadata: ["server": .string(Self.serverDescription(baseURL))]
@@ -601,8 +633,79 @@ final class RootShellViewModel {
                 "server": .string(Self.serverDescription(baseURL)),
             ]
         )
+        guard acceptsConnectionResult(revision) else { return }
         appState = .authentication(baseURL, challenge, nil)
     }
+
+    private func acceptsConnectionResult(_ revision: UUID?) -> Bool {
+        !Task.isCancelled && (revision == nil || revision == mobileConnectionRevision)
+    }
+
+#if os(iOS)
+    /// The view's task owns this loop; backgrounding cancels it, foregrounding retries.
+    func restoreMobileConnectionInBackground(whileBrowsing: () -> Bool) async {
+        await MobileConnectionRetryLoop.run {
+            if appState == .splash || (whileBrowsing() && appState == .connectionSetup) {
+                let revision = mobileConnectionRevision
+                do {
+                    try await restoreMobileConnection(revision: revision)
+                } catch {
+                    guard acceptsConnectionResult(revision) else { return }
+                    // A failed relay or server stays outside the browsing surface.
+                    appState = .connectionSetup
+                }
+            }
+        }
+    }
+
+    private func restoreMobileConnection(revision: UUID) async throws {
+        let signedIn = await ConsoleAccountClient.shared.isSignedIn()
+        guard acceptsConnectionResult(revision) else { return }
+        if signedIn {
+            let snapshot = try await ConsoleAccountClient.shared.snapshot()
+            guard acceptsConnectionResult(revision) else { return }
+            let unverified = await ConsoleRemoteClientRegistry.shared.installDirectory(snapshot)
+            guard acceptsConnectionResult(revision) else { return }
+            settings.installConsoleInstances(snapshot.instances, unverifiedHostIDs: unverified,
+                relayURL: ManagedRemoteClient.productionURL)
+            let servers = CloudServerSelection.activeInstances(snapshot.instances)
+            let preferred = servers.first {
+                settings.instanceSelection.instanceID == "managed:\($0.spaceID):\($0.hostDeviceID)"
+            }?.hostDeviceID
+            for instance in CloudServerSelection.orderedInstances(servers, preferredHostID: preferred) {
+                guard await ConsoleRemoteClientRegistry.shared.hasTrustedPin(for: instance),
+                      let host = snapshot.devices.first(where: { $0.id == instance.hostDeviceID && $0.status == .active }),
+                      let deviceID = ConsoleDeviceCredential.load()?.deviceID,
+                      snapshot.devices.contains(where: { $0.id == deviceID && $0.status == .active }),
+                      let grant = snapshot.grants.first(where: {
+                          $0.instanceID == instance.id && $0.deviceID == deviceID && $0.status == .active
+                      }) else { continue }
+                guard acceptsConnectionResult(revision) else { return }
+                try await ConsoleRemoteClientRegistry.shared.connect(instance: instance, hostCertificate: host.certificateDER,
+                    expectedFingerprint: instance.hostCertificateFingerprint, organizationID: grant.organizationID)
+                guard acceptsConnectionResult(revision) else { return }
+                if let selected = settings.discoveredInstances.first(where: {
+                    if case .managed(_, let id) = $0.endpoint { id == instance.hostDeviceID } else { false }
+                }) { settings.instanceSelection = .instance(selected.id) }
+                startCloudConnected(url: ManagedRemoteClient.productionURL)
+                return
+            }
+            appState = .connectionSetup
+        } else if let credential = ManagedRemoteCredentialStore.load(), credential.device.kind == .mobile {
+            let hosts = try await ManagedRemoteClient(relayURL: credential.relayURL).hosts()
+            guard acceptsConnectionResult(revision) else { return }
+            try await ManagedRemoteConnection.shared.connect()
+            guard acceptsConnectionResult(revision) else { return }
+            settings.installManagedHosts(hosts, relayURL: credential.relayURL)
+            connectionMonitor.start(endpoint: settings.activeInstanceEndpoint)
+            appState = .chat(credential.relayURL)
+        } else if !settings.savedServers.isEmpty {
+            await resolveConnection(to: settings.baseURL, revision: revision)
+        } else {
+            appState = .connectionSetup
+        }
+    }
+#endif
 
     private func redeemDevicePairing(_ pairing: DevicePairingLink) {
         let baseURL = pairing.serverURL

@@ -11,6 +11,9 @@ final class BrowserAgentChatState {
     let panel = WorkspaceDockState()
     private(set) var contextError: String?
     private(set) var isAddingPage = false
+#if os(macOS)
+    @ObservationIgnored private weak var annotationPage: WorkspaceWebViewModel?
+#endif
     private var presentationID = UUID()
     @ObservationIgnored private(set) var browserConnection: WorkspaceBrowserSession?
     @ObservationIgnored private var connectionRevision = UUID()
@@ -31,6 +34,9 @@ final class BrowserAgentChatState {
     }
 
     func hide() {
+#if os(macOS)
+        cancelElementAnnotation()
+#endif
         presentationID = UUID()
         panel.hide()
     }
@@ -47,7 +53,7 @@ final class BrowserAgentChatState {
     }
 
     func synchronizeBrowser(_ browser: BrowserWorkspaceState) async {
-#if os(macOS)
+#if os(macOS) || os(iOS)
         let revision = UUID()
         connectionRevision = revision
         await connectionStopTask?.value
@@ -107,6 +113,31 @@ final class BrowserAgentChatState {
         }
     }
 
+#if os(macOS)
+    func cancelElementAnnotation() {
+        annotationPage?.annotations.cancel()
+        annotationPage = nil
+    }
+
+    func toggleElementAnnotation(in browser: BrowserWorkspaceState) async {
+        guard panel.isPresented, browser.isBrowsing, let page = browser.selectedPage,
+              !page.isLoading, BrowserSearchEngine.websiteURL(page.currentURL) != nil else { return }
+        let wasActive = page.annotations.isSelecting || page.annotations.isCapturing || page.annotations.draft != nil
+        cancelElementAnnotation()
+        guard !wasActive else { return }
+        let id = presentationID
+        let tabID = browser.selectedID
+        let receive = chat.makeBrowserAnnotationReceiver()
+        annotationPage = page
+        page.textSelection.dismiss()
+        await page.annotations.begin(in: page.ensureBrowserRuntime().webView) { [weak self, weak browser, weak page] attachment in
+            guard let self, let browser, let page, panel.isPresented, presentationID == id,
+                  browser.isBrowsing, browser.selectedID == tabID, browser.selectedPage === page else { return false }
+            return receive(attachment)
+        }
+    }
+#endif
+
     func addCurrentPage(from browser: BrowserWorkspaceState) async {
         guard !isAddingPage, let page = browser.selectedPage,
               let url = BrowserSearchEngine.websiteURL(page.currentURL ?? browser.selectedTab?.url),
@@ -117,7 +148,7 @@ final class BrowserAgentChatState {
         isAddingPage = true
         defer { isAddingPage = false }
         do {
-#if os(macOS)
+#if os(macOS) || os(iOS)
             let snapshot = try await page.ensureBrowserRuntime().read()
             let text = snapshot.visibleText.trimmingCharacters(in: .whitespacesAndNewlines)
 #else

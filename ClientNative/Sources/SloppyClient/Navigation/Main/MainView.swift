@@ -36,6 +36,9 @@ extension FocusedValues {
 @MainActor
 struct MainView: View {
     var onBrowserTextAnnotationTarget: BrowserTextAnnotationTarget?
+    var embedsBrowser = true
+    var browserCollectionRequest: BrowserTabCollectionRequest?
+    var onConsumeBrowserCollection: @MainActor () -> Void = {}
     struct MobileTabsHeroOverlayState {
         var tabID: WorkspaceTab.ID
         var frame: CGRect
@@ -204,8 +207,14 @@ struct MainView: View {
         viewModel: MainViewModel? = nil,
         browserWorkspace: BrowserWorkspaceState? = nil,
         browserAgentChat: BrowserAgentChatState? = nil,
-        onBrowserTextAnnotationTarget: BrowserTextAnnotationTarget? = nil
+        onBrowserTextAnnotationTarget: BrowserTextAnnotationTarget? = nil,
+        embedsBrowser: Bool = true,
+        browserCollectionRequest: BrowserTabCollectionRequest? = nil,
+        onConsumeBrowserCollection: @escaping @MainActor () -> Void = {}
     ) {
+        self.embedsBrowser = embedsBrowser
+        self.browserCollectionRequest = browserCollectionRequest
+        self.onConsumeBrowserCollection = onConsumeBrowserCollection
         self.onBrowserTextAnnotationTarget = onBrowserTextAnnotationTarget
         let mainModel = viewModel ?? MainViewModel(
             endpoint: endpoint, settings: settings, connectionMonitor: connectionMonitor,

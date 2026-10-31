@@ -1,6 +1,9 @@
 import Foundation
 import Observation
 import WebKit
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 protocol WorkspaceWebViewControlling: AnyObject {
@@ -35,6 +38,10 @@ final class WorkspaceWebViewModel {
     var lastError: String?
     weak var controller: WorkspaceWebViewControlling?
     var browserRuntime: WorkspaceBrowserToolRuntime?
+#if os(iOS)
+    var prefersDarkBrowserChrome: Bool?
+    var browserBackgroundColor: UIColor?
+#endif
 
     init(history: WorkspaceBrowserHistory = .shared) {
         self.history = history
@@ -47,10 +54,16 @@ final class WorkspaceWebViewModel {
               let trust = nativeWebView?.serverTrust else { return nil }
         return BrowserCertificateInfo(trust: trust)
     }
+#endif
 
+#if os(macOS) || os(iOS)
     func ensureBrowserRuntime() -> WorkspaceBrowserToolRuntime {
         if let browserRuntime { return browserRuntime }
+#if os(macOS)
         let runtime = WorkspaceBrowserToolRuntime(extensionController: webExtensionController, textSelection: textSelection)
+#else
+        let runtime = WorkspaceBrowserToolRuntime(textSelection: textSelection)
+#endif
         runtime.onDownload = onDownload
         runtime.onStateChange = { [weak self] webView, error in
             guard let self else { return }
@@ -65,7 +78,13 @@ final class WorkspaceWebViewModel {
             canGoBack = webView.canGoBack
             canGoForward = webView.canGoForward
             lastError = error
+#if os(iOS)
+            browserBackgroundColor = webView.underPageBackgroundColor.resolvedColor(with: webView.traitCollection)
+            prefersDarkBrowserChrome = MobileBrowserPageAppearance.isDark(webView.underPageBackgroundColor, traits: webView.traitCollection)
+#endif
+#if os(macOS)
             onBrowserStateChange?()
+#endif
             if error == nil, !webView.isLoading {
                 history.updateTitle(url: webView.url, title: webView.title)
             }
@@ -74,7 +93,9 @@ final class WorkspaceWebViewModel {
             self?.history.record(url: webView.url, title: webView.title)
         }
         runtime.onNavigationStarted = { [weak self] in
-            self?.annotations.stopPicking()
+#if os(macOS)
+            self?.annotations.cancel()
+#endif
             self?.textSelection.dismiss()
         }
         browserRuntime = runtime

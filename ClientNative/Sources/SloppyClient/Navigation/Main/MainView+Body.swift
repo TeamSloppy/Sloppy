@@ -13,6 +13,14 @@ extension MainView {
             } else {
 #if os(macOS)
                 MainLoadingView(status: "Opening your workspace…")
+#elseif os(iOS)
+                NavigationStack {
+                    LoadingSkeleton("Loading Inbox…")
+                        .mobileScreenBackground()
+                        .navigationTitle("Work")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .mobileWorkBrowseNavigationBar()
+                }
 #else
                 LoadingSkeleton("Loading Inbox…")
                     .mobileScreenBackground()
@@ -148,10 +156,12 @@ extension MainView {
         )
 #endif
         .toolbar {
-            ToolbarItem(placement: .navigation) { workBrowsePicker }
+            if embedsBrowser {
+                ToolbarItem(placement: .navigation) { workBrowsePicker }
 #if os(macOS)
                 .sharedBackgroundVisibility(.hidden)
 #endif
+            }
             if !browserWorkspace.isBrowsing, viewModel.hasLoadedInitialContent {
                 if isCanvasWorkspaceSelected,
                    !canvasWorkspaceViewModel.isShowingLibrary {

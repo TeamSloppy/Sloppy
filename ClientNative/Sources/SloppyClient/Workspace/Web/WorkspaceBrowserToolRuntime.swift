@@ -3,6 +3,10 @@ import SloppyClientCore
 
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
+#if os(macOS) || os(iOS)
 import WebKit
 #endif
 
@@ -20,10 +24,12 @@ typealias WorkspaceBrowserReadResult = WorkspaceBrowserPage
 @MainActor
 final class WorkspaceBrowserToolRuntime: NSObject {
     let pageID = UUID().uuidString
-#if os(macOS)
+#if os(macOS) || os(iOS)
     // The runtime owns the page so hiding the panel never destroys an agent's page.
     let webView: WKWebView
+#if os(macOS)
     private(set) lazy var documentInset = BrowserDocumentInset(webView: webView)
+#endif
     var onStateChange: (@MainActor (WKWebView, String?) -> Void)?
     var onNavigationFinished: (@MainActor (WKWebView) -> Void)?
     var onDownload: (@MainActor (WKDownload) -> Void)?
@@ -36,9 +42,16 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     init(webView: WKWebView? = nil, extensionController: WKWebExtensionController? = nil,
          textSelection: WorkspaceBrowserSelection? = nil) {
         let configuration = WKWebViewConfiguration()
+#if os(macOS)
         configuration.webExtensionController = extensionController
+#endif
         if webView == nil { textSelection?.install(in: configuration) }
+#if os(macOS)
         self.webView = webView ?? WorkspaceBrowserWebView(frame: CGRect(x: 0, y: 0, width: 1000, height: 750), configuration: configuration)
+#else
+        self.webView = webView ?? WKWebView(frame: .zero, configuration: configuration)
+        self.webView.allowsBackForwardNavigationGestures = true
+#endif
         super.init()
         textSelection?.attach(to: self.webView)
         self.webView.navigationDelegate = self
@@ -60,6 +73,11 @@ final class WorkspaceBrowserToolRuntime: NSObject {
                 Task { @MainActor [weak self] in self?.publishLoadingState() }
             },
         ]
+#if os(iOS)
+        loadingObservations.append(self.webView.observe(\.underPageBackgroundColor, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.publishLoadingState() }
+        })
+#endif
     }
 
     private func publishLoadingState() {
@@ -138,11 +156,15 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     func screenshot() async throws -> WorkspaceBrowserScreenshotResult {
         try await waitForNavigation()
         let image = try await webView.takeSnapshot(configuration: nil)
+#if os(macOS)
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else {
             throw WorkspaceBrowserRuntimeError.snapshotFailed
         }
+#else
+        guard let png = image.pngData() else { throw WorkspaceBrowserRuntimeError.snapshotFailed }
+#endif
         return .init(imageData: png)
     }
 
@@ -232,7 +254,7 @@ final class WorkspaceBrowserToolRuntime: NSObject {
 #endif
 }
 
-#if os(macOS)
+#if os(macOS) || os(iOS)
 extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, WorkspaceWebViewControlling {
     func open(_ address: String) {
         Task {
@@ -251,13 +273,19 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
         onStateChange?(webView, nil)
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+#if os(macOS)
         documentInset.refresh()
+#else
+        webView.scrollView.refreshControl?.endRefreshing()
+#endif
         navigationPending = false
         onStateChange?(webView, nil)
         onNavigationFinished?(webView)
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+#if os(macOS)
         documentInset.refresh()
+#endif
     }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         if WorkspaceBrowserNavigationFailure.isCancellation(error) {
@@ -267,6 +295,9 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
         }
         navigationPending = false
         navigationError = error
+#if os(iOS)
+        webView.scrollView.refreshControl?.endRefreshing()
+#endif
         onStateChange?(webView, WorkspaceBrowserNavigationFailure.message(for: error))
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

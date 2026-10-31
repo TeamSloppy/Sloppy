@@ -93,6 +93,33 @@ struct BrowserWorkspaceTests {
         #expect(BrowserSearchEngine.websiteURL(URL(string: "file:///etc/passwd")) == nil)
     }
 
+    @Test func blankMobileTabSurvivesCancellationRestartAndNavigatesInPlace() throws {
+        let (defaults, name) = try defaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let state = BrowserWorkspaceState(defaults: defaults)
+        let original = try #require(URL(string: "https://example.com/original"))
+        state.open(original, inNewTab: true)
+        let originalID = try #require(state.selectedID)
+        let group = try #require(state.saveGroup(title: "Research", tabID: originalID))
+        let blankID = state.createBlankTab()
+        state.presentSearch(newTab: false)
+        state.isSearchPresented = false // Cancelling the editor leaves the new tab open.
+        let restored = BrowserWorkspaceState(defaults: defaults)
+        #expect(restored.tabs.count == 2)
+        #expect(restored.selectedID == blankID)
+        #expect(restored.selectedTab?.url == nil)
+        #expect(restored.selectedTab?.groupID == group)
+        #expect(restored.pages.count == 1)
+        let destination = try #require(URL(string: "https://example.com/new"))
+        restored.open(destination, inNewTab: false)
+        #expect(restored.tabs.count == 2)
+        #expect(restored.selectedID == blankID)
+        #expect(restored.selectedTab?.url == destination)
+        restored.close(blankID)
+        #expect(restored.selectedID == originalID)
+        #expect(restored.selectedTab?.url == original)
+    }
+
     @Test func namedGroupsAndHomeSurviveRestartWithoutClosingTabs() throws {
         let (defaults, name) = try defaults()
         defer { defaults.removePersistentDomain(forName: name) }

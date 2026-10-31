@@ -55,3 +55,35 @@ rejection after a destination change.
   pages. The QA profile contained no personal browser tabs or message drafts.
   Positive annotation delivery uses the real chat view model in the WebKit tests;
   no real agent message was sent during verification.
+
+## Element annotations in Browse (macOS)
+
+Open **Assistant**, then choose **Annotate element** below **Add page**. Hover to
+highlight an HTML element, click it, add a comment and choose **Add to chat**.
+Escape or **Cancel annotation** exits the picker.
+
+The annotation adds a page screenshot and the selected region to the current
+Assistant draft, together with the page URL/title, CSS selector, HTML tag, id and
+classes. The editor shows the element details before adding it. Existing draft
+text and annotations are preserved; use Send in the composer to deliver them.
+You can repeat the action to annotate several elements.
+
+Closing Assistant, switching pages or conversations, leaving Browse, and page
+navigation cancel an unfinished selection. The receiver also checks the original
+page and conversation before accepting the annotation. Picking an element does
+not activate its links or buttons. DOM inspection runs in a private WebKit
+content world; iframe contents are not traversed.
+
+### Element annotation verification on 2026-10-31
+
+- 14 annotation and Assistant tests passed, including the real Browse panel,
+  native pointer picking, PNG capture, HTML metadata, draft preservation and
+  cancellation after hiding Assistant, changing conversations or navigating.
+- 15 related tests passed for text selection, strict site CSP, split rendering,
+  browser content insets, Assistant rendering and annotation history.
+- The full non-interactive client run executed 1,057 tests and reported six
+  source-assertion failures in `ChatBubbleRenderingTests`,
+  `ChatInitialLoadSourceTests`, `MainTabsSourceTests` and
+  `ChatConversationNavigatorLayoutTests`; the full suite is not green.
+- The macOS Release build passed with signing disabled. Changes are local;
+  the installed application was not updated as part of this change.

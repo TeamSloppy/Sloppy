@@ -50,7 +50,12 @@ struct RootShellView: View {
             .preferredColorScheme(.dark)
         #else
             .theme(viewModel.settings.colorScheme.appTheme)
+#if os(iOS)
+            .modifier(MobileBrowserChromeSchemeModifier(fallback: viewModel.settings.colorScheme.systemColorScheme,
+                allowsPageScheme: viewModel.presentedSettings == nil && viewModel.presentedProactivity == nil && viewModel.consoleConnectionCode == nil))
+#else
             .preferredColorScheme(viewModel.settings.colorScheme.systemColorScheme)
+#endif
         #endif
             .injectSafeAreaInsets()
             .background {
@@ -123,6 +128,11 @@ private struct RootShellContent: View {
                 .ignoresSafeArea()
             #endif
 
+#if os(iOS)
+            MobileRootShellView(root: rootViewModel, safeAreaInsets: safeAreaInsets) {
+                mobileConnectionContent
+            }
+#else
             switch rootViewModel.appState {
             case .splash:
                 SplashScreen(settings: rootViewModel.settings) { result in
@@ -192,6 +202,7 @@ private struct RootShellContent: View {
                 }
                 .id(rootViewModel.settings.instanceDirectoryKey + ":" + rootViewModel.settings.activeInstanceEndpoint.cacheNamespace)
             }
+#endif
 
             if let banner = rootViewModel.activeBanner {
                 NotificationBanner(item: banner)
@@ -235,6 +246,30 @@ private struct RootShellContent: View {
             .frame(minWidth: 320, minHeight: 500)
         }
     }
+
+#if os(iOS)
+    @ViewBuilder
+    private var mobileConnectionContent: some View {
+        switch viewModel.appState {
+        case .splash, .pairing:
+            VStack(spacing: 20) {
+                ProgressView("Connecting to your workspace…")
+                Button("Choose a server") { viewModel.showConnectionSetup() }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .connectionSetup:
+            ConnectionSetupView(settings: viewModel.settings, onConnected: viewModel.connect,
+                onScannedCode: viewModel.handleDeepLink, onCloudConnected: viewModel.startCloudConnected,
+                autoConnectCloud: viewModel.autoConnectCloud)
+        case .authentication(let url, let challenge, let message):
+            AuthenticationScreen(baseURL: url, challenge: challenge, initialMessage: message,
+                onAuthenticated: viewModel.startConnected, onScannedCode: viewModel.handleDeepLink,
+                onChooseServer: viewModel.showConnectionSetup)
+        case .chat:
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+#endif
 
     private func settingsPresentation(
         for destination: ClientSettingsDestination,

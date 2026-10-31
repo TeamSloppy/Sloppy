@@ -54,11 +54,27 @@ public struct ChatImageAnnotation: Identifiable, Sendable, Equatable {
         public let url: URL
         public let title: String
         public let selector: String?
+        public let tag: String?
+        public let elementID: String?
+        public let classNames: [String]
 
-        public init(url: URL, title: String, selector: String? = nil) {
+        public init(url: URL, title: String, selector: String? = nil, tag: String? = nil,
+                    elementID: String? = nil, classNames: [String] = []) {
             self.url = url
             self.title = title
             self.selector = selector
+            self.tag = tag
+            self.elementID = elementID
+            self.classNames = classNames
+        }
+
+        var annotationContext: String {
+            var lines = ["Page URL: \(url.absoluteString)", "Page title: \(title)"]
+            if let selector { lines.append("CSS selector: \(selector)") }
+            if let tag { lines.append("HTML tag: \(tag)") }
+            if let elementID, !elementID.isEmpty { lines.append("HTML id: \(elementID)") }
+            if !classNames.isEmpty { lines.append("HTML classes: \(classNames.joined(separator: " "))") }
+            return lines.joined(separator: "\n")
         }
     }
 

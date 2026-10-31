@@ -16,8 +16,9 @@ struct WorkspaceBrowserAnnotationPicker: View {
                         .frame(width: element.width * geometry.size.width, height: element.height * geometry.size.height)
                         .offset(x: element.x * geometry.size.width, y: element.y * geometry.size.height)
                         .allowsHitTesting(false)
-                    Text("\(element.tag) · \(Int(element.width * geometry.size.width)) × \(Int(element.height * geometry.size.height))")
-                        .font(.system(size: 12)).foregroundStyle(.white).padding(6)
+                    Text("\(element.elementLabel) · \(Int(element.width * geometry.size.width)) × \(Int(element.height * geometry.size.height))")
+                        .font(.system(size: 12)).foregroundStyle(.white).lineLimit(1)
+                        .frame(maxWidth: min(300, max(0, geometry.size.width - 8)), alignment: .leading).padding(6)
                         .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 5))
                         .offset(x: max(4, min(element.x * geometry.size.width, geometry.size.width - 180)),
                                 y: max(4, element.y * geometry.size.height - 30))

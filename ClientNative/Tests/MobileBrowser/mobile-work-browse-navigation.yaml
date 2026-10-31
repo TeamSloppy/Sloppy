@@ -1,0 +1,31 @@
+appId: team.sloppy.client
+name: Work mode picker belongs to native navigation bars
+---
+# Launch the offline root fixture at the local first page before this flow.
+- launchApp:
+    stopApp: false
+- assertVisible: Browser First Page
+- tapOn:
+    id: browser-menu
+- scrollUntilVisible:
+    element:
+      id: browser-return-to-work
+    direction: DOWN
+- tapOn:
+    id: browser-return-to-work
+- assertVisible:
+    id: workspace-mode-work
+    selected: true
+- tapOn:
+    id: workspace-mode-work
+- assertVisible: Sign in to Work
+- tapOn: Simulate unavailable workspace
+- assertVisible: Inbox
+- assertVisible:
+    id: workspace-mode-picker
+- tapOn: Attention
+- assertVisible:
+    id: workspace-mode-browse
+- tapOn:
+    id: workspace-mode-browse
+- assertVisible: Browser First Page

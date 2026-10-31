@@ -10,10 +10,16 @@ struct WorkspaceBrowserElementSelection: Decodable {
     let title: String
     let selector: String
     let tag: String
+    let elementID: String
+    let classNames: [String]
     let x: Double
     let y: Double
     let width: Double
     let height: Double
+
+    var elementLabel: String {
+        tag + (elementID.isEmpty ? "" : "#" + elementID) + classNames.map { "." + $0 }.joined()
+    }
 
     var region: ChatImageRegion { .init(x: x, y: y, width: width, height: height) }
 
@@ -24,6 +30,8 @@ struct WorkspaceBrowserElementSelection: Decodable {
               ["http", "https"].contains(url?.scheme?.lowercased() ?? ""), url?.host != nil,
               !selection.selector.isEmpty, selection.selector.count <= 1024,
               !selection.tag.isEmpty, selection.tag.count <= 64,
+              selection.elementID.count <= 1024, selection.classNames.count <= 64,
+              selection.classNames.allSatisfy({ !$0.isEmpty && $0.count <= 128 }),
               [selection.x, selection.y, selection.width, selection.height].allSatisfy(\.isFinite),
               selection.x >= 0, selection.y >= 0, selection.width > 0, selection.height > 0,
               selection.x + selection.width <= 1.000001, selection.y + selection.height <= 1.000001 else {
@@ -146,7 +154,8 @@ final class WorkspaceBrowserAnnotations {
         components.password = nil
         guard let url = components.url else { return }
         let source = ChatImageAnnotation.BrowserSource(url: url, title: String(draft.element.title.prefix(200)),
-                                                      selector: draft.element.selector)
+                                                      selector: draft.element.selector, tag: draft.element.tag,
+                                                      elementID: draft.element.elementID, classNames: draft.element.classNames)
         let attachment = ChatComposerAttachment(name: "Browser annotation.png", mimeType: "image/png", data: draft.data,
             annotations: [.init(region: draft.element.region, comment: comment, browserSource: source)])
         guard receive?(attachment) == true else {

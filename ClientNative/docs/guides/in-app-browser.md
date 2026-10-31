@@ -4,8 +4,8 @@
 
 The native client has a Work / Browse switch on macOS, iPhone and iPad. Work
 keeps the existing chats, projects and canvas. Browse uses vertical tabs in its
-own sidebar; switching modes preserves the work selection and browser pages.
-On iPhone, the native split view collapses the tab list and page into navigation.
+own sidebar on macOS; switching modes preserves the work selection and browser pages.
+iPhone and iPad use a bottom address panel and a full-screen tab overview.
 
 - **Command-T** opens the search/address launcher for a new tab in either mode.
 - **Command-L** edits the current tab's address.
@@ -40,6 +40,63 @@ The feature reuses the native browser and the existing desktop/mobile themes.
 Zephium is an interaction reference: https://github.com/zephium-browser/Zephium.
 Its canvas keeps research sources and results available outside a chat transcript;
 Collect tabs on canvas brings that idea to Sloppy's current canvas.
+
+## iPhone and iPad
+
+Browse opens immediately on mobile, before connecting to Core or relay. Its
+WebKit views remain mounted through connection failures, authentication and
+workspace changes. Saved connections are restored in the background with bounded
+retry delays; inactive scenes pause restoration. Reconnecting never switches the
+user out of Browse. Transient network/server failures keep stored login sessions.
+
+Work and Assistant can open the connection flow when needed. A compact
+briefcase/globe switch lives in the native navigation bar on Work screens,
+including loading and connection screens. Its globe returns to the retained
+page immediately; the selected briefcase marks Work. There is no extra return
+row above the screen content. An Assistant prompt is kept for the
+successful sign-in; returning to Browse cancels that deferred action. Settings,
+tabs, history, bookmarks and local downloads remain accessible without Core.
+
+The floating bottom panel keeps the address, loading/stop control, Assistant,
+Back, Forward, New tab, tab count and menu within reach. Assistant has its own
+round button beside the address capsule, using the shared Sloppy mark in both
+expanded and compact controls. Pages fill the available
+content area. Scrolling down on a loaded page collapses the panel to a glass
+host capsule and a separate Assistant button. Scrolling up or returning to the
+top restores navigation. The compact address opens search; cancelling returns
+the full controls. The transition respects Reduce Motion and does not replace
+WebKit's scroll delegate. Page-script positioning and viewport changes do not
+collapse the controls.
+Tapping the address opens an in-place search layer over the retained page.
+There is no modal sheet or navigation header: a close control floats at the top,
+and a glass editor stays above the keyboard. Search-engine selection and Ask
+Sloppy sit beside it as separate glass controls. Real top sites, tabs, bookmarks
+and history provide suggestions. The current URL is selected on first focus;
+Return or Go navigates, and closing keeps the current page or blank tab open.
+The layer adapts to light/dark appearance, Reduce Motion and Reduce Transparency.
+
+
+The tab count opens a searchable overview with two columns on iPhone and more
+columns on wider iPads. Preview images come from retained WebKit pages. Select a
+tab to return to its existing page and form state; close it with its own button.
+The options menu filters by saved group and confirms closing all matching tabs.
+Long-press a tab to move it to a group, share its URL or close it.
+
+The browser menu contains sharing, bookmarking, History, Bookmarks, Downloads,
+the search engine, tab-group creation, Collect tabs on canvas, Settings and
+Return to Work. Home shows real frequently/recently visited pages and an
+Assistant entry point. Library contents and tab state are saved on the device.
+
+Assistant uses the same retained page on iOS as on macOS. Browser commands can
+read, navigate, click, type, scroll and capture a PNG. Add page inserts the
+page's bounded visible text and its source URL into the conversation draft.
+Connecting browser commands to a conversation requires an authenticated Core
+connection. Web Extensions and simultaneous Split View remain macOS features.
+
+The isolated Debug launch argument `--browser-ui-fixture` opens the production
+mobile browser without login. `--browser-fixture-reset` clears only its QA
+defaults; `--browser-fixture-url=http://127.0.0.1:18874/` opens a local fixture.
+See `Tests/MobileBrowser` for repeatable interaction checks.
 
 ### Browser-mode verification on 2026-10-30
 
@@ -115,7 +172,7 @@ stays at the top of the sidebar with 16-point
 continuous corners; mobile keeps navigation alongside the address. Loading
 appears as a two-point progress line inside the
 address field, driven by WebKit estimatedProgress/isLoading observations. No
-spinner or loading row is inserted above the page, so its bounds stay fixed. Compact mobile layouts keep a toolbar search button. Sidebar
+spinner or loading row is inserted above the page, so its bounds stay fixed. iOS keeps search in the bottom address panel. Sidebar
 layout is covered at 800×600, 1200×780 and 1800×1160 window sizes, alongside real
 WebKit downloads, group/bookmark restoration and committed composer input.
 The macOS sidebar header uses the system bar material through the titlebar safe
@@ -126,8 +183,11 @@ surface. The address field stays fixed and clickable while the list scrolls.
 
 On macOS, web pages fill the detail column to the window edges, without an outer
 inset, border or rounded frame. Split panels are rectangular and separated by
-native dividers. Mobile pages retain an 8-point inset, 10-point continuous corners
-and a thin theme border. The macOS page frame extends beneath the window toolbar;
+native dividers. On iOS, pages fill the space between the system safe area and
+the bottom navigation panel. The page background continues through system safe
+areas and around the floating panel, without an extra gap above it. Native
+browser chrome follows the page background contrast. visionOS retains the inset page frame.
+The macOS page frame extends beneath the window toolbar;
 the measured titlebar safe area plus the blur's 32-point fade and an 8-point gap
 is applied as padding inside the main HTML document in an isolated content world.
 Viewport-fixed headers and document-sticky top offsets also account for this

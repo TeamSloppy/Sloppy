@@ -1,0 +1,54 @@
+appId: team.sloppy.client
+name: Mobile browser navigation and retained tabs
+---
+# Launch the Debug fixture with the local server first; see README.md.
+- launchApp:
+    stopApp: false
+- assertVisible: Browser First Page
+- tapOn: Write a draft
+- inputText: Retained mobile draft
+- tapOn:
+    id: browser-new-tab
+- assertVisible:
+    id: browser-search-input
+- inputText: http://127.0.0.1:18874/second.html
+- pressKey: Enter
+- assertVisible: Browser Second Page
+- tapOn:
+    id: browser-tabs-overview
+- tapOn: Open Browser First Page
+- assertVisible: Retained mobile draft
+- tapOn:
+    id: browser-menu
+- tapOn: Bookmark page
+- tapOn: Bookmarks
+- assertVisible: Browser First Page
+- tapOn: Done
+- tapOn:
+    id: browser-menu
+- tapOn: History
+- assertVisible: Browser First Page
+- assertVisible: Browser Second Page
+- tapOn: Done
+- tapOn: Download sample
+- tapOn:
+    id: browser-menu
+- tapOn: Downloads
+- assertVisible: 'sample( \([0-9]+\))?\.txt'
+- assertVisible: Completed
+- tapOn: Done
+- tapOn:
+    id: browser-tabs-overview
+- tapOn:
+    id: browser-tab-options
+- tapOn: Close 2 tabs
+- tapOn: Close tabs
+- assertVisible: No open tabs
+- tapOn: Done
+- assertVisible: Where to next?
+- tapOn:
+    id: browser-new-tab
+- tapOn: Cancel
+- tapOn:
+    id: browser-tabs-overview
+- assertVisible: Open New tab

@@ -20,7 +20,7 @@ final class WorkspaceBrowserSession {
     }
 
     func start() {
-#if os(macOS)
+#if os(macOS) || os(iOS)
         guard task == nil else { return }
         task = Task { [weak self] in
             guard let self else { return }
@@ -60,7 +60,7 @@ final class WorkspaceBrowserSession {
     }
 
     private func execute(_ command: WorkspaceBrowserCommand) async -> WorkspaceBrowserCompletion {
-#if os(macOS)
+#if os(macOS) || os(iOS)
         do {
             let runtime = viewModel.ensureBrowserRuntime()
             if let pageID = command.input.pageId, pageID != runtime.pageID {
@@ -105,7 +105,7 @@ final class WorkspaceBrowserSession {
             return .init(binding: binding, commandId: command.id, error: error.localizedDescription)
         }
 #else
-        return .init(binding: binding, commandId: command.id, error: "Browser automation requires macOS.")
+        return .init(binding: binding, commandId: command.id, error: "Browser automation requires macOS or iOS.")
 #endif
     }
 }

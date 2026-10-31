@@ -3,6 +3,7 @@ import SwiftUI
 /// Fetch only from the visited site's origin, without a third-party icon service.
 struct BrowserFaviconView: View {
     let pageURL: URL?
+    var size: CGFloat = 16
     var body: some View {
         AsyncImage(url: Self.iconURL(for: pageURL)) { phase in
             if case .success(let image) = phase {
@@ -11,7 +12,7 @@ struct BrowserFaviconView: View {
                 Image(systemName: "globe").foregroundStyle(.secondary)
             }
         }
-        .frame(width: 16, height: 16)
+        .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: 3))
         .accessibilityHidden(true)
     }

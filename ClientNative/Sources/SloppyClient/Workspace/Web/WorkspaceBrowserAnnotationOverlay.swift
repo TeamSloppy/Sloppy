@@ -18,7 +18,7 @@ struct WorkspaceBrowserAnnotationOverlay: View {
                                   width: region.width * frame.width, height: region.height * frame.height)
             let width = min(300, max(160, geometry.size.width - 24))
             let x = min(max(12, selected.minX), max(12, geometry.size.width - width - 12))
-            let y = min(selected.maxY + 10, max(12, geometry.size.height - 220))
+            let y = min(selected.maxY + 10, max(12, geometry.size.height - 260))
             ZStack(alignment: .topLeading) {
                 theme.colors.surface
                     .contentShape(Rectangle()).onTapGesture { isFocused = false }
@@ -32,7 +32,7 @@ struct WorkspaceBrowserAnnotationOverlay: View {
                     .offset(x: selected.minX, y: selected.minY)
                     .allowsHitTesting(false)
                 ScrollView { editor }
-                    .frame(width: width, height: min(220, max(80, geometry.size.height - 24)))
+                    .frame(width: width, height: min(260, max(80, geometry.size.height - 24)))
                     .offset(x: x, y: y)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -49,7 +49,14 @@ struct WorkspaceBrowserAnnotationOverlay: View {
 
     private var editor: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Annotate \(draft.element.tag)").font(.caption.weight(.semibold))
+            Text("Annotate <\(draft.element.tag)>").font(.caption.weight(.semibold))
+            if !draft.element.elementID.isEmpty {
+                Text("id: \(draft.element.elementID)").font(.caption.monospaced()).lineLimit(1)
+            }
+            if !draft.element.classNames.isEmpty {
+                Text("class: \(draft.element.classNames.joined(separator: " "))")
+                    .font(.caption.monospaced()).lineLimit(2)
+            }
             Text(draft.element.selector).font(.caption.monospaced())
                 .foregroundStyle(theme.colors.textMuted).lineLimit(2)
             TextField("Add a comment…", text: Binding(

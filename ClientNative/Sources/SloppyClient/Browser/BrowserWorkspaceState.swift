@@ -144,6 +144,24 @@ final class BrowserWorkspaceState {
     var selectedTab: BrowserTabRecord? { tabs.first { $0.id == selectedID } }
     var selectedPage: WorkspaceWebViewModel? { selectedID.flatMap { pages[$0] } }
 
+    @discardableResult
+    func createBlankTab() -> UUID {
+        checkpoint()
+        isBrowsing = true
+        let previous = selectedID
+        let tab = BrowserTabRecord(groupID: selectedTab?.groupID)
+        tabs.append(tab)
+        selectedID = tab.id
+        selectedTabIDs = [tab.id]
+        preparePage(tab.id)
+#if os(macOS)
+        extensionBridge?.opened(tab.id)
+        extensionBridge?.selectionChanged(from: previous)
+#endif
+        persist()
+        return tab.id
+    }
+
     func presentSearch(newTab: Bool) {
         searchInNewTab = newTab
         searchText = newTab ? "" : selectedTab?.url?.absoluteString ?? ""

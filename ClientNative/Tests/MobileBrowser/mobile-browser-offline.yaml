@@ -1,0 +1,56 @@
+appId: team.sloppy.client
+name: Browser remains available through connection and authentication
+---
+# Start --browser-offline-root-fixture with the local fixture URL first.
+- launchApp:
+    stopApp: false
+- assertVisible: Browser First Page
+- tapOn: Write a draft
+- inputText: Retained offline draft
+- tapOn:
+    id: browser-menu
+- scrollUntilVisible:
+    element:
+      id: browser-return-to-work
+    direction: DOWN
+- tapOn:
+    id: browser-return-to-work
+- assertVisible: Sign in to Work
+- assertVisible:
+    id: workspace-mode-browse
+- tapOn:
+    id: workspace-mode-browse
+- assertVisible: Retained offline draft
+- tapOn:
+    id: browser-address
+- tapOn: Clear search
+- inputText: Explain this page
+- tapOn:
+    id: browser-ask-agent
+- assertVisible: Sign in to Work
+- tapOn:
+    id: workspace-mode-browse
+- assertVisible: Retained offline draft
+- tapOn:
+    id: browser-tabs-overview
+- assertVisible: Open Browser First Page
+- tapOn: Done
+- assertVisible: Retained offline draft
+- pressKey: Home
+- launchApp:
+    stopApp: false
+- assertVisible: Retained offline draft
+- tapOn:
+    id: browser-menu
+- scrollUntilVisible:
+    element:
+      id: browser-return-to-work
+    direction: DOWN
+- tapOn:
+    id: browser-return-to-work
+- tapOn: Simulate unavailable workspace
+- assertVisible:
+    id: workspace-mode-browse
+- tapOn:
+    id: workspace-mode-browse
+- assertVisible: Retained offline draft

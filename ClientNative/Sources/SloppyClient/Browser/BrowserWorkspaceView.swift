@@ -29,6 +29,10 @@ struct BrowserWorkspaceView: View {
                 }
             }
             .onDisappear { state.isSearchPresented = false }
+#elseif os(iOS)
+        MobileBrowserWorkspaceView(state: state, onAskAgent: onAskAgent, onCollect: onCollect,
+                                   onSettings: onSettings, onAnnotateSelection: onAnnotateSelection,
+                                   agentChat: agentChat)
 #else
         browserSurface
             .sheet(isPresented: $state.isSearchPresented) {
@@ -196,13 +200,14 @@ struct BrowserWorkspaceView: View {
 }
 
 @MainActor
-private struct BrowserWorkspacePage: View {
+struct BrowserWorkspacePage: View {
     let page: WorkspaceWebViewModel
     let restoredState: Data?
     var topContentInset: CGFloat = 0
     var onAsk: (@MainActor (String) -> Void)?
     var annotationTarget: BrowserTextAnnotationTarget?
     var onFocus: (@MainActor () -> Void)?
+    var onScroll: (@MainActor (BrowserScrollSample) -> Void)?
     @State private var hasRestored = false
     @Environment(\.theme) private var theme
 
@@ -230,6 +235,7 @@ private struct BrowserWorkspacePage: View {
                                 }
                             }
                         }
+                        .foregroundStyle(theme.colors.textPrimary)
                         .padding(14)
                         .background(theme.colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
                         .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(theme.colors.border, lineWidth: 1) }
@@ -260,6 +266,23 @@ private struct BrowserWorkspacePage: View {
     private var webContent: some View {
 #if os(macOS)
         WorkspaceWebView(viewModel: page, topContentInset: topContentInset, onFocus: onFocus)
+            .overlay {
+                if page.annotations.isSelecting || page.annotations.isCapturing {
+                    WorkspaceBrowserAnnotationPicker(model: page.annotations)
+                } else if let draft = page.annotations.draft {
+                    WorkspaceBrowserAnnotationOverlay(model: page.annotations, draft: draft)
+                }
+            }
+            .overlay(alignment: .top) {
+                if let error = page.annotations.errorMessage {
+                    Text(error).font(.caption).foregroundStyle(theme.colors.statusBlocked)
+                        .padding(10).background(theme.colors.surfaceRaised)
+                        .padding(.top, topContentInset)
+                }
+            }
+            .onDisappear { page.annotations.cancel() }
+#elseif os(iOS)
+        WorkspaceWebView(viewModel: page, onScroll: onScroll)
 #else
         WorkspaceWebView(viewModel: page)
 #endif

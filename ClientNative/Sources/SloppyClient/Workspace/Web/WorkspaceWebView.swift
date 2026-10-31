@@ -224,9 +224,11 @@ struct WorkspaceWebView: UIViewRepresentable {
     let viewModel: WorkspaceWebViewModel?
     let artifactHTML: String?
     let artifactTitle: String
+    private var onScroll: (@MainActor (BrowserScrollSample) -> Void)?
 
-    init(viewModel: WorkspaceWebViewModel) {
+    init(viewModel: WorkspaceWebViewModel, onScroll: (@MainActor (BrowserScrollSample) -> Void)? = nil) {
         self.viewModel = viewModel
+        self.onScroll = onScroll
         artifactHTML = nil
         artifactTitle = "Web content"
     }
@@ -240,6 +242,20 @@ struct WorkspaceWebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(viewModel: viewModel) }
 
     func makeUIView(context: Context) -> WKWebView {
+#if os(iOS)
+        if let viewModel {
+            let webView = viewModel.ensureBrowserRuntime().webView
+            context.coordinator.webView = webView
+            context.coordinator.observeScrolling(webView.scrollView, handler: onScroll)
+            if webView.scrollView.refreshControl == nil {
+                webView.scrollView.refreshControl = UIRefreshControl()
+                webView.scrollView.alwaysBounceVertical = true
+            }
+            webView.scrollView.refreshControl?.removeTarget(nil, action: nil, for: .valueChanged)
+            webView.scrollView.refreshControl?.addTarget(context.coordinator, action: #selector(Coordinator.refreshPage), for: .valueChanged)
+            return webView
+        }
+#endif
         if let webView = viewModel?.nativeWebView {
             context.coordinator.webView = webView
             context.coordinator.observeLoading(webView)
@@ -283,9 +299,16 @@ struct WorkspaceWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+#if os(iOS)
+        context.coordinator.observeScrolling(webView.scrollView, handler: onScroll)
+#endif
         if let artifactHTML, context.coordinator.loadedHTML != artifactHTML {
             context.coordinator.load(html: artifactHTML, in: webView)
         }
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.stopObservingScroll()
     }
 
     @MainActor
@@ -294,11 +317,50 @@ struct WorkspaceWebView: UIViewRepresentable {
         weak var webView: WKWebView?
         var loadedHTML: String?
         private var loadingObservations: [NSKeyValueObservation] = []
+        private var scrollObservation: NSKeyValueObservation?
+        private weak var observedScrollView: UIScrollView?
+        private var onScroll: (@MainActor (BrowserScrollSample) -> Void)?
 
         init(viewModel: WorkspaceWebViewModel?) { self.viewModel = viewModel }
 
+        func observeScrolling(_ scrollView: UIScrollView, handler: (@MainActor (BrowserScrollSample) -> Void)?) {
+            guard let handler else { stopObservingScroll(); return }
+            onScroll = handler
+            guard observedScrollView !== scrollView else { return }
+            scrollObservation = nil
+            observedScrollView = scrollView
+            // WebKit keeps its own scroll delegate; observe geometry without replacing it.
+            scrollObservation = scrollView.observe(\.contentOffset, options: [.initial, .new]) { [weak self, weak scrollView] _, _ in
+                guard let scrollView else { return }
+                // Capture the input phase at delivery time; it may have ended by the next actor turn.
+                let sample = MainActor.assumeIsolated {
+                    let insets = scrollView.adjustedContentInset
+                    return BrowserScrollSample(offset: scrollView.contentOffset.y + insets.top,
+                        maximumOffset: max(0, scrollView.contentSize.height + insets.top + insets.bottom - scrollView.bounds.height),
+                        viewportHeight: scrollView.bounds.height, contentHeight: scrollView.contentSize.height,
+                        isUserScrolling: (scrollView.isDragging || scrollView.isDecelerating) && !scrollView.isZooming && !scrollView.isZoomBouncing)
+                }
+                Task { @MainActor [weak self, weak scrollView] in
+                    guard let self, let scrollView, observedScrollView === scrollView else { return }
+                    onScroll?(sample)
+                }
+            }
+        }
+
+        func stopObservingScroll() {
+            scrollObservation = nil
+            observedScrollView = nil
+            onScroll = nil
+        }
+
         func observeLoading(_ webView: WKWebView) {
             loadingObservations = [
+                webView.observe(\.title, options: [.new]) { [weak self] _, _ in
+                    Task { @MainActor [weak self] in self?.syncLoading() }
+                },
+                webView.observe(\.url, options: [.new]) { [weak self] _, _ in
+                    Task { @MainActor [weak self] in self?.syncLoading() }
+                },
                 webView.observe(\.estimatedProgress, options: [.new]) { [weak self] _, _ in
                     Task { @MainActor [weak self] in self?.syncLoading() }
                 },
@@ -316,6 +378,14 @@ struct WorkspaceWebView: UIViewRepresentable {
             viewModel?.estimatedProgress = webView.estimatedProgress
             viewModel?.hasOnlySecureContent = webView.hasOnlySecureContent
             viewModel?.isLoading = webView.isLoading
+            viewModel?.canGoBack = webView.canGoBack
+            viewModel?.canGoForward = webView.canGoForward
+            if viewModel?.currentURL != webView.url {
+                viewModel?.currentURL = webView.url
+                viewModel?.addressText = webView.url?.absoluteString ?? ""
+            }
+            if viewModel?.pageTitle != webView.title { viewModel?.pageTitle = webView.title }
+            if !webView.isLoading { viewModel?.history.updateTitle(url: webView.url, title: webView.title) }
         }
 
         func load(html: String, in webView: WKWebView) {

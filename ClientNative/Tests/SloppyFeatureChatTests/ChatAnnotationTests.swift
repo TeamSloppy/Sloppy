@@ -154,13 +154,18 @@ struct ChatAnnotationTests {
         let receiver = model.makeBrowserAnnotationReceiver()
         let url = try #require(URL(string: "http://localhost:8765/editor"))
         let note = ChatImageAnnotation(region: .init(x: 0.2, y: 0.3, width: 0.1, height: 0.2), comment: "Enlarge",
-            browserSource: .init(url: url, title: "Editor", selector: "#create"))
+            browserSource: .init(url: url, title: "Editor", selector: "#create", tag: "button",
+                                 elementID: "create", classNames: ["primary", "action"]))
         let attachment = ChatComposerAttachment(name: "Browser annotation.png", mimeType: "image/png",
             data: Data([1, 2, 3]), annotations: [note])
         #expect(receiver(attachment))
         let content = ChatComposerQuote.messageContent("Please fix", quotes: [], attachments: model.composerAttachments)
         #expect(content.contains("Page URL: http://localhost:8765/editor"))
         #expect(content.contains("CSS selector: #create"))
+        let sent = try #require(ChatSentAnnotations.extract(from: content)?.annotations.first)
+        #expect(sent.source?.contains("HTML tag: button") == true)
+        #expect(sent.source?.contains("HTML id: create") == true)
+        #expect(sent.source?.contains("HTML classes: primary action") == true)
         var queue = ChatMessageQueue()
         queue.enqueue(content: "Fix", attachments: model.composerAttachments)
         #expect(queue.dequeue()?.attachments.first?.annotations.first?.browserSource == note.browserSource)

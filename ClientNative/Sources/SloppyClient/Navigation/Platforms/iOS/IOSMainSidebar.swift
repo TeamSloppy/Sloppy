@@ -51,8 +51,10 @@ struct PlatformMainSidebar: View {
                         .navigationDestination(for: MainSidebarSelection.self) { selection in
                             navigationDestination(selection)
                                 .mobileScreenBackground()
+                                .mobileWorkBrowseNavigationBar()
                         }
                         .mobileScreenBackground()
+                        .mobileWorkBrowseNavigationBar()
                         .navigationTitle(viewModel.selectedInstanceTitle)
                         .navigationBarTitleDisplayMode(.large)
                         .toolbarTitleMenu {
@@ -84,6 +86,7 @@ struct PlatformMainSidebar: View {
             Tab("Attention", systemImage: "bell.badge", value: MainAppSection.attention) {
                 NavigationStack {
                     AttentionScreen(inbox: viewModel.attentionInbox)
+                        .mobileWorkBrowseNavigationBar()
                 }
             }
             .badge(viewModel.attentionInbox.unreadCount)
@@ -96,6 +99,7 @@ struct PlatformMainSidebar: View {
                     onLinkChat: { detail, session in try await viewModel.linkPullRequestChat(detail, session: session) },
                         onSendReview: { detail, submission in try await viewModel.sendPullRequestReview(detail, submission: submission) }
                     )
+                    .mobileWorkBrowseNavigationBar()
                 }
             }
 
@@ -103,6 +107,7 @@ struct PlatformMainSidebar: View {
                 if idiom == .phone {
                     NavigationStack {
                         CanvasWorkspaceSurface(viewModel: canvasWorkspaceViewModel)
+                            .mobileWorkBrowseNavigationBar()
                     }
                     .mobileScreenBackground()
                     .modifier(IOSComposerContainer(composer: mobileComposer, viewModel: composerViewModel))

@@ -1,0 +1,21 @@
+appId: team.sloppy.client
+name: Browser page edges and accessible last action
+---
+# Launch --browser-ui-fixture with /long.html first, using the local fixture server.
+- launchApp:
+    stopApp: false
+- assertVisible: Browser Edge Layout
+- scrollUntilVisible:
+    element: Final page action
+    direction: DOWN
+    centerElement: true
+- tapOn: Final page action
+- assertVisible: Bottom action reached
+- tapOn:
+    id: browser-address
+- tapOn: Clear search
+- inputText: http://127.0.0.1:18874/
+- pressKey: Enter
+- assertVisible: Browser First Page
+- tapOn: Open second page
+- assertVisible: Browser Second Page

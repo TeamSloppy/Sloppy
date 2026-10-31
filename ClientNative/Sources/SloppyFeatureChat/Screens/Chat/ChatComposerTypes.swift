@@ -91,7 +91,7 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
             ChatSentAnnotations.Annotation(
                 selectedText: $0.text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"),
                 comment: $0.comment.trimmingCharacters(in: .whitespacesAndNewlines),
-                source: $0.browserSource.map { "Page URL: \($0.url.absoluteString)\nPage title: \($0.title)" }
+                source: $0.browserSource?.annotationContext
             )
         }
         let imageAnnotations = attachments.enumerated().flatMap { index, attachment in
@@ -101,10 +101,7 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
                         + "Coordinates are percentages of the original image; origin is top-left.\n"
                         + annotation.region.coordinateDescription,
                     comment: annotation.comment,
-                    source: annotation.browserSource.map {
-                        "Page URL: \($0.url.absoluteString)\nPage title: \($0.title)"
-                            + ($0.selector.map { "\nCSS selector: \($0)" } ?? "")
-                    }
+                    source: annotation.browserSource?.annotationContext
                 )
             }
         }
@@ -125,15 +122,14 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
             let comment = quote.comment.trimmingCharacters(in: .whitespacesAndNewlines)
             let note = comment.isEmpty ? text : "\(text)\nComment: \(comment)"
             guard let source = quote.browserSource else { return note }
-            return note + "\nPage URL: \(source.url.absoluteString)\nPage title: \(source.title)"
+            return note + "\n" + source.annotationContext
         }.joined(separator: "\n\n")
         let imageAnnotations = attachments.enumerated().compactMap { index, attachment -> String? in
             guard !attachment.annotations.isEmpty else { return nil }
             let notes = attachment.annotations.enumerated().map { number, annotation in
                 let note = "\(number + 1). (\(annotation.region.coordinateDescription)) \(annotation.comment)"
                 guard let source = annotation.browserSource else { return note }
-                return note + "\nPage URL: \(source.url.absoluteString)\nPage title: \(source.title)"
-                    + (source.selector.map { "\nCSS selector: \($0)" } ?? "")
+                return note + "\n" + source.annotationContext
             }.joined(separator: "\n")
             return "Image annotations — attachment \(index + 1): \(attachment.uploadName)\n"
                 + "Coordinates are percentages of the original image; origin is top-left.\n\(notes)"
