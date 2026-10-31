@@ -32,8 +32,11 @@ struct RootShellView: View {
 
     var body: some View {
         Group {
+            if !viewModel.launchPreferences.hasCompletedWelcome {
+                WelcomeScreen(onChoose: viewModel.completeWelcome)
+            } else {
             #if os(macOS)
-            if backendInstallation.blocksApp {
+            if backendInstallation.blocksApp && !viewModel.showsStandaloneBrowser && viewModel.appState == .splash {
                 BackendInstallationView(model: backendInstallation)
             } else {
                 RootShellContent(viewModel: viewModel)
@@ -41,6 +44,7 @@ struct RootShellView: View {
             #else
             RootShellContent(viewModel: viewModel)
             #endif
+            }
         }
             .environment(viewModel)
             .desktopScreenStyle()
@@ -93,17 +97,19 @@ struct RootShellView: View {
             } message: {
                 Text(offeredMigrationSources.contains(where: { !$0.readable }) ? "Import your previous assistant data by choosing its folder to allow access on this Mac." : "Found " + offeredMigrationSources.map { $0.kind.rawValue.capitalized }.joined(separator: ", ") + ". Import skills, MCP, conversations and memory from this Mac.")
             }
-            .task {
+            .task(id: viewModel.launchPreferences.hasCompletedWelcome && !viewModel.showsStandaloneBrowser) {
+                guard viewModel.launchPreferences.hasCompletedWelcome, !viewModel.showsStandaloneBrowser else { return }
                 await ManagedRemoteHostManager.shared.startIfNeeded(
                     localCoreURL: viewModel.settings.baseURL
                 )
             }
             #endif
             #if os(macOS)
-            .task {
+            .task(id: viewModel.launchPreferences.hasCompletedWelcome && !viewModel.showsStandaloneBrowser) {
                 viewModel.configureMainWindowOpener {
                     openWindow(id: "main")
                 }
+                guard viewModel.launchPreferences.hasCompletedWelcome, !viewModel.showsStandaloneBrowser else { return }
                 backendInstallation.checkIfNeeded()
             }
             #endif
@@ -133,6 +139,9 @@ private struct RootShellContent: View {
                 mobileConnectionContent
             }
 #else
+            if rootViewModel.showsStandaloneBrowser {
+                StandaloneBrowserShell(root: rootViewModel)
+            } else {
             switch rootViewModel.appState {
             case .splash:
                 SplashScreen(settings: rootViewModel.settings) { result in
@@ -150,6 +159,7 @@ private struct RootShellContent: View {
                 }
 
             case .connectionSetup:
+                if rootViewModel.connectionSetupRequested {
                 ConnectionSetupView(
                     settings: rootViewModel.settings,
                     onConnected: { url in
@@ -157,8 +167,12 @@ private struct RootShellContent: View {
                     },
                     onScannedCode: rootViewModel.handleDeepLink,
                     onCloudConnected: rootViewModel.startCloudConnected,
-                    autoConnectCloud: rootViewModel.autoConnectCloud
+                    autoConnectCloud: rootViewModel.autoConnectCloud,
+                    onBrowse: rootViewModel.useAsBrowser
                 )
+                } else {
+                    AgentConnectionStatusView(root: rootViewModel, onConfigure: rootViewModel.showConnectionSetup)
+                }
 
             case .authentication(let url, let challenge, let message):
                 AuthenticationScreen(
@@ -201,6 +215,7 @@ private struct RootShellContent: View {
                         .id(rootViewModel.settings.activeInstanceEndpoint.cacheNamespace)
                 }
                 .id(rootViewModel.settings.instanceDirectoryKey + ":" + rootViewModel.settings.activeInstanceEndpoint.cacheNamespace)
+            }
             }
 #endif
 
@@ -252,15 +267,15 @@ private struct RootShellContent: View {
     private var mobileConnectionContent: some View {
         switch viewModel.appState {
         case .splash, .pairing:
-            VStack(spacing: 20) {
-                ProgressView("Connecting to your workspace…")
-                Button("Choose a server") { viewModel.showConnectionSetup() }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            AgentConnectionStatusView(root: viewModel, onConfigure: viewModel.showConnectionSetup)
         case .connectionSetup:
+            if viewModel.connectionSetupRequested {
             ConnectionSetupView(settings: viewModel.settings, onConnected: viewModel.connect,
                 onScannedCode: viewModel.handleDeepLink, onCloudConnected: viewModel.startCloudConnected,
-                autoConnectCloud: viewModel.autoConnectCloud)
+                autoConnectCloud: viewModel.autoConnectCloud, onBrowse: viewModel.useAsBrowser)
+            } else {
+                AgentConnectionStatusView(root: viewModel, onConfigure: viewModel.showConnectionSetup)
+            }
         case .authentication(let url, let challenge, let message):
             AuthenticationScreen(baseURL: url, challenge: challenge, initialMessage: message,
                 onAuthenticated: viewModel.startConnected, onScannedCode: viewModel.handleDeepLink,

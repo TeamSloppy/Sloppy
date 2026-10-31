@@ -7,12 +7,13 @@ struct BrowserAgentChatPanel: View {
     let state: BrowserAgentChatState
     let browser: BrowserWorkspaceState
     @Environment(\.theme) private var theme
+    @Environment(RootShellViewModel.self) private var root: RootShellViewModel?
 
     var body: some View {
         Group {
 #if os(iOS)
             NavigationStack {
-                panelContent
+                connectionAwareContent
                     .navigationTitle("Assistant")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -33,7 +34,7 @@ struct BrowserAgentChatPanel: View {
                     }
             }
 #else
-            panelContent
+            connectionAwareContent
 #endif
         }
 #if os(macOS)
@@ -45,6 +46,26 @@ struct BrowserAgentChatPanel: View {
         .environment(\.chatUsesCompactLayout, true)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser-agent-panel")
+    }
+
+    @ViewBuilder
+    private var connectionAwareContent: some View {
+        if let root, root.agentConnectionStatus != .connected {
+            VStack(spacing: 0) {
+#if !os(iOS)
+                HStack {
+                    Text("Assistant").font(.headline)
+                    Spacer()
+                    closeButton.buttonStyle(.plain)
+                }
+                .padding(16)
+                Divider()
+#endif
+                AgentConnectionStatusView(root: root, onConfigure: root.showConnectionSetup)
+            }
+        } else {
+            panelContent
+        }
     }
 
     private var panelContent: some View {

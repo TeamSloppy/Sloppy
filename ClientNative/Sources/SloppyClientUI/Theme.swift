@@ -92,9 +92,27 @@ public struct AppColors: Sendable, Hashable {
     static var platformDark: AppColors {
 #if os(macOS)
         desktopDark
+#elseif os(iOS)
+        mobile(dark)
 #else
         dark
 #endif
+    }
+
+    static var platformLight: AppColors {
+#if os(iOS)
+        mobile(light)
+#else
+        light
+#endif
+    }
+
+    private static func mobile(_ base: AppColors) -> AppColors {
+        var colors = base
+        colors.accent = .primary
+        colors.accentCyan = .primary
+        colors.accentAcid = .primary
+        return colors
     }
 }
 
@@ -164,7 +182,7 @@ public struct AppTheme: Sendable, Hashable {
     )
 
     public static let sloppyLight = AppTheme(
-        colors: .light,
+        colors: .platformLight,
         typography: .default,
         spacing: .default,
         borders: .default

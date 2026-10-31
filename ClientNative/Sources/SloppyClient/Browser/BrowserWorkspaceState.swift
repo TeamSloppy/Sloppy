@@ -59,6 +59,17 @@ struct BrowserTabRecord: Codable, Equatable, Identifiable {
     var groupID: UUID?
 }
 
+enum BrowserTabSwipeDirection: Equatable, Sendable {
+    case previous
+    case next
+
+    static func resolve(horizontal: CGFloat, vertical: CGFloat) -> Self? {
+        guard horizontal.isFinite, vertical.isFinite,
+              abs(horizontal) >= 44, abs(horizontal) > abs(vertical) * 1.5 else { return nil }
+        return horizontal < 0 ? .next : .previous
+    }
+}
+
 struct BrowserTabGroup: Codable, Equatable, Identifiable {
     var id = UUID()
     var title: String
@@ -146,10 +157,15 @@ final class BrowserWorkspaceState {
 
     @discardableResult
     func createBlankTab() -> UUID {
+        createBlankTab(id: UUID())
+    }
+
+    @discardableResult
+    func createBlankTab(id: UUID) -> UUID {
         checkpoint()
         isBrowsing = true
         let previous = selectedID
-        let tab = BrowserTabRecord(groupID: selectedTab?.groupID)
+        let tab = BrowserTabRecord(id: id, groupID: selectedTab?.groupID)
         tabs.append(tab)
         selectedID = tab.id
         selectedTabIDs = [tab.id]
@@ -179,6 +195,44 @@ final class BrowserWorkspaceState {
         extensionBridge?.selectionChanged(from: previous)
 #endif
         persist()
+    }
+
+    @discardableResult
+    func selectAdjacentTab(_ direction: BrowserTabSwipeDirection) -> Bool {
+        guard let target = tabSwipeTarget(direction) else { return false }
+        return activateTabSwipeTarget(target)
+    }
+
+    func tabSwipeTarget(_ direction: BrowserTabSwipeDirection, newTabID: UUID = UUID()) -> BrowserTabSwipeTarget? {
+        let index = tabs.firstIndex { $0.id == selectedID }
+        switch direction {
+        case .previous:
+            guard let index, index > 0 else { return nil }
+            return .existing(tabs[index - 1].id)
+        case .next:
+            let nextIndex = index.map { $0 + 1 } ?? 0
+            if tabs.indices.contains(nextIndex) {
+                return .existing(tabs[nextIndex].id)
+            }
+            return .newTab(newTabID)
+        }
+    }
+
+    func prepareTabSwipeTarget(_ target: BrowserTabSwipeTarget) {
+        if case .existing(let id) = target { preparePage(id) }
+    }
+
+    @discardableResult
+    func activateTabSwipeTarget(_ target: BrowserTabSwipeTarget) -> Bool {
+        switch target {
+        case .existing(let id):
+            guard tabs.contains(where: { $0.id == id }) else { return false }
+            select(id)
+        case .newTab(let id):
+            guard !tabs.contains(where: { $0.id == id }) else { return false }
+            createBlankTab(id: id)
+        }
+        return true
     }
 
     func selectTabs(_ ids: Set<UUID>) {

@@ -10,6 +10,116 @@ struct BrowserWorkspaceTests {
         return (try #require(UserDefaults(suiteName: name)), name)
     }
 
+    @Test func tabSwipesRequireADeliberateHorizontalGesture() {
+        #expect(BrowserTabSwipeDirection.resolve(horizontal: -80, vertical: 10) == .next)
+        #expect(BrowserTabSwipeDirection.resolve(horizontal: 80, vertical: -10) == .previous)
+        #expect(BrowserTabSwipeDirection.resolve(horizontal: -30, vertical: 0) == nil)
+        #expect(BrowserTabSwipeDirection.resolve(horizontal: 50, vertical: 60) == nil)
+        #expect(BrowserTabSwipeDirection.resolve(horizontal: .infinity, vertical: 0) == nil)
+        #expect(BrowserTabSwipeDirection.resolve(horizontal: 80, vertical: .nan) == nil)
+    }
+
+    @Test func adjacentTabNavigationFollowsCurrentOrderAndRetainsPages() throws {
+        let (defaults, name) = try defaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let state = BrowserWorkspaceState(defaults: defaults)
+        let first = state.createBlankTab()
+        let second = state.createBlankTab()
+        let third = state.createBlankTab()
+        state.select(second)
+        let page = try #require(state.selectedPage)
+
+        #expect(state.selectAdjacentTab(.previous))
+        #expect(state.selectedID == first)
+        #expect(state.selectAdjacentTab(.next))
+        #expect(state.selectedID == second)
+        #expect(state.selectedPage === page)
+        state.move(from: IndexSet(integer: 0), to: 3)
+        state.select(third)
+        #expect(state.selectAdjacentTab(.next))
+        #expect(state.selectedID == first)
+        #expect(state.tabs.count == 3)
+    }
+
+    @Test func swipingPastTheLastTabCreatesOneBlankTabWithoutOpeningSearch() throws {
+        let (defaults, name) = try defaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let state = BrowserWorkspaceState(defaults: defaults)
+        let first = state.createBlankTab()
+        #expect(!state.selectAdjacentTab(.previous))
+        #expect(state.selectedID == first)
+        #expect(state.tabs.count == 1)
+
+        #expect(state.selectAdjacentTab(.next))
+        #expect(state.tabs.count == 2)
+        #expect(state.selectedID == state.tabs.last?.id)
+        #expect(state.selectedID != first)
+        #expect(state.selectedTab?.url == nil)
+        #expect(!state.isSearchPresented)
+        let restored = BrowserWorkspaceState(defaults: defaults)
+        #expect(restored.tabs.count == 2)
+        #expect(restored.selectedID == state.selectedID)
+    }
+
+    @Test func swipingFromHomeSelectsExistingTabsBeforeCreatingAnother() throws {
+        let (defaults, name) = try defaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let state = BrowserWorkspaceState(defaults: defaults)
+        let first = state.createBlankTab()
+        state.createBlankTab()
+        state.showHome()
+        #expect(!state.selectAdjacentTab(.previous))
+        #expect(state.selectedID == nil)
+        #expect(state.selectAdjacentTab(.next))
+        #expect(state.selectedID == first)
+        #expect(state.tabs.count == 2)
+    }
+
+    @Test func swipingWithNoTabsCreatesTheFirstBlankTabOnlyWhenMovingForward() throws {
+        let (defaults, name) = try defaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let state = BrowserWorkspaceState(defaults: defaults)
+        #expect(!state.selectAdjacentTab(.previous))
+        #expect(state.tabs.isEmpty)
+        #expect(state.selectAdjacentTab(.next))
+        #expect(state.tabs.count == 1)
+        #expect(state.selectedTab?.url == nil)
+    }
+
+    @Test func previewingANeighborKeepsSelectionAndRetainsItsPageWhenCommitted() throws {
+        let (defaults, name) = try defaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let state = BrowserWorkspaceState(defaults: defaults)
+        let first = state.createBlankTab()
+        let second = state.createBlankTab()
+        state.select(first)
+        let target = try #require(state.tabSwipeTarget(.next))
+        state.prepareTabSwipeTarget(target)
+        let page = try #require(state.pages[second])
+        #expect(state.selectedID == first)
+        #expect(state.tabs.count == 2)
+        #expect(state.activateTabSwipeTarget(target))
+        #expect(state.selectedID == second)
+        #expect(state.selectedPage === page)
+    }
+
+    @Test func previewingPastTheLastTabDoesNotCreateATabUntilCommit() throws {
+        let (defaults, name) = try defaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let state = BrowserWorkspaceState(defaults: defaults)
+        let first = state.createBlankTab()
+        let previewID = UUID()
+        let target = try #require(state.tabSwipeTarget(.next, newTabID: previewID))
+        #expect(target == .newTab(previewID))
+        state.prepareTabSwipeTarget(target)
+        #expect(state.tabs.count == 1)
+        #expect(state.selectedID == first)
+        #expect(state.activateTabSwipeTarget(target))
+        #expect(state.selectedID == previewID)
+        #expect(!state.activateTabSwipeTarget(target))
+        #expect(state.tabs.count == 2)
+    }
+
     @Test func restoresModeEngineTabOrderAndSelection() throws {
         let (defaults, name) = try defaults()
         defer { defaults.removePersistentDomain(forName: name) }

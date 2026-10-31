@@ -19,26 +19,67 @@ struct MobileBrowserWorkspaceView: View {
     @State private var pendingAgentPrompt: String?
     @State private var toolbarCollapse = MobileBrowserToolbarCollapse()
     @State private var expandedToolbarHeight: CGFloat = 106
+    @State private var visibleToolbarHeight: CGFloat = 106
+    @State private var tabSwipe: MobileBrowserTabSwipe?
+    @State private var pageViewportWidth: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.theme) private var theme
 
     var body: some View {
         NavigationStack {
             page
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+                .overlay {
+                    if !state.isSearchPresented {
+                        GeometryReader { geometry in
+                            MobileBrowserBottomBackdrop(toolbarHeight: visibleToolbarHeight + 4,
+                                                        bottomInset: geometry.safeAreaInsets.bottom)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
+                }
+                .overlay(alignment: .bottom) {
                     if !state.isSearchPresented {
                         MobileBrowserToolbar(state: state, onNewTab: newTab, onTabs: openTabs,
                                              onMenu: { sheet = .menu }, onAssistant: askAgent,
+                                             onTabSwipe: switchTab,
+                                             onTabSwipeChanged: updateTabSwipe,
+                                             onTabSwipeEnded: endTabSwipe,
+                                             onTabSwipeCancelled: cancelTabSwipe,
+                                             tabSwipe: tabSwipe,
                                              isCollapsed: toolbarCollapse.isCollapsed, onExpand: toolbarCollapse.expand,
                                              onExpandedHeightChange: { height in
                                                  if height > 0, height != expandedToolbarHeight { expandedToolbarHeight = height }
                                              })
                             .frame(maxWidth: 640)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                if height > 0, height != visibleToolbarHeight { visibleToolbarHeight = height }
+                            }
                             .padding(.horizontal, 12)
                             .padding(.bottom, 4)
                     }
                 }
                 .background(pageBackground.ignoresSafeArea(.container))
-                .toolbar(.hidden, for: .navigationBar)
+                .navigationTitle("Browse")
+                .navigationBarTitleDisplayMode(.inline)
+                .mobileWorkBrowseNavigationBar()
+                .toolbar(isShowingHome ? .visible : .hidden, for: .navigationBar)
+                .toolbar {
+                    if isShowingHome {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            Button { sheet = .library(.history) } label: {
+                                Label("History", systemImage: "clock.arrow.circlepath")
+                            }
+                            .accessibilityIdentifier("browser-home-history")
+                            Button { sheet = .library(.bookmarks) } label: {
+                                Label("Bookmarks", systemImage: "book")
+                            }
+                            .accessibilityIdentifier("browser-home-bookmarks")
+                        }
+                    }
+                }
         }
         .allowsHitTesting(!state.isSearchPresented)
         .accessibilityHidden(state.isSearchPresented)
@@ -96,40 +137,95 @@ struct MobileBrowserWorkspaceView: View {
         }
         .onChange(of: state.tabs.map(\.id)) { _, ids in
             snapshots = snapshots.filter { ids.contains($0.key) }
+            if let target = tabSwipe?.target, case .existing(let id) = target, !ids.contains(id) {
+                tabSwipe = nil
+            }
         }
-        .onDisappear { state.checkpoint() }
-        .onChange(of: state.selectedID) { _, _ in toolbarCollapse.expand() }
+        .onDisappear { state.checkpoint(); tabSwipe = nil }
+        .onChange(of: state.selectedID) { _, selectedID in
+            if let tabSwipe, tabSwipe.sourceID != selectedID { self.tabSwipe = nil }
+            toolbarCollapse.expand()
+        }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { tabSwipe = nil } }
         .onChange(of: state.selectedTab?.url) { _, _ in toolbarCollapse.expand() }
         .onChange(of: state.selectedPage?.isLoading) { _, loading in if loading == true { toolbarCollapse.expand() } }
         .onChange(of: state.isBrowsing) { _, _ in toolbarCollapse.expand() }
         .onChange(of: state.isSearchPresented) { _, shown in
-            if shown { pendingAgentPrompt = nil; toolbarCollapse.expand() }
+            if shown { tabSwipe = nil; pendingAgentPrompt = nil; toolbarCollapse.expand() }
         }
         .onChange(of: showsTabs) { _, shown in if shown { toolbarCollapse.expand() } }
         .preference(key: MobileBrowserChromeSchemePreferenceKey.self, value: chromeScheme)
     }
 
-    @ViewBuilder
     private var page: some View {
-        if let tab = state.selectedTab, tab.url != nil, let page = state.pages[tab.id] {
-            BrowserWorkspacePage(page: page, restoredState: tab.interactionState,
-                                 onAsk: onAskAgent, annotationTarget: onAnnotateSelection,
-                                 onScroll: { sample in
-                                     guard state.isBrowsing, state.selectedID == tab.id,
-                                           !state.isSearchPresented, !showsTabs, sheet == nil,
-                                           agentChat?.panel.isPresented != true else { return }
-                                     toolbarCollapse.consume(sample, transitionDistance: expandedToolbarHeight)
-                                 })
-                .id(ObjectIdentifier(page))
-        } else {
-            MobileBrowserHomeView(state: state, onLibrary: { sheet = .library($0) },
-                                  onSearch: { state.presentSearch(newTab: state.selectedID == nil) }, onAskAgent: askAgent)
+        MobileBrowserPagePager(state: state, swipe: $tabSwipe, viewportWidth: $pageViewportWidth,
+                               onAskAgent: onAskAgent, onHomeAskAgent: askAgent,
+                               annotationTarget: onAnnotateSelection) { id, sample in
+            guard state.isBrowsing, state.selectedID == id, tabSwipe == nil,
+                  !state.isSearchPresented, !showsTabs, sheet == nil,
+                  agentChat?.panel.isPresented != true else { return }
+            toolbarCollapse.consume(sample, transitionDistance: expandedToolbarHeight)
         }
     }
 
+    private func updateTabSwipe(_ translation: CGSize) {
+        guard !reduceMotion, pageViewportWidth > 0, tabSwipe?.isSettling != true else { return }
+        if tabSwipe == nil {
+            guard let direction = MobileBrowserTabSwipe.dragDirection(
+                horizontal: translation.width, vertical: translation.height
+            ) else { return }
+            captureSelectedPage()
+            tabSwipe = MobileBrowserTabSwipe(sourceID: state.selectedID, width: pageViewportWidth,
+                                             direction: direction)
+        }
+        guard var swipe = tabSwipe else { return }
+        let direction: BrowserTabSwipeDirection = translation.width < 0 ? .next : .previous
+        let target = state.tabSwipeTarget(direction, newTabID: swipe.newTabID)
+        if let target, target != swipe.target { state.prepareTabSwipeTarget(target) }
+        swipe.update(horizontal: translation.width, target: target)
+        tabSwipe = swipe
+    }
+
+    private func endTabSwipe(_ translation: CGSize, predicted: CGSize) {
+        if reduceMotion {
+            if let direction = BrowserTabSwipeDirection.resolve(horizontal: translation.width, vertical: translation.height) {
+                switchTab(direction)
+            }
+            return
+        }
+        updateTabSwipe(translation)
+        guard let swipe = tabSwipe, !swipe.isSettling else { return }
+        finishTabSwipe(committing: swipe.shouldCommit(predictedHorizontal: predicted.width))
+    }
+
+    private func cancelTabSwipe() {
+        guard let tabSwipe, !tabSwipe.isSettling else { return }
+        finishTabSwipe(committing: false)
+    }
+
+    private func finishTabSwipe(committing: Bool) {
+        guard let swipe = tabSwipe else { return }
+        tabSwipe?.isSettling = true
+        withAnimation(.smooth(duration: 0.3), completionCriteria: .logicallyComplete) {
+            tabSwipe?.offset = swipe.destinationOffset(committing: committing)
+        } completion: {
+            guard tabSwipe?.id == swipe.id else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                if committing, state.selectedID == swipe.sourceID, let target = swipe.target {
+                    state.activateTabSwipeTarget(target)
+                }
+                tabSwipe = nil
+            }
+        }
+    }
+
+    private var isShowingHome: Bool { state.selectedTab?.url == nil }
+
     private var pageBackground: Color {
-        Color(uiColor: state.selectedTab?.url == nil ? .systemGroupedBackground
-            : state.selectedPage?.browserBackgroundColor ?? .systemBackground)
+        if state.selectedTab?.url == nil { return theme.colors.background }
+        return Color(uiColor: state.selectedPage?.browserBackgroundColor ?? .systemBackground)
     }
 
     private var chromeScheme: ColorScheme? {
@@ -152,6 +248,12 @@ struct MobileBrowserWorkspaceView: View {
         showsTabs = true
     }
 
+    private func switchTab(_ direction: BrowserTabSwipeDirection) {
+        tabSwipe = nil
+        captureSelectedPage()
+        state.selectAdjacentTab(direction)
+    }
+
     private func askAgent() {
         if let agentChat { agentChat.show() } else { onAskAgent("") }
     }
@@ -169,6 +271,67 @@ struct MobileBrowserWorkspaceView: View {
                 snapshots[id] = image
             }
         }
+    }
+}
+
+/// Web content scrolls beneath the status bar and fades back into focus below it.
+struct MobileBrowserTopBackdrop: View {
+    let statusBarHeight: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        if statusBarHeight > 0 {
+            let height = statusBarHeight + 32
+            Group {
+                if reduceTransparency {
+                    Rectangle().fill(.background).frame(height: statusBarHeight)
+                } else {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .frame(height: height)
+                        .mask {
+                            LinearGradient(stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black, location: statusBarHeight / height),
+                                .init(color: .clear, location: 1),
+                            ], startPoint: .top, endPoint: .bottom)
+                        }
+                }
+            }
+                .offset(y: -statusBarHeight)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+private struct MobileBrowserBottomBackdrop: View {
+    let toolbarHeight: CGFloat
+    let bottomInset: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        let coveredHeight = toolbarHeight + bottomInset
+        let height = coveredHeight + 32
+        Group {
+            if reduceTransparency {
+                Rectangle().fill(.background).frame(height: coveredHeight)
+            } else {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .frame(height: height)
+                    .mask {
+                        LinearGradient(stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: 32 / height),
+                            .init(color: .black, location: 1),
+                        ], startPoint: .top, endPoint: .bottom)
+                    }
+            }
+        }
+        .offset(y: bottomInset)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

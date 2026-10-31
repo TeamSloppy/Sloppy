@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import SloppyClientUI
 
 @MainActor
 struct MobileBrowserTabsView: View {
@@ -7,6 +8,7 @@ struct MobileBrowserTabsView: View {
     let snapshots: [UUID: UIImage]
     let onNewTab: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.theme) private var theme
     @State private var query = ""
     @State private var groupID: UUID?
     @State private var confirmsClosingTabs = false
@@ -28,7 +30,7 @@ struct MobileBrowserTabsView: View {
                 .padding(20)
                 .frame(maxWidth: 1040).frame(maxWidth: .infinity)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(theme.colors.background.ignoresSafeArea())
             .overlay {
                 if tabs.isEmpty {
                     ContentUnavailableView(query.isEmpty ? "No open tabs" : "No matching tabs",
@@ -38,6 +40,7 @@ struct MobileBrowserTabsView: View {
             }
             .navigationTitle("Tabs")
             .navigationBarTitleDisplayMode(.inline)
+            .mobileWorkBrowseNavigationBar()
             .searchable(text: $query, prompt: "Find a tab")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -64,6 +67,10 @@ struct MobileBrowserTabsView: View {
             .confirmationDialog("Close \(tabs.count) tabs?", isPresented: $confirmsClosingTabs, titleVisibility: .visible) {
                 Button("Close tabs", role: .destructive) { tabs.map(\.id).forEach(state.close) }
             }
+        }
+        .mobileScreenBackground()
+        .onChange(of: state.isBrowsing) { _, browsing in
+            if !browsing { dismiss() }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser-mobile-tabs")
@@ -98,7 +105,7 @@ struct MobileBrowserTabsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .overlay {
                         RoundedRectangle(cornerRadius: 20)
-                            .strokeBorder(tab.id == state.selectedID ? Color.blue : .clear, lineWidth: 3)
+                            .strokeBorder(tab.id == state.selectedID ? theme.colors.accent : .clear, lineWidth: 3)
                     }
                 }
                 .buttonStyle(.plain)

@@ -47,6 +47,15 @@ struct MobileBrowserLaunchTests {
         #expect(launch.browser.selectedPage === page)
     }
 
+    @Test func offlineAssistantKeepsBrowsingAndPreservesTheRequestedAction() throws {
+        let (launch, defaults, name) = try launch()
+        defer { defaults.removePersistentDomain(forName: name) }
+        launch.deferConnection(for: .assistant("Compare these pages"))
+        #expect(launch.browser.isBrowsing)
+        #expect(launch.takeConnectedAction() == .assistant("Compare these pages"))
+        #expect(launch.takeConnectedAction() == nil)
+    }
+
     @Test func failedBackgroundAttemptsRetryWithBoundedDelayAndDoNotTakeOverBrowser() async throws {
         let (launch, defaults, name) = try launch()
         defer { defaults.removePersistentDomain(forName: name) }

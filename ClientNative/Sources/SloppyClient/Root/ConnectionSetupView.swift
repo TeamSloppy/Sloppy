@@ -10,6 +10,7 @@ struct ConnectionSetupView: View {
     let onScannedCode: (URL) -> Void
     let onCloudConnected: (URL) -> Void
     var autoConnectCloud = true
+    var onBrowse: (() -> Void)?
 
     @State private var isSelfHosted = false
 
@@ -26,12 +27,22 @@ struct ConnectionSetupView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        if isSelfHosted {
-            selfHostedView
-        } else {
-            ConsoleConnectionSetupView(settings: settings, autoConnect: autoConnectCloud, onConnected: onCloudConnected, onSelfHosted: {
-                isSelfHosted = true
-            })
+        VStack(spacing: 0) {
+            if isSelfHosted {
+                selfHostedView
+            } else {
+                ConsoleConnectionSetupView(settings: settings, autoConnect: autoConnectCloud, onConnected: onCloudConnected, onSelfHosted: {
+                    isSelfHosted = true
+                })
+            }
+            #if !os(iOS)
+            if let onBrowse {
+                Button("Use as a browser", action: onBrowse)
+                    .appSecondaryButton()
+                    .padding()
+                    .accessibilityIdentifier("connection-use-browser")
+            }
+            #endif
         }
     }
 

@@ -28,6 +28,10 @@ final class MobileBrowserLaunchState {
         browser.isBrowsing = false
     }
 
+    func deferConnection(for action: ConnectedAction) {
+        pendingAction = action
+    }
+
     func showBrowser() {
         pendingAction = nil
         browser.isBrowsing = true

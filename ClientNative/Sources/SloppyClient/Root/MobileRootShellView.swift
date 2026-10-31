@@ -16,6 +16,7 @@ struct MobileRootShellView<ConnectionContent: View>: View {
     @State private var collectionRequest: BrowserTabCollectionRequest?
     @State private var endpointKey: String?
     @State private var hasOpenedWork = false
+    @State private var showsOfflineAssistant = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(root: RootShellViewModel, safeAreaInsets: EdgeInsets,
@@ -26,7 +27,9 @@ struct MobileRootShellView<ConnectionContent: View>: View {
         self.safeAreaInsets = safeAreaInsets
         self.endpointOverride = endpointOverride
         self.connectionContent = connectionContent
-        _launch = State(initialValue: launch ?? MobileBrowserLaunchState())
+        let initialLaunch = launch ?? MobileBrowserLaunchState()
+        if launch == nil, root.connectionSetupRequested { initialLaunch.browser.isBrowsing = false }
+        _launch = State(initialValue: initialLaunch)
     }
 
     var body: some View {
@@ -38,9 +41,27 @@ struct MobileRootShellView<ConnectionContent: View>: View {
                     guard connected, launch.browser.isBrowsing else { return nil }
                     return agentChat?.makeAnnotationReceiver()
                 }, agentChat: connected ? agentChat : nil)
+                .environment(\.mobileWorkBrowseSelection, modeSelection)
                 .opacity(launch.browser.isBrowsing ? Double(1) : Double(0))
                 .allowsHitTesting(launch.browser.isBrowsing)
                 .accessibilityHidden(!launch.browser.isBrowsing)
+                .sheet(isPresented: $showsOfflineAssistant) {
+                    NavigationStack {
+                        AgentConnectionStatusView(root: root) {
+                            showsOfflineAssistant = false
+                            root.showConnectionSetup()
+                            launch.browser.isBrowsing = false
+                        }
+                        .navigationTitle("Assistant")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showsOfflineAssistant = false }
+                            }
+                        }
+                    }
+                    .presentationDetents([.large])
+                }
 
             if connected, let workspace, let agentChat,
                !launch.browser.isBrowsing || hasOpenedWork || collectionRequest != nil {
@@ -85,6 +106,15 @@ struct MobileRootShellView<ConnectionContent: View>: View {
             await root.restoreMobileConnectionInBackground(whileBrowsing: { launch.browser.isBrowsing })
         }
         .onDisappear { launch.browser.checkpoint(); agentChat?.stopBrowserConnection() }
+        .onChange(of: root.showsStandaloneBrowser) { _, browsing in
+            if browsing { launch.showBrowser() }
+        }
+        .onChange(of: root.connectionSetupRequested) { _, requested in
+            if requested { launch.browser.isBrowsing = false }
+        }
+        .onChange(of: connected) { _, connected in
+            if connected { showsOfflineAssistant = false }
+        }
     }
 
     private var connected: Bool { if case .chat = root.appState { true } else { false } }
@@ -129,13 +159,21 @@ struct MobileRootShellView<ConnectionContent: View>: View {
     }
 
     private func askAgent(_ prompt: String) {
-        guard connected, let agentChat else { launch.requireConnection(for: .assistant(prompt)); return }
+        guard connected, let agentChat else {
+            launch.deferConnection(for: .assistant(prompt))
+            showsOfflineAssistant = true
+            return
+        }
         launch.browser.isBrowsing = true
         agentChat.show(prompt: prompt)
     }
 
     private func collect(_ tabs: [BrowserTabRecord]) {
-        guard connected, workspace != nil else { launch.requireConnection(for: .collect(tabs)); return }
+        guard connected, workspace != nil else {
+            launch.deferConnection(for: .collect(tabs))
+            showsOfflineAssistant = true
+            return
+        }
         collectionRequest = BrowserTabCollectionRequest(tabs: tabs)
     }
 }

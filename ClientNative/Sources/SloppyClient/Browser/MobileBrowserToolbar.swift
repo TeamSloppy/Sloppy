@@ -9,19 +9,27 @@ struct MobileBrowserToolbar: View {
     let onTabs: () -> Void
     let onMenu: () -> Void
     let onAssistant: () -> Void
+    var onTabSwipe: (BrowserTabSwipeDirection) -> Void = { _ in }
+    var onTabSwipeChanged: ((CGSize) -> Void)?
+    var onTabSwipeEnded: ((CGSize, CGSize) -> Void)?
+    var onTabSwipeCancelled: () -> Void = {}
+    var tabSwipe: MobileBrowserTabSwipe?
     var isCollapsed = false
     var onExpand: () -> Void = {}
     var onExpandedHeightChange: (CGFloat) -> Void = { _ in }
     @Namespace private var glassNamespace
+    @GestureState private var isSwipingTabs = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             if isCollapsed {
                 compactControls
+                    .highPriorityGesture(tabSwipeGesture)
             } else {
                 expandedControls
-                    .glassEffectID("browser-address", in: glassNamespace)
+                    .highPriorityGesture(tabSwipeGesture)
+                    .glassEffectID(MobileBrowserAddressGlassID.active, in: glassNamespace)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onExpandedHeightChange($0) }
             }
         }
@@ -30,6 +38,31 @@ struct MobileBrowserToolbar: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(isCollapsed ? "browser-compact-toolbar" : "browser-mobile-toolbar")
         .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
+        .accessibilityAction(named: Text("Previous tab")) { onTabSwipe(.previous) }
+        .accessibilityAction(named: Text("Next tab")) { onTabSwipe(.next) }
+        .onChange(of: isSwipingTabs) { _, dragging in
+            guard !dragging else { return }
+            Task { @MainActor in
+                await Task.yield()
+                if !isSwipingTabs { onTabSwipeCancelled() }
+            }
+        }
+    }
+
+    private var tabSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .updating($isSwipingTabs) { _, dragging, _ in dragging = true }
+            .onChanged { value in onTabSwipeChanged?(value.translation) }
+            .onEnded { value in
+                if let onTabSwipeEnded {
+                    onTabSwipeEnded(value.translation, value.predictedEndTranslation)
+                    return
+                }
+                guard let direction = BrowserTabSwipeDirection.resolve(
+                    horizontal: value.translation.width, vertical: value.translation.height
+                ) else { return }
+                onTabSwipe(direction)
+            }
     }
 
     private var expandedControls: some View {
@@ -47,38 +80,9 @@ struct MobileBrowserToolbar: View {
     }
 
     private var addressField: some View {
-        HStack(spacing: 4) {
-            Button { state.presentSearch(newTab: state.selectedID == nil) } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: security.symbol).foregroundStyle(.secondary)
-                    Text(state.selectedTab?.url?.host ?? "Search or enter address")
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                }
-                .font(.subheadline)
-                .frame(minHeight: 44)
-                .padding(.leading, 12)
-                .contentShape(Capsule())
-            }
-            .accessibilityLabel("Search or enter an address")
-            .accessibilityValue("\(state.selectedTab?.url?.absoluteString ?? "Home"), \(security.label)")
-            .accessibilityIdentifier("browser-address")
-            if let page = state.selectedPage, state.selectedTab?.url != nil {
-                control(page.isLoading ? "xmark" : "arrow.clockwise",
-                        title: page.isLoading ? "Stop loading" : "Reload", id: "browser-reload") {
-                    if page.isLoading { page.nativeWebView?.stopLoading() } else { page.reload() }
-                }
-            }
-        }
-        .background(.quaternary.opacity(0.5), in: Capsule())
-        .overlay(alignment: .bottomLeading) {
-            if let page = state.selectedPage, page.isLoading {
-                ProgressView(value: min(1, max(0, page.estimatedProgress)))
-                    .tint(.blue)
-                    .padding(.horizontal, 16)
-                    .accessibilityLabel("Loading page")
-            }
-        }
+        MobileBrowserAddressPager(state: state, swipe: tabSwipe, isCompact: false,
+                                 onActivate: { state.presentSearch(newTab: state.selectedID == nil) },
+                                 glassNamespace: glassNamespace)
     }
 
     private var navigationControls: some View {
@@ -109,24 +113,11 @@ struct MobileBrowserToolbar: View {
 
     private var compactControls: some View {
         HStack(spacing: 10) {
-            Button {
+            MobileBrowserAddressPager(state: state, swipe: tabSwipe, isCompact: true, onActivate: {
                 onExpand()
                 state.presentSearch(newTab: false)
-            } label: {
-                Text(state.selectedTab?.url?.host ?? "Search or enter address")
-                    .font(.subheadline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(minWidth: 110, maxWidth: 210, minHeight: 44)
-                    .padding(.horizontal, 16)
-                    .contentShape(Capsule())
-            }
-            .accessibilityLabel("Search or enter an address")
-            .accessibilityValue(state.selectedTab?.url?.absoluteString ?? "Home")
-            .accessibilityIdentifier("browser-address")
+            }, glassNamespace: glassNamespace)
             .accessibilityAction(named: Text("Show browser controls")) { onExpand() }
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .glassEffectID("browser-address", in: glassNamespace)
             assistantButton
                 .glassEffect(.regular.interactive(), in: Circle())
                 .glassEffectID("browser-assistant", in: glassNamespace)
@@ -144,16 +135,12 @@ struct MobileBrowserToolbar: View {
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 24, height: 24)
+                .frame(width: 20, height: 20)
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Circle())
         }
         .accessibilityLabel("Assistant")
         .accessibilityIdentifier("browser-agent-toggle")
-    }
-
-    private var security: BrowserConnectionSecurity {
-        state.selectedPage?.connectionSecurity(for: state.selectedTab?.url) ?? .empty
     }
 
     private func control(_ symbol: String, title: String, id: String, action: @escaping () -> Void) -> some View {

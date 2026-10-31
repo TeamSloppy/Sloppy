@@ -373,7 +373,7 @@ private struct IOSInboxHome: View {
                     title: "All Agents",
                     count: viewModel.chatViewModel.agents.count,
                     systemImage: "paperplane.fill",
-                    tint: theme.colors.statusBlocked
+                    tint: theme.colors.accent
                 )
             }
             .buttonStyle(.plain)
@@ -384,7 +384,7 @@ private struct IOSInboxHome: View {
                     title: "Working",
                     count: workingCount,
                     systemImage: "circle.hexagongrid.fill",
-                    tint: theme.colors.statusActive
+                    tint: theme.colors.accent
                 )
             }
             .buttonStyle(.plain)
@@ -395,7 +395,7 @@ private struct IOSInboxHome: View {
                     title: "Needs Attention",
                     count: attentionCount,
                     systemImage: "bell.badge",
-                    tint: theme.colors.statusWarning
+                    tint: theme.colors.accent
                 )
             }
             .buttonStyle(.plain)
@@ -406,7 +406,7 @@ private struct IOSInboxHome: View {
                     title: "In Review",
                     count: reviewCount,
                     systemImage: "checkmark.circle",
-                    tint: theme.colors.statusReady
+                    tint: theme.colors.accent
                 )
             }
             .buttonStyle(.plain)

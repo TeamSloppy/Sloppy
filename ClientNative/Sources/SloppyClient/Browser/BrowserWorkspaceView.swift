@@ -208,6 +208,7 @@ struct BrowserWorkspacePage: View {
     var annotationTarget: BrowserTextAnnotationTarget?
     var onFocus: (@MainActor () -> Void)?
     var onScroll: (@MainActor (BrowserScrollSample) -> Void)?
+    var showsNavigationError = true
     @State private var hasRestored = false
     @Environment(\.theme) private var theme
 
@@ -217,28 +218,8 @@ struct BrowserWorkspacePage: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("browser-web-page")
                 .overlay(alignment: .top) {
-                    if let error = page.lastError {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "exclamationmark.triangle")
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Couldn’t load this page").font(.callout.weight(.medium))
-                                Text(error).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 8) {
-                                Button("Retry", action: page.reload)
-                                if let url = WorkspaceBrowserAddress.httpAlternative(for: URL(string: page.addressText)) {
-                                    Button("Open using HTTP") {
-                                        page.addressText = url.absoluteString
-                                        page.openAddress()
-                                    }
-                                }
-                            }
-                        }
-                        .foregroundStyle(theme.colors.textPrimary)
-                        .padding(14)
-                        .background(theme.colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(theme.colors.border, lineWidth: 1) }
+                    if showsNavigationError {
+                        BrowserNavigationErrorBanner(page: page)
                         .padding(12)
                         .padding(.top, topContentInset)
                     }

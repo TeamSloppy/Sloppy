@@ -48,6 +48,10 @@ struct ProactivePresentation: Identifiable {
 @MainActor
 final class RootShellViewModel {
     var settings = ClientSettings()
+    let launchPreferences: ClientLaunchPreferences
+    var showsStandaloneBrowser: Bool
+    var connectionSetupRequested = false
+    var lastConnectionError: String?
     var appState: AppState = .splash
     var autoConnectCloud = true
     var consoleConnectionCode: ConsoleConnectionCode?
@@ -79,8 +83,11 @@ final class RootShellViewModel {
     private let liveActivityCoordinator = SloppyLiveActivityCoordinator()
     #endif
 
-    init(logger: Logger = Logger(label: "sloppy.root-shell")) {
+    init(logger: Logger = Logger(label: "sloppy.root-shell"), launchPreferences: ClientLaunchPreferences? = nil) {
         self.logger = logger
+        let preferences = launchPreferences ?? ClientLaunchPreferences()
+        self.launchPreferences = preferences
+        showsStandaloneBrowser = preferences.mode == .browser
         connectionMonitor = ConnectionMonitor(baseURL: URL(string: "http://localhost:25101")!)
         #if os(macOS)
         desktopOverlay.onOpenTask = { [weak self] projectID, taskID in
@@ -96,20 +103,24 @@ final class RootShellViewModel {
 
     func handleDeepLink(_ url: URL) {
         if let code = ConsoleConnectionCode.parse(url) {
+            prepareForInstanceLink()
             presentedSettings = nil
             consoleConnectionCode = code
             return
         }
         if let code = try? RemotePairingCode.decode(url) {
+            prepareForInstanceLink()
             claimManagedRemote(code)
             return
         }
         if let pairing = DevicePairingLink.parse(url) {
+            prepareForInstanceLink()
             redeemDevicePairing(pairing)
             return
         }
 
         guard let deepLink = DeepLink.parse(url) else { return }
+        prepareForInstanceLink()
 
         if case .proactivity(let agentID, let findingID) = deepLink {
             presentedSettings = nil
@@ -135,6 +146,13 @@ final class RootShellViewModel {
         appDeepLinkRequest = AppDeepLinkRequest(deepLink: deepLink)
     }
 
+    private func prepareForInstanceLink() {
+        if !launchPreferences.hasCompletedWelcome {
+            launchPreferences.completeWelcome(mode: .instance)
+        }
+        showsStandaloneBrowser = false
+    }
+
     func connectManagedRemote() {
         mobileConnectionRevision = UUID()
         let revision = mobileConnectionRevision
@@ -153,10 +171,11 @@ final class RootShellViewModel {
                 try await ManagedRemoteConnection.shared.connect()
                 guard acceptsConnectionResult(revision) else { return }
                 connectionMonitor.start(baseURL: credential.relayURL)
+                didConnectInstance()
                 appState = .chat(credential.relayURL)
             } catch {
                 guard acceptsConnectionResult(revision) else { return }
-                showConnectionSetup()
+                connectionFailed(error)
                 showBanner(for: AppNotification(
                     type: .systemError,
                     title: "Remote unavailable",
@@ -253,6 +272,7 @@ final class RootShellViewModel {
     }
 
     func startConnected(url: URL) {
+        didConnectInstance()
         mobileConnectionRevision = UUID()
         logger.info(
             "app.connection.connected",
@@ -283,6 +303,7 @@ final class RootShellViewModel {
     }
 
     func startCloudConnected(url: URL) {
+        didConnectInstance()
         mobileConnectionRevision = UUID()
         logger.info("app.connection.cloud-connected")
         connectionMonitor.start(endpoint: settings.activeInstanceEndpoint)
@@ -290,6 +311,9 @@ final class RootShellViewModel {
     }
 
     func connect(to url: URL) {
+        lastConnectionError = nil
+        launchPreferences.hasConfiguredInstance = true
+        appState = .pairing(url)
         mobileConnectionRevision = UUID()
         let revision = mobileConnectionRevision
         logger.info(
@@ -305,6 +329,73 @@ final class RootShellViewModel {
         mobileConnectionRevision = UUID()
         stopConnectedServices()
         autoConnectCloud = false
+        connectionSetupRequested = true
+        showsStandaloneBrowser = false
+        appState = .connectionSetup
+    }
+
+    var hasConfiguredInstance: Bool {
+        launchPreferences.hasConfiguredInstance || !settings.savedServers.isEmpty
+            || ManagedRemoteCredentialStore.load() != nil || ConsoleDeviceCredential.load() != nil
+    }
+
+    var agentConnectionStatus: AgentConnectionStatus {
+        let connected: Bool
+        let failure: String?
+        if case .chat = appState {
+            connected = connectionMonitor.state == .connected
+            failure = connectionMonitor.state == .disconnected ? connectionMonitor.lastFailureMessage : nil
+        } else {
+            connected = false
+            failure = lastConnectionError
+        }
+        return .resolve(configured: hasConfiguredInstance, connected: connected, failure: failure)
+    }
+
+    func completeWelcome(mode: ClientLaunchMode) {
+        launchPreferences.completeWelcome(mode: mode)
+        if mode == .browser {
+            useAsBrowser()
+        } else {
+            showConnectionSetup()
+        }
+    }
+
+    func useAsBrowser() {
+        launchPreferences.completeWelcome(mode: .browser)
+        mobileConnectionRevision = UUID()
+        connectionSetupRequested = false
+        showsStandaloneBrowser = true
+        appState = .connectionSetup
+    }
+
+    func retryInstanceConnection() async {
+        guard hasConfiguredInstance else { showConnectionSetup(); return }
+        lastConnectionError = nil
+        if case .chat = appState {
+            connectionMonitor.start(endpoint: settings.activeInstanceEndpoint)
+            return
+        }
+        mobileConnectionRevision = UUID()
+        let revision = mobileConnectionRevision
+        do { try await restoreSavedConnection(revision: revision) }
+        catch {
+            guard acceptsConnectionResult(revision) else { return }
+            connectionFailed(error)
+        }
+    }
+
+    private func didConnectInstance() {
+        launchPreferences.hasConfiguredInstance = true
+        lastConnectionError = nil
+        connectionSetupRequested = false
+        showsStandaloneBrowser = false
+    }
+
+    private func connectionFailed(_ error: Error) {
+        stopConnectedServices()
+        connectionSetupRequested = false
+        lastConnectionError = Self.errorDescription(error)
         appState = .connectionSetup
     }
 
@@ -485,7 +576,7 @@ final class RootShellViewModel {
                     "server": .string(Self.serverDescription(baseURL)),
                 ]
             )
-            showConnectionSetup()
+            connectionFailed(error)
             return
         }
         guard acceptsAuthenticationRequirement(for: baseURL) else {
@@ -542,7 +633,7 @@ final class RootShellViewModel {
                     "server": .string(Self.serverDescription(baseURL)),
                 ]
             )
-            showConnectionSetup()
+            connectionFailed(error)
             return
         }
 
@@ -567,7 +658,7 @@ final class RootShellViewModel {
                     guard acceptsConnectionResult(revision) else { return }
 #if os(iOS)
                     guard MobileConnectionFailure.invalidatesSavedSession(error) else {
-                        showConnectionSetup()
+                        connectionFailed(error)
                         return
                     }
 #endif
@@ -615,7 +706,7 @@ final class RootShellViewModel {
                 guard acceptsConnectionResult(revision) else { return }
 #if os(iOS)
                 guard MobileConnectionFailure.invalidatesSavedSession(error) else {
-                    showConnectionSetup()
+                    connectionFailed(error)
                     return
                 }
 #endif
@@ -644,21 +735,23 @@ final class RootShellViewModel {
 #if os(iOS)
     /// The view's task owns this loop; backgrounding cancels it, foregrounding retries.
     func restoreMobileConnectionInBackground(whileBrowsing: () -> Bool) async {
+        guard launchPreferences.hasCompletedWelcome else { return }
         await MobileConnectionRetryLoop.run {
+            guard hasConfiguredInstance else { return }
             if appState == .splash || (whileBrowsing() && appState == .connectionSetup) {
                 let revision = mobileConnectionRevision
                 do {
-                    try await restoreMobileConnection(revision: revision)
+                    try await restoreSavedConnection(revision: revision)
                 } catch {
                     guard acceptsConnectionResult(revision) else { return }
-                    // A failed relay or server stays outside the browsing surface.
-                    appState = .connectionSetup
+                    connectionFailed(error)
                 }
             }
         }
     }
+#endif
 
-    private func restoreMobileConnection(revision: UUID) async throws {
+    private func restoreSavedConnection(revision: UUID) async throws {
         let signedIn = await ConsoleAccountClient.shared.isSignedIn()
         guard acceptsConnectionResult(revision) else { return }
         if signedIn {
@@ -698,14 +791,14 @@ final class RootShellViewModel {
             guard acceptsConnectionResult(revision) else { return }
             settings.installManagedHosts(hosts, relayURL: credential.relayURL)
             connectionMonitor.start(endpoint: settings.activeInstanceEndpoint)
+            didConnectInstance()
             appState = .chat(credential.relayURL)
-        } else if !settings.savedServers.isEmpty {
+        } else if !settings.savedServers.isEmpty || launchPreferences.hasConfiguredInstance {
             await resolveConnection(to: settings.baseURL, revision: revision)
         } else {
             appState = .connectionSetup
         }
     }
-#endif
 
     private func redeemDevicePairing(_ pairing: DevicePairingLink) {
         let baseURL = pairing.serverURL

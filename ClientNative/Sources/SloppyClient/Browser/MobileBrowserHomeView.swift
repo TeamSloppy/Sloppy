@@ -1,24 +1,17 @@
 #if os(iOS)
 import SwiftUI
+import SloppyClientUI
 
 @MainActor
 struct MobileBrowserHomeView: View {
     let state: BrowserWorkspaceState
-    let onLibrary: (BrowserLibrarySection) -> Void
     let onSearch: () -> Void
     let onAskAgent: () -> Void
+    @Environment(\.theme) private var theme
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
-                HStack {
-                    Label("Browse", systemImage: "globe").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                    Spacer()
-                    Button { onLibrary(.history) } label: { Image(systemName: "clock.arrow.circlepath").frame(width: 44, height: 44) }
-                        .accessibilityLabel("History")
-                    Button { onLibrary(.bookmarks) } label: { Image(systemName: "book").frame(width: 44, height: 44) }
-                        .accessibilityLabel("Bookmarks")
-                }
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Where to next?").font(.largeTitle.bold()).tracking(-1)
                     Text("A new idea. A useful find. Your next project.")
@@ -78,7 +71,7 @@ struct MobileBrowserHomeView: View {
             .frame(maxWidth: 680)
             .frame(maxWidth: .infinity)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(theme.colors.background.ignoresSafeArea())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser-mobile-home")
     }
