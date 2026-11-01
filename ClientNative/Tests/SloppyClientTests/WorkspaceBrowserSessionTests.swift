@@ -37,16 +37,19 @@ struct WorkspaceBrowserSessionTests {
             BrowserBridgeURLProtocol.install(nil)
         }
         for _ in 0..<600 {
-            if await probe.results.count == 4 { break }
+            if await probe.results.count == 7 { break }
             try await Task.sleep(for: .milliseconds(20))
         }
         let results = await probe.results
-        #expect(results.count == 4)
-        #expect(results.allSatisfy { $0.error == nil && $0.binding.bridgeId == active.binding.bridgeId })
+        #expect(results.count == 7)
+        #expect(results.filter { $0.commandId != "evaluate-error" }.allSatisfy { $0.error == nil && $0.binding.bridgeId == active.binding.bridgeId })
         #expect(results.last?.data?.visibleText.contains("Verified: Sloppy") == true)
+        #expect(results.first { $0.commandId == "evaluate" }?.data?.evaluation?.value == .object(["price": .number(120), "available": .bool(true)]))
+        #expect(results.first { $0.commandId == "evaluate-null" }?.data?.evaluation?.value == .null)
+        #expect(results.first { $0.commandId == "evaluate-error" }?.error?.contains("flight failed") == true)
         let screenshot = try #require(results.last?.imageBase64.flatMap { Data(base64Encoded: $0) })
         #expect(screenshot.starts(with: [137, 80, 78, 71]))
-        #expect(presentations == 4)
+        #expect(presentations == 7)
         #expect(await probe.usedExpectedToken)
         active.stop()
         for _ in 0..<100 {
@@ -74,6 +77,9 @@ private actor BrowserBridgeProbe {
                 ["id": "open", "name": "open", "input": ["url": url]],
                 ["id": "type", "name": "type", "input": ["selector": "#name", "text": "Sloppy"]],
                 ["id": "click", "name": "click", "input": ["selector": "#check"]],
+                ["id": "evaluate", "name": "evaluate", "input": ["expression": "Promise.resolve({ price: 120, available: true })"]],
+                ["id": "evaluate-null", "name": "evaluate", "input": ["expression": "undefined"]],
+                ["id": "evaluate-error", "name": "evaluate", "input": ["expression": "(() => { throw new Error('flight failed'); })()"]],
                 ["id": "screenshot", "name": "screenshot", "input": [:]],
             ]
             let next = sent < commands.count ? [commands[sent]] : []

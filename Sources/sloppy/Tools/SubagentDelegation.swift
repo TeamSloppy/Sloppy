@@ -31,6 +31,7 @@ enum SubagentDelegation {
             "browser.navigate",
             "browser.click",
             "browser.type",
+            "browser.evaluate",
             "browser.screenshot",
             "browser.status",
             "browser.read",

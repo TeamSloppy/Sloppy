@@ -57,6 +57,7 @@ struct BrowserTabRecord: Codable, Equatable, Identifiable {
     var title = "New tab"
     var interactionState: Data?
     var groupID: UUID?
+    var favoriteID: UUID?
 }
 
 enum BrowserTabSwipeDirection: Equatable, Sendable {
@@ -99,6 +100,7 @@ final class BrowserWorkspaceState {
     let library: BrowserLibrary
     let time: BrowserTimeStore
     let organizer: BrowserOrganizerStore
+    let favorites: BrowserFavoritesStore
     @ObservationIgnored private var timeTrackingActive = false
     @ObservationIgnored private let timeTrackingID = UUID()
 #if os(macOS)
@@ -127,6 +129,7 @@ final class BrowserWorkspaceState {
         library = BrowserLibrary(defaults: defaults)
         time = defaults === UserDefaults.standard ? .shared : BrowserTimeStore(defaults: defaults)
         organizer = defaults === UserDefaults.standard ? .shared : BrowserOrganizerStore(defaults: defaults)
+        favorites = defaults === UserDefaults.standard ? .shared : BrowserFavoritesStore(defaults: defaults)
 #if os(macOS)
         extensions = BrowserExtensions(defaults: defaults)
 #endif
@@ -135,10 +138,14 @@ final class BrowserWorkspaceState {
         let restoredGroups = saved?.groups ?? []
         groups = restoredGroups
         var seen = Set<UUID>()
+        var restoredFavorites = Set<UUID>()
+        let validFavorites = Set(favorites.entries.filter { $0.kind == .page }.map(\.id))
         tabs = (saved?.tabs ?? []).filter { seen.insert($0.id).inserted }.map { tab in
             var tab = tab
             tab.url = BrowserSearchEngine.websiteURL(tab.url)
             if !restoredGroups.contains(where: { $0.id == tab.groupID }) { tab.groupID = nil }
+            if let id = tab.favoriteID,
+               !validFavorites.contains(id) || !restoredFavorites.insert(id).inserted { tab.favoriteID = nil }
             return tab
         }
         selectedID = saved?.selectedID.flatMap { id in tabs.first(where: { $0.id == id })?.id ?? tabs.first?.id }
@@ -243,15 +250,66 @@ final class BrowserWorkspaceState {
         return true
     }
 
-    func selectTabs(_ ids: Set<UUID>) {
+    func selectTabs(_ ids: Set<UUID>, focusedID: UUID? = nil) {
         let valid = ids.intersection(tabs.map(\.id))
         guard !valid.isEmpty else { return }
         let added = valid.subtracting(selectedTabIDs)
-        let target = tabs.last(where: { added.contains($0.id) })?.id
+        let target = focusedID.flatMap { valid.contains($0) ? $0 : nil }
+            ?? tabs.last(where: { added.contains($0.id) })?.id
             ?? selectedID.flatMap { valid.contains($0) ? $0 : nil }
             ?? tabs.first(where: { valid.contains($0.id) })?.id
         if let target { select(target) }
         selectedTabIDs = valid
+    }
+
+    func favoriteID(for tab: BrowserTabRecord) -> UUID? {
+        tab.favoriteID.flatMap { favorites.entry($0)?.kind == .page ? $0 : nil }
+    }
+
+    var regularTabs: [BrowserTabRecord] { tabs.filter { favoriteID(for: $0) == nil } }
+    func tab(forFavorite id: UUID) -> BrowserTabRecord? { tabs.first { $0.favoriteID == id } }
+
+    @discardableResult
+    func pinTab(_ id: UUID, in folderID: UUID? = nil) -> UUID? {
+        guard let index = tabs.firstIndex(where: { $0.id == id }), let url = tabs[index].url,
+              let favorite = favorites.addPage(url: url, title: tabs[index].title, in: folderID) else { return nil }
+        if let folderID { _ = favorites.move(favorite, into: folderID) }
+        if let existing = tab(forFavorite: favorite), existing.id != id {
+            select(existing.id)
+        } else {
+            tabs[index].favoriteID = favorite
+            persist()
+        }
+        return favorite
+    }
+
+    func openFavorite(_ id: UUID) {
+        guard let item = favorites.entry(id), item.kind == .page, let url = item.url else { return }
+        if let tab = tab(forFavorite: id) { select(tab.id); return }
+        if let index = tabs.firstIndex(where: { $0.url == url && favoriteID(for: $0) == nil }) {
+            tabs[index].favoriteID = id
+            select(tabs[index].id)
+            return
+        }
+        checkpoint()
+        isBrowsing = true
+        let previous = selectedID
+        let tab = BrowserTabRecord(url: url, title: item.title, favoriteID: id)
+        tabs.append(tab)
+        selectedID = tab.id
+        selectedTabIDs = [tab.id]
+        preparePage(tab.id)
+#if os(macOS)
+        extensionBridge?.opened(tab.id)
+        extensionBridge?.selectionChanged(from: previous)
+#endif
+        persist()
+    }
+
+    func removeFavorites(_ ids: Set<UUID>) {
+        favorites.remove(ids)
+        for index in tabs.indices where tabs[index].favoriteID.map(ids.contains) == true { tabs[index].favoriteID = nil }
+        persist()
     }
 
     func open(_ url: URL, inNewTab: Bool) {
@@ -383,7 +441,7 @@ final class BrowserWorkspaceState {
 
     func move(in groupID: UUID?, from offsets: IndexSet, to destination: Int) {
         let previous = tabs.map(\.id)
-        let indices = tabs.indices.filter { tabs[$0].groupID == groupID }
+        let indices = tabs.indices.filter { tabs[$0].groupID == groupID && favoriteID(for: tabs[$0]) == nil }
         var items = indices.map { tabs[$0] }
         let moving = offsets.sorted().map { items[$0] }
         for index in offsets.sorted().reversed() { items.remove(at: index) }

@@ -22,6 +22,73 @@ struct WorkspaceBrowserRuntimeTests {
         return runtime
     }
 
+    @Test func evaluatesAsyncJavaScriptAndChangesPageDOM() async throws {
+        let runtime = try await loadedRuntime()
+        let value = try await runtime.evaluate(expression: """
+        (async () => {
+          await Promise.resolve();
+          window.sloppyEvaluationValue = 'page context';
+          document.querySelector('#result').textContent = 'Found flight';
+          document.querySelector('#result').style.outline = '2px solid red';
+          return { title: document.title, prices: [120, null, true] };
+        })()
+        """)
+        #expect(value == .object(["title": .string("Browser fixture"), "prices": .array([.number(120), .null, .bool(true)])]))
+        #expect(try await runtime.read().visibleText.contains("Found flight"))
+        #expect(try await runtime.evaluate(expression: "window.sloppyEvaluationValue") == .string("page context"))
+        #expect(try await runtime.evaluate(expression: "document.querySelector('#result').style.outlineWidth") == .string("2px"))
+        #expect(try await runtime.evaluate(expression: "42 // trailing comment") == .number(42))
+        #expect(try await runtime.evaluate(expression: "undefined") == .null)
+        #expect(try await runtime.evaluate(expression: "false") == .bool(false))
+        let text = "first line\n'quote' \\ backslash ` ${literal}"
+        let expression = String(decoding: try JSONEncoder().encode(text), as: UTF8.self)
+        #expect(try await runtime.evaluate(expression: expression) == .string(text))
+    }
+
+    @Test func evaluationReportsScriptAndSerializationFailures() async throws {
+        let runtime = try await loadedRuntime()
+        for expression in [" ", "(() => {", "(() => { throw new Error('flight failed'); })()",
+                           "Promise.reject(new Error('async failed'))", "1n", "() => 1",
+                           "(() => { const a = {}; a.self = a; return a; })()",
+                           "'x'.repeat(65537)", String(repeating: " ", count: 65537) + "1"] {
+            await #expect(throws: (any Error).self) { try await runtime.evaluate(expression: expression) }
+        }
+        do {
+            _ = try await runtime.evaluate(expression: "(() => {")
+            Issue.record("Invalid JavaScript must report its syntax error")
+        } catch let error as WorkspaceBrowserRuntimeError {
+            guard case .evaluationFailed(let message) = error else { throw error }
+            #expect(!message.isEmpty)
+        }
+        // A failed evaluation leaves the command surface usable.
+        #expect(try await runtime.evaluate(expression: "42") == .number(42))
+    }
+
+    @Test func evaluationWorksWithRestrictivePageCSP() async throws {
+        let runtime = WorkspaceBrowserToolRuntime()
+        runtime.webView.loadHTMLString("""
+        <!doctype html><meta http-equiv="Content-Security-Policy" content="script-src 'none'; style-src 'none'">
+        <div id="price">120</div>
+        """, baseURL: nil)
+        _ = try await runtime.read()
+        let result = try await runtime.evaluate(expression: """
+        (() => {
+          document.querySelector('#price').textContent = 'Selected flight';
+          return document.querySelector('#price').textContent;
+        })()
+        """)
+        #expect(result == .string("Selected flight"))
+        #expect(try await runtime.read().visibleText.contains("Selected flight"))
+    }
+
+    @Test func evaluationTimesOutPendingPromise() async throws {
+        let runtime = try await loadedRuntime()
+        await #expect(throws: (any Error).self) {
+            try await runtime.evaluate(expression: "new Promise(() => {})")
+        }
+        #expect(try await runtime.evaluate(expression: "42") == .number(42))
+    }
+
     @Test func readsElementsAndVerifiesClick() async throws {
         let runtime = try await loadedRuntime()
         let before = try await runtime.read()

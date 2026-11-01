@@ -18,7 +18,7 @@ struct ToolRegistryTests {
             "files.read", "files.edit", "files.write", "images.generate", "artifacts.widget.generate", "artifacts.web.create",
             "runtime.exec", "runtime.process",
             "computer.click", "computer.type", "computer.key", "computer.screenshot",
-            "browser.open", "browser.navigate", "browser.click", "browser.type",
+            "browser.open", "browser.navigate", "browser.click", "browser.type", "browser.evaluate",
             "browser.screenshot", "browser.status", "browser.close",
             "debug.read_logs",
             "web.search", "web.fetch",
@@ -88,6 +88,27 @@ struct ToolRegistryTests {
         #expect(ToolCatalog.knownToolIDs.contains("artifacts.widget.generate"))
         #expect(ToolCatalog.knownToolIDs.contains("artifacts.web.create"))
         #expect(ToolCatalog.knownToolIDs.contains("images.generate"))
+    }
+
+    @Test func browserEvaluateRejectsMissingEmptyAndOversizedExpressions() async {
+        let context = makeMemoryToolContext()
+        let inputs: [[String: Protocols.JSONValue]] = [
+            [:], ["expression": .number(42)], ["expression": .string(" \n")],
+            ["expression": .string(String(repeating: "あ", count: 22000))],
+        ]
+        for arguments in inputs {
+            let result = await BrowserEvaluateTool().invoke(arguments: arguments, context: context)
+            #expect(!result.ok)
+            #expect(result.error?.code == "invalid_arguments")
+            #expect(result.error?.retryable == false)
+        }
+    }
+
+    @Test func browserEvaluateSchemaRequiresExpression() throws {
+        let schema = try #require(ToolCatalog.parameterSchemas["browser.evaluate"]?.asObject)
+        #expect(schema["required"]?.asArray?.compactMap(\.asString) == ["expression"])
+        #expect(schema["properties"]?.asObject?["expression"]?.asObject?["type"]?.asString == "string")
+        #expect(schema["properties"]?.asObject?["pageId"]?.asObject?["type"]?.asString == "string")
     }
 
     @Test("ToolCatalog schema advertises project.current arguments")

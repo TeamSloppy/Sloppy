@@ -46,6 +46,28 @@ struct WorkspaceBrowserBridgeTests {
         await #expect(throws: WorkspaceBrowserBridgeError.unavailable) { try await bridge.run(sessionID: owner.sessionId, name: "open") }
     }
 
+    @Test func evaluationUsesAssignedPageAndReturnsJSONWithoutFallback() async throws {
+        let service = BrowserCDPService(workspaceRootURL: FileManager.default.temporaryDirectory)
+        let owner = binding()
+        try await service.workspaceBridge.register(owner)
+        let expression = "Promise.resolve({price: 120})"
+        let task = Task { try await service.evaluate(sessionID: owner.sessionId, pageID: "page", expression: expression) }
+        let command = try await next(service.workspaceBridge, owner)
+        #expect(command.name == "evaluate")
+        #expect(command.input.asObject?["expression"]?.asString == expression)
+        #expect(command.input.asObject?["pageId"]?.asString == "page")
+        let evaluation: JSONValue = .object(["value": .object(["price": .number(120)])])
+        try await service.workspaceBridge.complete(.init(binding: owner, commandId: command.id,
+            data: .object(["pageId": .string("page"), "evaluation": evaluation]), imageBase64: nil, error: nil))
+        let result = try await task.value
+        #expect(result.asObject?["evaluation"] == evaluation)
+        #expect(result.asObject?["surface"]?.asString == "in_app")
+        await service.workspaceBridge.disconnect(owner)
+        await #expect(throws: WorkspaceBrowserBridgeError.unavailable) {
+            try await service.evaluate(sessionID: owner.sessionId, pageID: "page", expression: "42")
+        }
+    }
+
     @Test func cannotReplaceLiveBrowser() async throws {
         let bridge = WorkspaceBrowserBridgeService()
         try await bridge.register(binding())

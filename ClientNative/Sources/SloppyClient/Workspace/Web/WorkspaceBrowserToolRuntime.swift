@@ -120,6 +120,47 @@ final class WorkspaceBrowserToolRuntime: NSObject {
                      visibleText: snapshot.visibleText, elements: snapshot.elements)
     }
 
+    func evaluate(expression: String) async throws -> WorkspaceBrowserJSONValue {
+        guard !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              expression.utf8.count <= 65536 else { throw WorkspaceBrowserRuntimeError.invalidArguments }
+        try await waitForNavigation()
+        let raw: Any?
+        do {
+            raw = try await webView.callAsyncJavaScript("""
+            let timer;
+            try {
+              const value = await Promise.race([
+                (async () => (
+            \(expression)
+                ))(),
+                new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('evaluation_timed_out')), 10000); })
+              ]);
+              const json = JSON.stringify(value ?? null);
+              if (json === undefined) throw new Error('evaluation_result_not_json');
+              if (new TextEncoder().encode(json).length > 65536) throw new Error('evaluation_result_too_large');
+              return '{"value":' + json + '}';
+            } catch (error) {
+              return JSON.stringify({ error: String(error?.message ?? error) });
+            } finally { clearTimeout(timer); }
+            """, arguments: [:], in: nil, contentWorld: .page)
+        } catch {
+            let nativeError = error as NSError
+            if let message = nativeError.userInfo["WKJavaScriptExceptionMessage"] as? String {
+                throw WorkspaceBrowserRuntimeError.evaluationFailed(message)
+            }
+            throw error
+        }
+        guard let json = raw as? String else { throw WorkspaceBrowserRuntimeError.unavailable }
+        try Task.checkCancellation()
+        struct Response: Decodable {
+            var value: WorkspaceBrowserJSONValue?
+            var error: String?
+        }
+        let response = try JSONDecoder().decode(Response.self, from: Data(json.utf8))
+        if let error = response.error { throw WorkspaceBrowserRuntimeError.evaluationFailed(error) }
+        return response.value ?? .null
+    }
+
     func click(selector: String) async throws -> WorkspaceBrowserActionResult {
         try await perform(Self.elementScript(selector: selector, action: "node.click();"))
         return .init(ok: true, message: "Clicked \(selector)")
@@ -246,6 +287,7 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     init(webView: AnyObject? = nil) { super.init() }
     func open(url: String) async throws -> WorkspaceBrowserReadResult { throw WorkspaceBrowserRuntimeError.unavailable }
     func read() async throws -> WorkspaceBrowserReadResult { throw WorkspaceBrowserRuntimeError.unavailable }
+    func evaluate(expression: String) async throws -> WorkspaceBrowserJSONValue { throw WorkspaceBrowserRuntimeError.unavailable }
     func click(selector: String) async throws -> WorkspaceBrowserActionResult { throw WorkspaceBrowserRuntimeError.unavailable }
     func type(selector: String, text: String) async throws -> WorkspaceBrowserActionResult { throw WorkspaceBrowserRuntimeError.unavailable }
     func scroll(x: Double, y: Double) async throws -> WorkspaceBrowserActionResult { throw WorkspaceBrowserRuntimeError.unavailable }
@@ -354,9 +396,11 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
 enum WorkspaceBrowserRuntimeError: Error, LocalizedError {
     case unavailable, invalidURL, invalidArguments, snapshotFailed, navigationTimedOut
     case timeLimit(String)
+    case evaluationFailed(String)
     var errorDescription: String? {
         switch self {
         case .timeLimit(let message): message
+        case .evaluationFailed(let message): "JavaScript: \(message)"
         case .unavailable: "The in-app browser is unavailable."
         case .invalidURL: "Use an HTTP or HTTPS URL."
         case .invalidArguments: "Invalid browser command arguments."

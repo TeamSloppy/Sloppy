@@ -430,6 +430,49 @@ public actor BrowserCDPService {
         return pagePayload(page)
     }
 
+    func evaluate(sessionID: String, pageID: String?, expression: String) async throws -> JSONValue {
+        guard !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              expression.utf8.count <= 65536 else {
+            throw BrowserCDPError.cdpFailed("Expression must contain JavaScript and be at most 64 KiB.")
+        }
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return try await workspaceBridge.run(sessionID: sessionID, name: "evaluate", input: .object([
+                "expression": .string(expression), "pageId": pageID.map(JSONValue.string) ?? .null,
+            ]))
+        }
+        let pageID = try resolvePageID(sessionID: sessionID, pageID: pageID)
+        let response = try await evaluate(pageID: pageID, expression: """
+        (async () => {
+        let timer;
+        try {
+          const value = await Promise.race([
+            (async () => (
+        \(expression)
+            ))(),
+            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('evaluation_timed_out')), 10000); })
+          ]);
+          const json = JSON.stringify(value ?? null);
+          if (json === undefined) throw new Error('evaluation_result_not_json');
+          if (new TextEncoder().encode(json).length > 65536) throw new Error('evaluation_result_too_large');
+          return '{"value":' + json + '}';
+        } catch (error) {
+          return JSON.stringify({ error: String(error?.message ?? error) });
+        } finally { clearTimeout(timer); }
+        })()
+        """)
+        guard let json = response.asObject?["result"]?.asObject?["result"]?.asObject?["value"]?.asString else {
+            throw BrowserCDPError.invalidResponse
+        }
+        let envelope = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+        if let error = envelope.asObject?["error"]?.asString { throw BrowserCDPError.cdpFailed(error) }
+        guard let value = envelope.asObject?["value"] else { throw BrowserCDPError.invalidResponse }
+        guard var page = try await read(sessionID: sessionID, pageID: pageID).asObject else {
+            throw BrowserCDPError.invalidResponse
+        }
+        page["evaluation"] = .object(["value": value])
+        return .object(page)
+    }
+
     func click(sessionID: String, pageID: String?, selector: String) async throws -> JSONValue {
         if await workspaceBridge.isAssigned(sessionID: sessionID) {
             return try await workspaceBridge.run(sessionID: sessionID, name: "click", input: .object(["selector": .string(selector), "pageId": pageID.map(JSONValue.string) ?? .null]))

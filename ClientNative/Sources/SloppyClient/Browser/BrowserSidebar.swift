@@ -1,7 +1,7 @@
 import SwiftUI
 import SloppyClientUI
 
-enum BrowserSidebarSelection: Hashable { case home, tab(UUID) }
+enum BrowserSidebarSelection: Hashable { case home, tab(UUID), favorite(UUID) }
 enum BrowserLibrarySection: String, Identifiable {
     case history, downloads, bookmarks, time, notes, tasks
     var id: String { rawValue }
@@ -22,6 +22,7 @@ struct BrowserSidebar: View {
     let onSettings: () -> Void
     let onCollect: ([BrowserTabRecord]) -> Void
     @State private var groupDraft: BrowserGroupDraft?
+    @State private var favoriteDraft: BrowserFavoriteDraft?
     @Environment(\.theme) private var theme
 #if os(macOS)
     @State private var showsExtensions = false
@@ -29,63 +30,80 @@ struct BrowserSidebar: View {
 #endif
 
     var body: some View {
-        sidebarContent
-#if os(macOS)
-        .scrollEdgeEffectStyle(.hard, for: .top)
-#endif
-        .safeAreaInset(edge: .top, spacing: 0) {
-            BrowserNavigationControls(state: state)
-#if os(macOS)
-                .background(.bar, ignoresSafeAreaEdges: .top)
-#endif
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                Divider()
-                HStack {
-#if os(macOS)
-                    modeButtons
-#endif
-                    Spacer(minLength: 0)
-                    Menu {
-                        Button("Settings", systemImage: "gearshape", action: onSettings)
-#if !os(macOS)
-                        Button("Time & Focus", systemImage: "timer") { onLibrary(.time) }
-                        Button("Notes", systemImage: "note.text") { onLibrary(.notes) }
-                        Button("Tasks", systemImage: "checklist") { onLibrary(.tasks) }
-#endif
-                        Button("History", systemImage: "clock") { onLibrary(.history) }
-                        Button("Downloads", systemImage: "arrow.down.circle") { onLibrary(.downloads) }
-                        Button("Bookmarks", systemImage: "bookmark") { onLibrary(.bookmarks) }
-#if os(macOS)
-                        Button("Web Extensions…", systemImage: "puzzlepiece.extension") { showsExtensions = true }
-#endif
-                        Divider()
-                        Button("New tab group", systemImage: "folder.badge.plus") { groupDraft = .init() }
-                        Button("Collect tabs on canvas", systemImage: "square.grid.2x2") { onCollect(state.tabs) }
-                            .disabled(state.isCollecting || state.tabs.isEmpty)
-                    } label: {
-                        Image(systemName: "ellipsis").font(.body.weight(.medium))
-                    }
-#if os(macOS)
-                    .menuIndicator(.hidden)
-                    .menuStyle(.borderlessButton)
-#endif
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("Browser menu")
-                    .accessibilityIdentifier("browser-menu")
-                }
-                .frame(height: 52)
-                .padding(.horizontal, 12)
-            }
-        }
+        sidebarSurface
         .sheet(item: $groupDraft) { draft in
             BrowserGroupNameSheet(state: state, groupID: draft.groupID, tabIDs: draft.tabIDs, title: draft.title)
         }
+        .sheet(item: $favoriteDraft) { BrowserFavoriteEditor(state: state, draft: $0) }
 #if os(macOS)
         .sheet(isPresented: $showsExtensions) { BrowserExtensionsSheet(extensions: state.extensions) }
 #endif
+    }
+
+    @ViewBuilder
+    private var sidebarSurface: some View {
+#if os(macOS)
+        VStack(spacing: 0) {
+            BrowserNavigationControls(state: state)
+                .fixedSize(horizontal: false, vertical: true)
+            sidebarContent
+                .scrollContentBackground(.hidden)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .accessibilityIdentifier("browser-sidebar-scroll-region")
+            sidebarFooter
+        }
+        .background {
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea(.container, edges: [.top, .bottom])
+        }
+#else
+        sidebarContent
+            .safeAreaInset(edge: .top, spacing: 0) { BrowserNavigationControls(state: state) }
+            .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
+#endif
+    }
+
+    private var sidebarFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack {
+#if os(macOS)
+                modeButtons
+#endif
+                Spacer(minLength: 0)
+                Menu {
+                    Button("Settings", systemImage: "gearshape", action: onSettings)
+#if !os(macOS)
+                    Button("Time & Focus", systemImage: "timer") { onLibrary(.time) }
+                    Button("Notes", systemImage: "note.text") { onLibrary(.notes) }
+                    Button("Tasks", systemImage: "checklist") { onLibrary(.tasks) }
+#endif
+                    Button("History", systemImage: "clock") { onLibrary(.history) }
+                    Button("Downloads", systemImage: "arrow.down.circle") { onLibrary(.downloads) }
+                    Button("Bookmarks", systemImage: "bookmark") { onLibrary(.bookmarks) }
+#if os(macOS)
+                    Button("Web Extensions…", systemImage: "puzzlepiece.extension") { showsExtensions = true }
+#endif
+                    Divider()
+                    Button("New tab group", systemImage: "folder.badge.plus") { groupDraft = .init() }
+                    Button("Collect tabs on canvas", systemImage: "square.grid.2x2") { onCollect(state.tabs) }
+                        .disabled(state.isCollecting || state.tabs.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis").font(.body.weight(.medium))
+                }
+#if os(macOS)
+                .menuIndicator(.hidden)
+                .menuStyle(.borderlessButton)
+#endif
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Browser menu")
+                .accessibilityIdentifier("browser-menu")
+            }
+            .frame(height: 52)
+            .padding(.horizontal, 12)
+        }
     }
 
 #if os(macOS)
@@ -141,17 +159,27 @@ struct BrowserSidebar: View {
     @ViewBuilder
     private var sidebarList: some View {
 #if os(macOS)
+        let currentSelection: Set<BrowserSidebarSelection> = state.selectedID == nil
+            ? [.home] : Set(state.tabs.filter { state.selectedTabIDs.contains($0.id) }.map(sidebarSelection))
         List(selection: Binding<Set<BrowserSidebarSelection>>(get: {
-            state.selectedID == nil ? [.home] : Set(state.selectedTabIDs.map(BrowserSidebarSelection.tab))
+            currentSelection
         }, set: { selection in
+            let previous = currentSelection
+            let added = selection.subtracting(previous)
+            for item in selection { if case .favorite(let id) = item, state.tab(forFavorite: id) == nil { state.openFavorite(id) } }
+            let focused = added.compactMap(tabID).first
             let ids = Set(selection.compactMap { item -> UUID? in
-                if case .tab(let id) = item { return id }
-                return nil
+                tabID(item)
             })
-            if !ids.isEmpty { state.selectTabs(ids) }
+            if !ids.isEmpty { state.selectTabs(ids, focusedID: focused) }
             else if selection.contains(.home) { state.showHome() }
         })) { sidebarRows }
         .contextMenu(forSelectionType: BrowserSidebarSelection.self) { selection in
+            let favorites = Set(selection.compactMap { item -> UUID? in
+                if case .favorite(let id) = item { return id }
+                return nil
+            })
+            if !favorites.isEmpty { BrowserFavoriteActions(state: state, ids: favorites, onEdit: { favoriteDraft = $0 }) }
             let ids = Set(selection.compactMap { item -> UUID? in
                 if case .tab(let id) = item { return id }
                 return nil
@@ -159,16 +187,30 @@ struct BrowserSidebar: View {
             tabContextMenu(ids)
         }
 #else
+        let currentSelection = state.selectedTab.map(sidebarSelection) ?? .home
         List(selection: Binding<BrowserSidebarSelection?>(get: {
-            state.selectedID.map(BrowserSidebarSelection.tab) ?? .home
+            currentSelection
         }, set: { selection in
             switch selection {
             case .home: state.showHome()
             case .tab(let id): state.select(id)
+            case .favorite(let id): state.openFavorite(id)
             case nil: break
             }
         })) { sidebarRows }
 #endif
+    }
+
+    private func sidebarSelection(_ tab: BrowserTabRecord) -> BrowserSidebarSelection {
+        state.favoriteID(for: tab).map(BrowserSidebarSelection.favorite) ?? .tab(tab.id)
+    }
+
+    private func tabID(_ selection: BrowserSidebarSelection) -> UUID? {
+        switch selection {
+        case .home: nil
+        case .tab(let id): id
+        case .favorite(let id): state.tab(forFavorite: id)?.id
+        }
     }
 
     @ViewBuilder
@@ -195,6 +237,29 @@ struct BrowserSidebar: View {
         Button { onLibrary(.tasks) } label: { Label("Tasks", systemImage: "checklist") }
             .accessibilityIdentifier("browser-tasks-button")
 #endif
+        Section {
+            BrowserFavoriteRows(state: state, onEdit: { favoriteDraft = $0 })
+            if state.favorites.entries.isEmpty {
+                Text("Pin pages to keep them here.").font(.caption).foregroundStyle(.secondary)
+            }
+        } header: {
+            HStack {
+                Text("Favorites")
+                Spacer()
+                Menu {
+                    Button("Pin current page", systemImage: "pin") {
+                        if let id = state.selectedID { _ = state.pinTab(id) }
+                    }.disabled(state.selectedTab?.url == nil)
+                    Button("New folder", systemImage: "folder.badge.plus") { favoriteDraft = .init() }
+                } label: { Image(systemName: "plus").frame(width: 28, height: 28) }
+#if os(macOS)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+#endif
+                .accessibilityLabel("Add to Favorites")
+                .accessibilityIdentifier("browser-favorites-add")
+            }
+        }
         Section {
             tabRows(groupID: nil)
             ForEach(state.groups) { group in
@@ -226,6 +291,17 @@ struct BrowserSidebar: View {
     @ViewBuilder
     func tabContextMenu(_ ids: Set<UUID>) -> some View {
         if !ids.isEmpty {
+            Button("Pin to Favorites", systemImage: "pin") { for id in ids { _ = state.pinTab(id) } }
+                .disabled(!state.tabs.contains { ids.contains($0.id) && $0.url != nil })
+                .accessibilityIdentifier("browser-pin-tabs")
+            Menu("Pin to Favorites folder") {
+                ForEach(state.favorites.folders) { folder in
+                    Button(state.favorites.folderPath(folder.id)) { for id in ids { _ = state.pinTab(id, in: folder.id) } }
+                }
+                Button("New folder…") { favoriteDraft = .init(tabIDs: ids) }
+            }
+            .disabled(!state.tabs.contains { ids.contains($0.id) && $0.url != nil })
+            Divider()
 #if os(macOS)
             if ids.count >= 2 {
                 Button("Combine in Split View", systemImage: "rectangle.split.2x1") { state.combineTabsInSplit(ids) }
@@ -311,7 +387,7 @@ struct BrowserSidebar: View {
     }
 
     private func tabRows(groupID: UUID?) -> some View {
-        ForEach(state.tabs.filter { $0.groupID == groupID }) { tab in
+        ForEach(state.regularTabs.filter { $0.groupID == groupID }) { tab in
             tabRow(tab)
             .tag(BrowserSidebarSelection.tab(tab.id))
             .accessibilityIdentifier("browser-tab-\(tab.id)")
@@ -323,7 +399,7 @@ struct BrowserSidebar: View {
         }
         .onMove { state.move(in: groupID, from: $0, to: $1) }
         .onDelete { offsets in
-            let tabs = state.tabs.filter { $0.groupID == groupID }
+            let tabs = state.regularTabs.filter { $0.groupID == groupID }
             offsets.map { tabs[$0].id }.forEach { state.close($0) }
         }
     }

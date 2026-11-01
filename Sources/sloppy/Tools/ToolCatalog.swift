@@ -298,6 +298,14 @@ enum ToolCatalog {
                 "pageId": .object(["type": .string("string")])
             ])
         ]),
+        "browser.evaluate": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "expression": .object(["type": .string("string")]),
+                "pageId": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("expression")])
+        ]),
         "browser.read": .object([
             "type": .string("object"),
             "properties": .object(["pageId": .object(["type": .string("string")])])

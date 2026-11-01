@@ -1,4 +1,13 @@
 import Foundation
+import SloppyA2UI
+
+public typealias WorkspaceBrowserJSONValue = A2UIValue
+
+public struct WorkspaceBrowserEvaluation: Codable, Sendable {
+    public var value: WorkspaceBrowserJSONValue
+
+    public init(value: WorkspaceBrowserJSONValue) { self.value = value }
+}
 
 public struct WorkspaceBrowserBinding: Codable, Sendable {
     public var bridgeId: String
@@ -22,6 +31,7 @@ public struct WorkspaceBrowserCommand: Codable, Sendable {
         public var pageId: String?
         public var selector: String?
         public var text: String?
+        public var expression: String?
         public var x: Double?
         public var y: Double?
     }
@@ -45,6 +55,7 @@ public struct WorkspaceBrowserPage: Codable, Sendable {
     public var visibleText: String
     public var elements: [WorkspaceBrowserElement]
     public var running: Bool
+    public var evaluation: WorkspaceBrowserEvaluation?
 
     public init(pageId: String, url: String, title: String, visibleText: String,
                 elements: [WorkspaceBrowserElement] = [], running: Bool = true) {

@@ -91,6 +91,31 @@ struct BrowserCDPServiceTests {
         #expect(FileManager.default.fileExists(atPath: outputPath))
     }
 
+    @Test func evaluationAwaitsJSONAndRejectsForeignPages() async throws {
+        let transport = FakeBrowserCDPTransport()
+        let service = BrowserCDPService(
+            config: .init(enabled: true, executablePath: "/fake/chrome"),
+            workspaceRootURL: FileManager.default.temporaryDirectory,
+            launcher: FakeBrowserProcessLauncher(), transport: transport
+        )
+        _ = try await service.open(sessionID: "evaluation", url: "https://example.com")
+        let result = try await service.evaluate(sessionID: "evaluation", pageID: "page-1", expression: "Promise.resolve({price: 120})")
+        #expect(result.asObject?["evaluation"]?.asObject?["value"] == .object(["price": .number(120)]))
+        #expect(await transport.evaluationParameters?.asObject?["awaitPromise"]?.asBool == true)
+        #expect(await transport.evaluationParameters?.asObject?["returnByValue"]?.asBool == true)
+        #expect(await transport.evaluationParameters?.asObject?["expression"]?.asString?.contains("Promise.resolve({price: 120})") == true)
+        await #expect(throws: BrowserCDPError.noPage) {
+            try await service.evaluate(sessionID: "another-session", pageID: "page-1", expression: "42")
+        }
+        await #expect(throws: BrowserCDPError.pageNotFound) {
+            try await service.evaluate(sessionID: "evaluation", pageID: "foreign-page", expression: "42")
+        }
+        await transport.setEvaluationFailure()
+        await #expect(throws: (any Error).self) {
+            try await service.evaluate(sessionID: "evaluation", pageID: nil, expression: "throw new Error()")
+        }
+    }
+
     @Test("status and close report browser session lifecycle")
     func statusAndCloseReflectLifecycle() async throws {
         let service = BrowserCDPService(
@@ -145,6 +170,9 @@ private struct FailingBrowserProcessLauncher: BrowserProcessLaunching {
 
 private actor FakeBrowserCDPTransport: BrowserCDPTransport {
     private var counter = 0
+    var evaluationParameters: JSONValue?
+    private var failEvaluation = false
+    func setEvaluationFailure() { failEvaluation = true }
     private var lastEndpoint: BrowserCDPEndpoint?
     private var pages: [String: BrowserPageSnapshot] = [:]
 
@@ -171,6 +199,13 @@ private actor FakeBrowserCDPTransport: BrowserCDPTransport {
             pages[pageID] = page
             return .object(["result": .object([:])])
         case "Runtime.evaluate":
+            if params.asObject?["expression"]?.asString?.contains("evaluation_result_not_json") == true {
+                evaluationParameters = params
+                if failEvaluation {
+                    return .object(["result": .object(["exceptionDetails": .object(["text": .string("JS failed")])])])
+                }
+                return .object(["result": .object(["result": .object(["value": .string("{\"value\":{\"price\":120}}")])])])
+            }
             return .object([
                 "result": .object([
                     "result": .object([

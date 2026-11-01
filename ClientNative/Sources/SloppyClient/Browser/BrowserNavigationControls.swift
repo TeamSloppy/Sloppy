@@ -75,7 +75,7 @@ struct BrowserNavigationControls: View {
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: addressHeight)
         .background {
-            RoundedRectangle(cornerRadius: addressCornerRadius, style: .continuous).fill(theme.colors.surfaceRaised)
+            RoundedRectangle(cornerRadius: addressCornerRadius, style: .continuous).fill(theme.colors.surfaceGlass)
         }
         .contentShape(RoundedRectangle(cornerRadius: addressCornerRadius, style: .continuous))
         .onHover { isAddressHovered = $0 }

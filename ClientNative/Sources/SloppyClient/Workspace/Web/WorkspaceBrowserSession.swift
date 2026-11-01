@@ -76,6 +76,11 @@ final class WorkspaceBrowserSession {
                 page = try await runtime.open(url: command.input.url ?? "about:blank")
             case "read":
                 page = try await runtime.read()
+            case "evaluate":
+                guard let expression = command.input.expression else { throw WorkspaceBrowserRuntimeError.invalidArguments }
+                let value = try await runtime.evaluate(expression: expression)
+                page = try await runtime.read()
+                page.evaluation = .init(value: value)
             case "click":
                 guard let selector = command.input.selector else { throw WorkspaceBrowserRuntimeError.invalidArguments }
                 _ = try await runtime.click(selector: selector)
