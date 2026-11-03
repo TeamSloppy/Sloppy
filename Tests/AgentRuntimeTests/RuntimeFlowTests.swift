@@ -849,13 +849,19 @@ private actor ReconnectingModelProvider: ModelProvider {
     nonisolated var supportedModels: [String] { ["mock-model"] }
     private var failuresBeforeSuccess: Int
     private let successText: String
-    private let errorCode: URLError.Code
+    private let error: any Error & Sendable
     private var requests = 0
 
     init(failuresBeforeSuccess: Int, successText: String, errorCode: URLError.Code = .networkConnectionLost) {
         self.failuresBeforeSuccess = failuresBeforeSuccess
         self.successText = successText
-        self.errorCode = errorCode
+        self.error = URLError(errorCode)
+    }
+
+    init(failuresBeforeSuccess: Int, successText: String, error: any Error & Sendable) {
+        self.failuresBeforeSuccess = failuresBeforeSuccess
+        self.successText = successText
+        self.error = error
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -870,7 +876,7 @@ private actor ReconnectingModelProvider: ModelProvider {
         requests += 1
         guard failuresBeforeSuccess <= 0 else {
             failuresBeforeSuccess -= 1
-            throw URLError(errorCode)
+            throw error
         }
         return successText
     }
@@ -1677,6 +1683,61 @@ func respondInlineReconnectsTimedOutModelSession() async {
     #expect(systemMessages.last == "Recovered after timeout.")
     #expect(await delayCapture.snapshot() == [.seconds(5)])
     #expect(await provider.requestCount() == 2)
+}
+
+@Test
+func respondInlineReconnectsWindowsConnectionReset() async {
+    let underlying = NSError(domain: NSURLErrorDomain, code: URLError.unknown.rawValue, userInfo: [
+        NSLocalizedDescriptionKey: "Recv failure: Connection was reset",
+    ])
+    let error = NSError(domain: NSURLErrorDomain, code: URLError.unknown.rawValue, userInfo: [
+        NSUnderlyingErrorKey: underlying,
+    ])
+    let provider = ReconnectingModelProvider(
+        failuresBeforeSuccess: 1,
+        successText: "Recovered after connection reset.",
+        error: error
+    )
+    let delayCapture = ReconnectDelayCapture()
+    let system = RuntimeSystem(
+        modelProvider: provider,
+        defaultModel: "mock-model",
+        modelReconnectSleeper: { delay in
+            await delayCapture.record(delay)
+        }
+    )
+
+    _ = await system.postMessage(
+        channelId: "provider-reconnect-windows-reset",
+        request: ChannelMessageRequest(userId: "u1", content: "finish the task")
+    )
+
+    let messages = await system.channelState(channelId: "provider-reconnect-windows-reset")?.messages ?? []
+    let systemMessages = messages.filter { $0.userId == "system" }.map(\.content)
+    #expect(systemMessages.contains("Reconnecting 1/5"))
+    #expect(systemMessages.last == "Recovered after connection reset.")
+    #expect(await delayCapture.snapshot() == [.seconds(5)])
+    #expect(await provider.requestCount() == 2)
+}
+
+@Test
+func interruptedModelSessionErrorChecksUnderlyingTransportErrors() async {
+    let system = RuntimeSystem()
+    let wrappedTimeout = URLError(.unknown, userInfo: [NSUnderlyingErrorKey: URLError(.timedOut)])
+    #expect(await system.isInterruptedModelSessionError(wrappedTimeout))
+
+    let sendFailure = URLError(.unknown, userInfo: [NSLocalizedDescriptionKey: "Send failure: Connection was reset"])
+    #expect(await system.isInterruptedModelSessionError(sendFailure))
+
+    #expect(await !system.isInterruptedModelSessionError(URLError(.unknown)))
+    #expect(await !system.isInterruptedModelSessionError(URLError(.serverCertificateUntrusted)))
+    #expect(await !system.isInterruptedModelSessionError(URLError(.userAuthenticationRequired)))
+    #expect(await !system.isInterruptedModelSessionError(URLError(.cancelled, userInfo: [
+        NSUnderlyingErrorKey: URLError(.networkConnectionLost),
+    ])))
+    #expect(await !system.isInterruptedModelSessionError(NSError(domain: "ProviderError", code: -1, userInfo: [
+        NSLocalizedDescriptionKey: "Recv failure: Connection was reset",
+    ])))
 }
 
 @Test

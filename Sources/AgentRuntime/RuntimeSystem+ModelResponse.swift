@@ -839,13 +839,24 @@ extension RuntimeSystem {
     }
 
     func isInterruptedModelSessionError(_ error: any Error) -> Bool {
-        if let urlError = error as? URLError {
-            return urlError.code == .networkConnectionLost || urlError.code == .timedOut
-        }
-
         let nsError = error as NSError
-        if nsError.domain == "NSURLErrorDomain", nsError.code == -1005 || nsError.code == -1001 {
-            return true
+        if nsError.domain == NSURLErrorDomain {
+            switch URLError.Code(rawValue: nsError.code) {
+            case .networkConnectionLost, .timedOut:
+                return true
+            case .cancelled:
+                return false
+            case .unknown:
+                // FoundationNetworking can lose the socket error code on Windows and
+                // surface libcurl send/receive failures as NSURLErrorUnknown instead.
+                // These are libcurl diagnostics, not model output or user text.
+                if let description = nsError.userInfo[NSLocalizedDescriptionKey] as? String,
+                   description.hasPrefix("Recv failure:") || description.hasPrefix("Send failure:") {
+                    return true
+                }
+            default:
+                break
+            }
         }
 
         if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {

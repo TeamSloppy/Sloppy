@@ -999,7 +999,7 @@ extension CoreService {
 
         let expanded = (trimmed as NSString).expandingTildeInPath
         let candidate: URL
-        if expanded.hasPrefix("/") {
+        if (expanded as NSString).isAbsolutePath {
             candidate = URL(fileURLWithPath: expanded, isDirectory: true)
         } else {
             let base = baseDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)

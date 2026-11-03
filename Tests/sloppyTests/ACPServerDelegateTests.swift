@@ -66,6 +66,26 @@ func sloppyACPServerInitializeAdvertisesSessionCapabilities() async throws {
 }
 
 @Test
+func sloppyACPServerAcceptsNativeProjectDirectory() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("ACP Проект & files \(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let service = try await makeACPServerService()
+    let delegate = SloppyACPServerDelegate(service: service, agentID: "dev", defaultCwd: nil, sendUpdate: { _, _ in })
+    #if os(Windows)
+    let paths = [root.path, root.path.replacingOccurrences(of: "/", with: "\\")]
+    #else
+    let paths = [root.path]
+    #endif
+    for path in paths {
+        let response = try await delegate.handleNewSession(NewSessionRequest(cwd: path))
+        let detail = try await service.getAgentSession(agentID: "dev", sessionID: response.sessionId.value)
+        #expect(detail.summary.id == response.sessionId.value)
+        #expect(detail.summary.projectId != nil)
+    }
+}
+
+@Test
 func sloppyACPServerAcceptsImagePromptBlocksAsAttachments() async throws {
     let service = try await makeACPServerService()
     let recorder = ACPServerUpdateRecorder()

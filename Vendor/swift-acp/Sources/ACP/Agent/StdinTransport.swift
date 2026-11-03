@@ -7,6 +7,10 @@
 
 import Foundation
 import ACPModel
+#if os(Windows)
+import Dispatch
+import WinSDK
+#endif
 
 /// Transport for agents running as subprocesses.
 /// Reads JSON-RPC messages from stdin and writes responses to stdout.
@@ -18,6 +22,10 @@ public actor StdinTransport: Transport {
     private let logger: Logger
     private let input: FileHandle
     private let output: FileHandle
+    private var readerTask: Task<Void, Never>?
+    #if os(Windows)
+    private var inputTimer: DispatchSourceTimer?
+    #endif
 
     private var messageContinuation: AsyncStream<Data>.Continuation?
     private let messageStream: AsyncStream<Data>
@@ -53,21 +61,48 @@ public actor StdinTransport: Transport {
         guard !isRunning else { return }
         isRunning = true
 
-        // Read from stdin outside the actor. FileHandle.availableData blocks
-        // until data or EOF, and blocking here would starve send(_:) calls.
-        Task.detached { [input] in
-            while await self.isConnected {
-                let data = input.availableData
-
-                if data.isEmpty {
-                    // EOF reached
-                    break
-                }
-
-                await self.processIncomingData(data)
+        // One stream consumer preserves byte order. Input readiness must not
+        // block the cooperative executor or Foundation's Windows I/O callbacks.
+        let chunks = AsyncStream<Data>.makeStream()
+        #if os(Windows)
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "sloppy.acp.stdin"))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(10))
+        // This is the only reader. Reading at most PeekNamedPipe's byte count
+        // cannot wait for the next request, so async request handlers stay live.
+        timer.setEventHandler { [input] in
+            var available: DWORD = 0
+            guard PeekNamedPipe(input._handle, nil, 0, nil, &available, nil) else {
+                chunks.continuation.finish()
+                return
             }
-
-            await self.finishMessages()
+            guard available > 0 else { return }
+            var bytes = [UInt8](repeating: 0, count: Int(min(available, 65_536)))
+            var count: DWORD = 0
+            guard ReadFile(input._handle, &bytes, DWORD(bytes.count), &count, nil), count > 0 else {
+                chunks.continuation.finish()
+                return
+            }
+            chunks.continuation.yield(Data(bytes.prefix(Int(count))))
+        }
+        inputTimer = timer
+        timer.resume()
+        #else
+        input.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                chunks.continuation.finish()
+            } else {
+                chunks.continuation.yield(data)
+            }
+        }
+        #endif
+        readerTask = Task {
+            for await data in chunks.stream {
+                guard !Task.isCancelled else { break }
+                await processIncomingData(data)
+            }
+            finishMessages()
         }
     }
 
@@ -80,6 +115,9 @@ public actor StdinTransport: Transport {
 
     public func close() async {
         isRunning = false
+        stopReading()
+        readerTask?.cancel()
+        readerTask = nil
         messageContinuation?.finish()
     }
 
@@ -87,7 +125,17 @@ public actor StdinTransport: Transport {
 
     private func finishMessages() {
         isRunning = false
+        stopReading()
         messageContinuation?.finish()
+    }
+
+    private func stopReading() {
+        #if os(Windows)
+        inputTimer?.cancel()
+        inputTimer = nil
+        #else
+        input.readabilityHandler = nil
+        #endif
     }
 
     private func processIncomingData(_ data: Data) async {
