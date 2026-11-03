@@ -32,7 +32,7 @@ struct WorkspaceWebView: NSViewRepresentable {
         Coordinator(viewModel: viewModel)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> NSView {
         if let viewModel {
             let webView = viewModel.ensureBrowserRuntime().webView
             viewModel.nativeWebView = webView
@@ -42,7 +42,7 @@ struct WorkspaceWebView: NSViewRepresentable {
             context.coordinator.updateToolbarBlur(webView, height: topContentInset, enabled: !reduceTransparency)
             viewModel.browserRuntime?.documentInset.update(BrowserToolbarBackdrop.unobscuredContentInset(for: topContentInset))
             webView.obscuredContentInsets = NSEdgeInsetsZero
-            return webView
+            return BrowserWebViewHost(webView: webView)
         }
         let configuration = WKWebViewConfiguration()
         if artifactHTML != nil {
@@ -58,7 +58,8 @@ struct WorkspaceWebView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_ nsView: WKWebView, context: Context) {
+    func updateNSView(_ view: NSView, context: Context) {
+        guard let nsView = (view as? BrowserWebViewHost)?.webView ?? view as? WKWebView else { return }
         context.coordinator.updateFocusTracking(nsView, onFocus: onFocus)
         nsView.underPageBackgroundColor = viewModel == nil ? NSColor(theme.colors.surface) : nil
         if viewModel != nil { context.coordinator.updateToolbarBlur(nsView, height: topContentInset, enabled: !reduceTransparency) }
@@ -71,7 +72,7 @@ struct WorkspaceWebView: NSViewRepresentable {
         nsView.loadHTMLString(Self.sandboxedDocument(artifactHTML), baseURL: nil)
     }
 
-    static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
         coordinator.detachToolbarBlur()
         coordinator.stopFocusTracking()
     }

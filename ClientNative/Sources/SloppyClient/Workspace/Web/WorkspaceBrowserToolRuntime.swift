@@ -45,10 +45,14 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     private var potentialAgentEdits = false
 #if os(macOS)
     private(set) lazy var documentInset = BrowserDocumentInset(webView: webView)
+    let pageUI = BrowserPageUI()
+    var popupWindows: [UUID: BrowserPopupWindow] = [:]
+    var onCloseWindow: (() -> Void)?
 #endif
     var onStateChange: (@MainActor (WKWebView, String?) -> Void)?
     var onNavigationFinished: (@MainActor (WKWebView) -> Void)?
     var onDownload: (@MainActor (WKDownload) -> Void)?
+    var onOpenLinkInNewTab: (@MainActor (URL) -> Void)?
     var onNavigationStarted: (@MainActor () -> Void)?
     var navigationBlock: (@MainActor (URL) -> String?)?
     private var navigationError: Error?
@@ -65,12 +69,19 @@ final class WorkspaceBrowserToolRuntime: NSObject {
         let activity = BrowserPageActivityMonitor()
         self.activity = activity
         activity.install(in: webView?.configuration ?? configuration)
+        (webView?.configuration ?? configuration).preferences.isElementFullscreenEnabled = true
 #if os(macOS)
         configuration.webExtensionController = extensionController
         // Bare WKWebView omits Safari's version tokens. YouTube treats that UA
         // as a legacy browser and disables prefers-color-scheme support.
         // Safari 26 is our macOS deployment baseline; keep WebKit's native UA.
         configuration.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
+        // macOS exposes this only as WebKit SPI; the public configuration flag is iOS-only.
+        // Check availability before KVC so a future WebKit without this SPI keeps working.
+        let preferences = (webView?.configuration ?? configuration).preferences
+        if preferences.responds(to: NSSelectorFromString("_setAllowsPictureInPictureMediaPlayback:")) {
+            preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
+        }
 #endif
         if webView == nil { textSelection?.install(in: configuration) }
 #if os(macOS)
@@ -265,6 +276,10 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     }
 
     func stop() {
+#if os(macOS)
+        pageUI.cancel()
+        for popup in Array(popupWindows.values) { popup.close() }
+#endif
         if sitePrompt.isPending { navigationError = WorkspaceBrowserRuntimeError.permissionDenied("The site permission request was cancelled.") }
         agentPointer.clear()
         navigationPolicyRevision &+= 1
@@ -290,13 +305,21 @@ final class WorkspaceBrowserToolRuntime: NSObject {
         noteAccess()
     }
 
+    private var hasActiveBrowserUI: Bool {
+#if os(macOS)
+        pageUI.sheet != nil || !popupWindows.isEmpty || webView.fullscreenState != .notInFullscreen
+#else
+        false
+#endif
+    }
+
     func safeToDiscard(at now: Date) async -> Bool {
-        guard activeOperations == 0, !sitePrompt.isPending, !navigationPending, !webView.isLoading, !potentialAgentEdits,
+        guard !hasActiveBrowserUI, activeOperations == 0, !sitePrompt.isPending, !navigationPending, !webView.isLoading, !potentialAgentEdits,
               now.timeIntervalSince(lastOperationAt) >= 60 else { return false }
         let operation = operationRevision
         let revision = activity.revision
         guard await activity.inspect() else { return false }
-        return activeOperations == 0 && operationRevision == operation && activity.revision == revision
+        return !hasActiveBrowserUI && activeOperations == 0 && operationRevision == operation && activity.revision == revision
             && !navigationPending && !webView.isLoading && !potentialAgentEdits
             && webView.cameraCaptureState == .none && webView.microphoneCaptureState == .none
     }
@@ -311,6 +334,7 @@ final class WorkspaceBrowserToolRuntime: NSObject {
         onStateChange = nil
         onNavigationFinished = nil
         onDownload = nil
+        onOpenLinkInNewTab = nil
         onNavigationStarted = nil
         navigationBlock = nil
         webView.navigationDelegate = nil
@@ -431,6 +455,9 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     func goForward() { navigationError = nil; webView.goForward() }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+#if os(macOS)
+        pageUI.cancel()
+#endif
         documentRevision &+= 1
         agentPointer.clear()
         onNavigationStarted?()
@@ -473,6 +500,18 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
         self.webView(webView, didFail: navigation, withError: error)
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+#if os(macOS)
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.buttonNumber == 0,
+           navigationAction.modifierFlags.contains(.command),
+           !navigationAction.shouldPerformDownload,
+           let url = navigationAction.request.url,
+           (try? Self.resolveURL(url.absoluteString)) != nil,
+           let onOpenLinkInNewTab {
+            onOpenLinkInNewTab(url)
+            return .cancel
+        }
+#endif
         if navigationAction.targetFrame?.isMainFrame != false,
            let url = navigationAction.request.url, let reason = navigationBlock?(url) {
             navigationPending = false
@@ -504,7 +543,7 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
             return .download
         }
         guard let url = navigationAction.request.url,
-              (try? Self.resolveURL(url.absoluteString)) != nil else {
+              (try? Self.resolveURL(url.absoluteString)) != nil || url.absoluteString == "about:blank" else {
             navigationPending = false
             navigationError = WorkspaceBrowserRuntimeError.invalidURL
             onStateChange?(webView, WorkspaceBrowserNavigationFailure.message(for: navigationError))
@@ -531,6 +570,17 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     }
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+#if os(macOS)
+        guard navigationAction.targetFrame == nil, webView.window != nil,
+              let url = navigationAction.request.url,
+              url.absoluteString == "about:blank" || (try? Self.resolveURL(url.absoluteString)) != nil else { return nil }
+        let id = UUID()
+        let popup = BrowserPopupWindow(configuration: configuration, features: windowFeatures, parent: self)
+        popup.onClose = { [weak self] in self?.popupWindows.removeValue(forKey: id) }
+        popupWindows[id] = popup
+        popup.showWindow(nil)
+        return popup.runtime.webView
+#else
         if navigationAction.targetFrame == nil,
            let url = navigationAction.request.url,
            (try? Self.resolveURL(url.absoluteString)) != nil {
@@ -538,6 +588,7 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
             webView.load(navigationAction.request)
         }
         return nil
+#endif
     }
 }
 #endif

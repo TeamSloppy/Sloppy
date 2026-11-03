@@ -50,3 +50,5 @@ Derived/
 
 # Local Xcode build caches
 **/.derivedData/
+ClientNative/.artifacts/
+ClientNative/.artefacts/

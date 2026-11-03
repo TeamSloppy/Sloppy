@@ -6,6 +6,7 @@ import WebKit
 extension BrowserSiteOrigin {
     @MainActor
     init?(_ origin: WKSecurityOrigin) {
+        guard ["http", "https"].contains(origin.protocol), !origin.host.isEmpty else { return nil }
         var parts = URLComponents()
         parts.scheme = origin.protocol
         parts.host = origin.host

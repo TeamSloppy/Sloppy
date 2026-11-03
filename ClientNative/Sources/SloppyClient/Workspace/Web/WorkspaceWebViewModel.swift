@@ -33,6 +33,7 @@ final class WorkspaceWebViewModel {
     var nativeWebView: WKWebView?
     var retainedController: (any WorkspaceWebViewControlling)?
     var onDownload: (@MainActor (WKDownload) -> Void)?
+    var onOpenLinkInNewTab: (@MainActor (URL) -> Void)?
     var onPageChange: (@MainActor () -> Void)?
     var navigationBlock: (@MainActor (URL) -> String?)?
     var timeBlock: BrowserTimeBlock?
@@ -86,6 +87,7 @@ final class WorkspaceWebViewModel {
         let runtime = WorkspaceBrowserToolRuntime(textSelection: textSelection, contentBlocker: contentBlocker, sitePermissions: sitePermissions)
 #endif
         runtime.onDownload = onDownload
+        runtime.onOpenLinkInNewTab = onOpenLinkInNewTab
         runtime.navigationBlock = { [weak self] url in self?.navigationBlock?(url) }
         runtime.onStateChange = { [weak self] webView, error in
             guard let self else { return }

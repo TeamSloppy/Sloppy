@@ -11,7 +11,9 @@ final class BrowserToolbarBackdrop {
     private let fade = CAGradientLayer()
     private let previousFilterRendering: Bool
     private var boundsObservation: NSKeyValueObservation?
+    private var fullscreenObservation: NSKeyValueObservation?
     private var toolbarHeight: CGFloat = 0
+    private var isEnabled = false
 
     static func unobscuredContentInset(for toolbarHeight: CGFloat) -> CGFloat {
         guard toolbarHeight > 0 else { return 0 }
@@ -36,22 +38,28 @@ final class BrowserToolbarBackdrop {
         boundsObservation = webView.layer?.observe(\.bounds, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.layout() }
         }
+        fullscreenObservation = webView.observe(\.fullscreenState, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.layout() }
+        }
     }
 
     func update(toolbarHeight: CGFloat, enabled: Bool) {
         self.toolbarHeight = max(0, toolbarHeight)
-        blurLayer.isHidden = !enabled || toolbarHeight <= 0
+        isEnabled = enabled
         layout()
     }
 
     func detach() {
         boundsObservation?.invalidate()
         boundsObservation = nil
+        fullscreenObservation?.invalidate()
+        fullscreenObservation = nil
         blurLayer.removeFromSuperlayer()
         webView?.layerUsesCoreImageFilters = previousFilterRendering
     }
 
     private func layout() {
+        blurLayer.isHidden = !isEnabled || toolbarHeight <= 0 || webView?.fullscreenState != .notInFullscreen
         guard let host = webView?.layer else { return }
         let height = min(host.bounds.height, toolbarHeight + Self.fadeHeight)
         let flipped = host.isGeometryFlipped

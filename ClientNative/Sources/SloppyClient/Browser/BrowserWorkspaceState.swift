@@ -481,6 +481,7 @@ final class BrowserWorkspaceState {
         let page = WorkspaceWebViewModel(history: history)
         page.sitePermissions = sitePermissions
         page.contentBlocker = contentBlocker
+        page.onOpenLinkInNewTab = { [weak self] url in self?.open(url, inNewTab: true) }
         page.onPresentationChange = { [weak self] in self?.updatePageVisibility() }
         page.navigationBlock = { [weak self, weak page] url in
             guard let self, let page else { return nil }
