@@ -7,6 +7,7 @@ import SecurityInterface
 struct BrowserConnectionSecurityButton: View {
     let page: WorkspaceWebViewModel?
     let requestedURL: URL?
+    @State private var showsSiteSettings = false
     @State private var isPresented = false
     @State private var openedByHover = false
     @State private var isIconHovered = false
@@ -51,10 +52,18 @@ struct BrowserConnectionSecurityButton: View {
                                           }
                                           isPresented = false
                                       })
+                .safeAreaInset(edge: .bottom) {
+                    Button("Site Settings…") { isPresented = false; showsSiteSettings = true }
+                        .accessibilityIdentifier("browser-site-settings")
+                        .padding(.bottom, 12)
+                }
                 .onHover { hovered in
                     isPopoverHovered = hovered
                     if hovered { dismissTask?.cancel() } else { scheduleDismissal() }
                 }
+        }
+        .sheet(isPresented: $showsSiteSettings) {
+            if let requestedURL { BrowserSiteSettingsView(url: requestedURL, permissions: page?.sitePermissions ?? .shared, page: page) }
         }
         .onChange(of: requestedURL) { _, _ in isPresented = false }
         .onChange(of: page.map(ObjectIdentifier.init)) { _, _ in isPresented = false }

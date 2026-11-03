@@ -11,6 +11,7 @@ extension ChatScreenViewModel {
     }
 
     func restoreApprovalMode(agentId: String, sessionId: String?) {
+        approvalModeLoadTask?.cancel()
         let revision = UUID()
         approvalModeRevision = revision
         isSavingApprovalMode = false
@@ -22,16 +23,26 @@ extension ChatScreenViewModel {
         }
         isLoadingApprovalMode = true
         let pendingSave = approvalModeSaveTask
-        Task { @MainActor in
+        approvalModeLoadTask = Task { @MainActor in
             defer {
                 if approvalModeRevision == revision {
                     isLoadingApprovalMode = false
-                    Task { @MainActor in await sendNextQueuedMessageIfIdle() }
+                    approvalModeLoadTask = nil
+                    if !Task.isCancelled {
+                        Task { @MainActor in
+                            guard approvalModeRevision == revision else { return }
+                            await sendNextQueuedMessageIfIdle()
+                        }
+                    }
                 }
             }
             do {
+                try Task.checkCancellation()
                 // Returning to a chat must observe the result of an in-flight save.
                 if let pendingSave { _ = try? await pendingSave.value }
+                try Task.checkCancellation()
+                guard approvalModeRevision == revision, selectedAgent?.id == agentId,
+                      selectedSessionId == sessionId else { return }
                 let policy: ChatApprovalPolicy
                 if let sessionId {
                     policy = try await apiClient.fetchChatApprovalPolicy(agentId: agentId, sessionId: sessionId)
@@ -53,7 +64,7 @@ extension ChatScreenViewModel {
                     failedApprovalModeSaveKeys.remove(key)
                 }
             } catch {
-                guard approvalModeRevision == revision else { return }
+                guard !Task.isCancelled, approvalModeRevision == revision else { return }
                 approvalModeErrorMessage = approvalPolicyError(error)
             }
         }

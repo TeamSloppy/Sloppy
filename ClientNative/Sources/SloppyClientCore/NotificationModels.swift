@@ -47,6 +47,8 @@ public struct PendingToolApprovalRecord: Codable, Sendable, Equatable, Identifia
     public var sessionId: String?
     public var displaySessionId: String?
     public var tool: String?
+    public var arguments: [String: ToolApprovalArgumentValue]?
+    public var grants: [ClientToolApprovalGrant]?
     public var reason: String?
     public var expiresAt: Date?
     public var updatedAt: Date
@@ -58,6 +60,8 @@ public struct PendingToolApprovalRecord: Codable, Sendable, Equatable, Identifia
         sessionId: String? = nil,
         displaySessionId: String? = nil,
         tool: String? = nil,
+        arguments: [String: ToolApprovalArgumentValue]? = nil,
+        grants: [ClientToolApprovalGrant]? = nil,
         reason: String? = nil,
         updatedAt: Date,
         expiresAt: Date? = nil
@@ -68,6 +72,8 @@ public struct PendingToolApprovalRecord: Codable, Sendable, Equatable, Identifia
         self.sessionId = sessionId
         self.displaySessionId = displaySessionId
         self.tool = tool
+        self.arguments = arguments
+        self.grants = grants
         self.reason = reason
         self.updatedAt = updatedAt
         self.expiresAt = expiresAt
@@ -89,6 +95,20 @@ public struct PendingChatApprovalTracker: Sendable, Equatable {
         Set(entries.values.compactMap { entry in
             entry.isPending ? entry.sessionID : nil
         })
+    }
+
+    public var approvalIDs: Set<String> {
+        Set(entries.compactMap { $0.value.isPending ? $0.key : nil })
+    }
+
+    /// Reconcile a REST snapshot without discarding events received while it was loading.
+    public mutating func reconcilePending(_ records: [PendingToolApprovalRecord], fetchedAt: Date) {
+        let pending = records.filter { $0.status == "pending" && ($0.expiresAt.map { $0 > fetchedAt } ?? true) }
+        let currentIDs = Set(pending.map(\.id))
+        for (id, entry) in entries where entry.isPending && entry.updatedAt <= fetchedAt && !currentIDs.contains(id) {
+            entries[id] = Entry(sessionID: entry.sessionID, isPending: false, updatedAt: fetchedAt)
+        }
+        for record in pending { apply(record) }
     }
 
     public mutating func apply(_ record: PendingToolApprovalRecord) {

@@ -77,6 +77,14 @@ public actor ClientCacheStore {
 #endif
     }
 
+    isolated deinit {
+#if canImport(CSQLite3)
+        if let db {
+            sqlite3_close_v2(db)
+        }
+#endif
+    }
+
     static func cachedDate(from string: String) -> Date? {
         if string.contains("."), let date = try? fractionalCacheDateFormat.parse(string) {
             return date

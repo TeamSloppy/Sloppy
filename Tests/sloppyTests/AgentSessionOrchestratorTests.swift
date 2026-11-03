@@ -1296,6 +1296,47 @@ func agentSessionTreatsPlainAssistantAnswerWithoutToolsAsDone() async throws {
 }
 
 @Test
+func unfinishedAutoRouteSurvivesBlockersAndPrerequisiteChecks() {
+    func event(_ tool: String, _ data: [String: Protocols.JSONValue], ok: Bool = true) -> AgentSessionEvent {
+        AgentSessionEvent(agentId: "test", sessionId: "test", type: .toolResult,
+                          toolResult: AgentToolResultEvent(tool: tool, ok: ok, data: .object(data)))
+    }
+    let build = event("planning.select_route", ["mode": .string("build")])
+    let blocked = event("session.complete", ["status": .string("blocked")])
+    let check = event("runtime.exec", ["exitCode": .number(0)])
+    #expect(AgentSessionOrchestrator.unfinishedAutoRouteMode(events: [build, blocked, check]) == .build)
+    #expect(AgentSessionOrchestrator.unfinishedAutoRouteMode(events: [build, event("session.complete", ["status": .string("waiting_input")])]) == .build)
+    #expect(AgentSessionOrchestrator.unfinishedAutoRouteMode(events: [build, event("session.complete", ["status": .string("completed")], ok: false)]) == .build)
+    #expect(AgentSessionOrchestrator.unfinishedAutoRouteMode(events: [build, event("session.complete", ["status": .string("completed")])]) == nil)
+    #expect(AgentSessionOrchestrator.unfinishedAutoRouteMode(events: [build, event("planning.select_route", ["mode": .string("ask")])]) == nil)
+    #expect(AgentSessionOrchestrator.unfinishedAutoRouteMode(events: [event("planning.select_route", ["mode": .string("debug")])]) == .debug)
+}
+
+@Test
+func autoRetryDoesNotMarkUnfinishedBuildDoneAfterPrerequisiteCheck() async throws {
+    let models = [ProviderModelOption(id: "mock:continuation", title: "Mock", capabilities: ["tools"])]
+    let agentID = "auto-build-retry"
+    let (catalog, store, _) = try makeAgentSessionFixture(agentID: agentID, selectedModel: models[0].id, availableModels: models)
+    let provider = ToolCallingModelProvider(models: models.map(\.id), toolName: "files.list", finalText: "Connection restored. Code and deployment are still unfinished.")
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: models[0].id)
+    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
+        toolInvoker: { _, _, request, _ in .init(tool: request.tool, ok: true, data: .object(["count": .number(1)])) })
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [
+        .init(agentId: agentID, sessionId: session.id, type: .toolResult,
+              toolResult: .init(tool: "planning.select_route", ok: true, data: .object(["mode": .string("build")]))),
+        .init(agentId: agentID, sessionId: session.id, type: .toolResult,
+              toolResult: .init(tool: "session.complete", ok: true, data: .object(["status": .string("blocked")]))),
+    ])
+    let response = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id,
+        request: .init(userId: "dashboard", content: "Try again", mode: .auto))
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Incomplete")
+    #expect(finalStatus.diagnostics?.explicitSessionCompletion == false)
+}
+
+@Test
 func agentSessionRetriesAndMarksToollessDebugTurnIncompleteWithoutCompletionEvidence() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])

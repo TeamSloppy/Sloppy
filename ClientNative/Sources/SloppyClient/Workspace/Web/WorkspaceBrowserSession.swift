@@ -4,24 +4,43 @@ import SloppyClientCore
 /// One connection and page per task, using the task's own Core endpoint and credentials.
 @MainActor
 final class WorkspaceBrowserSession {
-    var viewModel: WorkspaceWebViewModel
+    var viewModel: WorkspaceWebViewModel {
+        didSet {
+            guard boundPage != nil, oldValue !== viewModel else { return }
+            boundPage?.endAutomation()
+            boundPage = viewModel
+            viewModel.beginAutomation()
+        }
+    }
+    var agentPaletteID: String?
+    weak var workspace: BrowserWorkspaceState?
+    private var boundPage: WorkspaceWebViewModel?
     let binding: WorkspaceBrowserBinding
     private let apiClient: SloppyAPIClient
     private var task: Task<Void, Never>?
     private let present: @MainActor () -> Void
+    private let devices: WorkspaceDeviceToolRuntime?
 
     init(apiClient: SloppyAPIClient, agentID: String, sessionID: String,
-         viewModel: WorkspaceWebViewModel? = nil,
-         present: @escaping @MainActor () -> Void) {
+         viewModel: WorkspaceWebViewModel? = nil, workspace: BrowserWorkspaceState? = nil, agentPaletteID: String? = nil,
+         devices: WorkspaceDeviceToolRuntime? = nil, present: @escaping @MainActor () -> Void) {
         self.apiClient = apiClient
         self.viewModel = viewModel ?? WorkspaceWebViewModel()
-        binding = .init(bridgeId: UUID().uuidString, agentId: agentID, sessionId: sessionID)
+        self.agentPaletteID = agentPaletteID
+        self.workspace = workspace
+        self.devices = devices
+        var capabilities = workspace == nil ? [] : ["tabs_v1", "groups_v1", "organizer_v1"]
+        if devices != nil { capabilities.append("devices_v1") }
+        binding = .init(bridgeId: UUID().uuidString, agentId: agentID, sessionId: sessionID,
+                        capabilities: capabilities.isEmpty ? nil : capabilities)
         self.present = present
     }
 
     func start() {
 #if os(macOS) || os(iOS)
         guard task == nil else { return }
+        boundPage = viewModel
+        viewModel.beginAutomation()
         task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -40,17 +59,21 @@ final class WorkspaceBrowserSession {
             } catch {
                 viewModel.lastError = "Browser connection: \(error.localizedDescription)"
             }
+            devices?.stop()
             // Cleanup needs its own uncancelled task after the polling task is stopped.
             await Task { [apiClient, binding] in
                 try? await apiClient.disconnectWorkspaceBrowser(binding)
             }.value
             task = nil
+            boundPage?.endAutomation()
+            boundPage = nil
         }
 #endif
     }
 
     func stop() {
         task?.cancel()
+        devices?.stop()
         viewModel.browserRuntime?.stop()
     }
 
@@ -59,16 +82,39 @@ final class WorkspaceBrowserSession {
         await task?.value
     }
 
-    private func execute(_ command: WorkspaceBrowserCommand) async -> WorkspaceBrowserCompletion {
+    func execute(_ command: WorkspaceBrowserCommand) async -> WorkspaceBrowserCompletion {
 #if os(macOS) || os(iOS)
+        if command.name == "devices" {
+            guard let devices else {
+                return .init(binding: binding, commandId: command.id, error: "This chat has no macOS Devices connection. Open it in Work on the macOS client.")
+            }
+            return await devices.execute(command, binding: binding)
+        }
+        if command.name == "create_note" || command.name == "create_todo" {
+            do { return .init(binding: binding, commandId: command.id, data: try executeOrganizer(command.name, input: command.input)) }
+            catch { return .init(binding: binding, commandId: command.id, error: error.localizedDescription) }
+        }
+        if command.name == "tabs" || command.name == "groups" {
+            do { return .init(binding: binding, commandId: command.id, data: try command.name == "tabs" ? executeTabs(command.input) : executeGroups(command.input)) }
+            catch { return .init(binding: binding, commandId: command.id, error: error.localizedDescription) }
+        }
+        let pageModel = viewModel
+        pageModel.beginAutomation()
+        defer { pageModel.endAutomation() }
         do {
-            let runtime = viewModel.ensureBrowserRuntime()
+            let runtime = pageModel.ensureBrowserRuntime()
+            runtime.agentID = binding.agentId
+            runtime.agentPaletteID = agentPaletteID
+            defer { runtime.agentID = nil; runtime.agentPointer.clear() }
             if let pageID = command.input.pageId, pageID != runtime.pageID {
                 throw WorkspaceBrowserRuntimeError.invalidArguments
             }
             present()
             // Allow SwiftUI to attach the retained page before taking a snapshot.
             try await Task.sleep(for: .milliseconds(100))
+            if let workspace, !workspace.pages.values.contains(where: { $0 === pageModel }) {
+                throw WorkspaceBrowserRuntimeError.evaluationFailed("The target tab was closed. List tabs before retrying.")
+            }
             var imageBase64: String?
             var page: WorkspaceBrowserPage
             switch command.name {

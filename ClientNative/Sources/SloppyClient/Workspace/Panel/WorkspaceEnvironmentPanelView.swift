@@ -1,20 +1,48 @@
 import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
+import SloppyFeatureChat
 
 @MainActor
 struct WorkspaceEnvironmentPanelView: View {
+    enum Presentation {
+        case environment
+        case desktopEnvironment
+        case desktopChanges
+    }
+
     let viewModel: WorkspacePanelViewModel
     let onOpenTerminal: (@MainActor () -> Void)?
+    var presentation: Presentation = .environment
 
     @Environment(\.theme) private var theme
     @Environment(\.openURL) private var openURL
+    @Environment(\.workingTreeReviewHandler) private var reviewHandler
 
     private var sourceControl: ProjectWorkingTreeSourceControlResponse? {
         viewModel.sourceControl
     }
 
     var body: some View {
+        switch presentation {
+        case .environment: environmentContent
+        case .desktopEnvironment: environmentSummaryCard
+        case .desktopChanges: changesCard
+        }
+    }
+
+    // Mount the view before resolving its environment, including extracted inspector cards.
+    var desktopEnvironmentCard: some View {
+        WorkspaceEnvironmentPanelView(viewModel: viewModel, onOpenTerminal: onOpenTerminal,
+                                      presentation: .desktopEnvironment)
+    }
+
+    var desktopChangesCard: some View {
+        WorkspaceEnvironmentPanelView(viewModel: viewModel, onOpenTerminal: onOpenTerminal,
+                                      presentation: .desktopChanges)
+    }
+
+    private var environmentContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: theme.spacing.m) {
 #if os(macOS)
@@ -31,7 +59,7 @@ struct WorkspaceEnvironmentPanelView: View {
         .accessibilityIdentifier("workspace.environment-panel")
     }
 
-    var desktopEnvironmentCard: some View {
+    private var environmentSummaryCard: some View {
         panelCard {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -70,11 +98,13 @@ struct WorkspaceEnvironmentPanelView: View {
         .accessibilityIdentifier("workspace.inspector.environment")
     }
 
-    var desktopChangesCard: some View {
+    private var changesCard: some View {
         panelCard {
             VStack(alignment: .leading, spacing: theme.spacing.s) {
                 changesSection
-                codeReviewRows
+                if viewModel.areChangesExpanded {
+                    codeReviewRows
+                }
             }
         }
         .accessibilityElement(children: .contain)
@@ -200,13 +230,22 @@ struct WorkspaceEnvironmentPanelView: View {
                 if !viewModel.directoryChanges.isEmpty {
                     ForEach(viewModel.directoryChanges) { directory in
                         VStack(alignment: .leading, spacing: theme.spacing.s) {
-                            Text(directory.path)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(theme.colors.textSecondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .help(directory.path)
-                            changedFiles(directory.sourceControl)
+                            Button {
+                                if let sourceControl = directory.sourceControl {
+                                    reviewHandler?(sourceControl, directory.name, nil)
+                                }
+                            } label: {
+                                Text(directory.name)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(theme.colors.textSecondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .help(directory.path)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(reviewHandler == nil || directory.sourceControl?.hasChanges != true)
+                            .accessibilityIdentifier("workspace.changes.open.\(directory.path)")
+                            changedFiles(directory.sourceControl, title: directory.name)
                         }
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("workspace.changes.directory.\(directory.path)")
@@ -219,7 +258,7 @@ struct WorkspaceEnvironmentPanelView: View {
     }
 
     @ViewBuilder
-    private func changedFiles(_ sourceControl: ProjectWorkingTreeSourceControlResponse?) -> some View {
+    private func changedFiles(_ sourceControl: ProjectWorkingTreeSourceControlResponse?, title: String? = nil) -> some View {
         if let message = sourceControl?.message ?? (sourceControl == nil ? viewModel.environmentLoadError : nil) {
             Text(message)
                 .font(.system(size: theme.typography.caption))
@@ -235,16 +274,23 @@ struct WorkspaceEnvironmentPanelView: View {
             } else {
                 VStack(alignment: .leading, spacing: theme.spacing.s) {
                     ForEach(fileChanges) { change in
-                        HStack(spacing: theme.spacing.s) {
-                            Text(change.path)
-                                .font(.system(size: theme.typography.micro, design: .monospaced))
-                                .foregroundStyle(theme.colors.textSecondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .help(change.path)
-                            Spacer(minLength: theme.spacing.xs)
-                            changeCounts(added: change.linesAdded, deleted: change.linesDeleted)
+                        Button {
+                            reviewHandler?(sourceControl, title, change.path)
+                        } label: {
+                            HStack(spacing: theme.spacing.s) {
+                                Text(change.path)
+                                    .font(.system(size: theme.typography.micro, design: .monospaced))
+                                    .foregroundStyle(theme.colors.textSecondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .help(change.path)
+                                Spacer(minLength: theme.spacing.xs)
+                                changeCounts(added: change.linesAdded, deleted: change.linesDeleted)
+                            }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .disabled(reviewHandler == nil)
                     }
                 }
                 .padding(.leading, 28)
@@ -349,10 +395,14 @@ struct WorkspaceEnvironmentPanelView: View {
 
     private func changeCounts(added: Int, deleted: Int) -> some View {
         HStack(spacing: theme.spacing.xs) {
-            Text("+\(added)")
-                .foregroundColor(theme.colors.statusDone)
-            Text("-\(deleted)")
-                .foregroundColor(theme.colors.statusBlocked)
+            if added > 0 {
+                Text("+\(added)")
+                    .foregroundColor(theme.colors.statusDone)
+            }
+            if deleted > 0 {
+                Text("-\(deleted)")
+                    .foregroundColor(theme.colors.statusBlocked)
+            }
         }
         .font(.system(size: theme.typography.caption, weight: .medium, design: .monospaced))
         .fixedSize()

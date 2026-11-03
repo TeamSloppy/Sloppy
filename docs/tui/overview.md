@@ -239,7 +239,7 @@ The older `/bar <color>` command still works as a transient accent-only override
 | `/bar <color>` | Change the accent color for the current TUI run |
 | `/copy` | Copy the last assistant response to the clipboard on macOS |
 | `/diff` | Show changes recorded in the current TUI session |
-| `/effort low\|medium\|high\|default` | Set reasoning effort for future messages |
+| `/effort low\|medium\|high\|xhigh\|max\|default` | Set reasoning effort for future messages (supported levels depend on the model) |
 | `/skills` | Show enabled agent skills and their slash aliases |
 | `/editor` | Open the configured code editor |
 | `/model [model]` | Open the model picker or switch directly |
@@ -260,6 +260,20 @@ Skill-provided slash commands also appear in the command palette and are forward
 `/restore` and `/up` send a recovery message into the active session transcript. Use them after a transient failure, such as a lost network request, when you want the agent to continue the previous unfinished task without creating a new session.
 
 Undo and redo history is scoped to the active session during the current TUI run. Switching sessions restores that session's own undo stack without mixing changes from other chats.
+
+## Tool Approval Modes
+
+Use `/approvals` to choose the current chat's approval mode. The same saved policy is available in the ClientNative composer and the Dashboard.
+
+| Mode | Behavior |
+| --- | --- |
+| Ask for approval | Ask you before tool actions that require approval. |
+| Approve for me | JEV reviews each action, with Visor as backup. Uncertain decisions still go to you. |
+| Full Access | Run tools without approval prompts or automatic review, including requests for missing tool or directory access. |
+
+Approval modes are independent of the Ask, Plan, Build and Debug chat modes. Full Access is saved for the selected chat; delegated sessions inherit it unless they have an explicit override. Switching to Full Access also resumes already waiting approval requests, including hidden reviews. Full Access grants missing Core access for the current invocation; it does not save an Always allowance.
+
+The server's default approval mode, configured in ClientNative settings or Dashboard configuration, applies to newly created chats. Existing chats retain their saved mode. Full Access does not change operating-system permissions, service credentials or tool availability.
 
 ## State and Persistence
 

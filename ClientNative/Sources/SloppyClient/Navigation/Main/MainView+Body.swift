@@ -37,10 +37,13 @@ extension MainView {
     }
 
     var body: some View {
-        workAndBrowseContent
+        @Bindable var viewModel = viewModel
+
+        return workAndBrowseContent
         .alert("Could not collect tabs", isPresented: Binding(
             get: { browserCanvasError != nil }, set: { if !$0 { browserCanvasError = nil } }
         )) { Button("OK") { browserCanvasError = nil } } message: { Text(browserCanvasError ?? "") }
+        .modifier(WorkspaceChangesReviewPresenter())
         .environment(\.chatFileOpenHandler, { reference, chat in
             viewModel.openSourceFile(reference, from: chat)
         })

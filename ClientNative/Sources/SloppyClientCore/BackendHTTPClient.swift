@@ -372,6 +372,9 @@ public actor BackendHTTPClient {
         logger.info("http.request.started", metadata: metadata)
 
         do {
+            // Authentication/request preparation may suspend while the owner closes.
+            // Foundation cannot create another task after URLSession invalidation.
+            try Task.checkCancellation()
             let rawResult = try await session.data(for: request)
             let result = try decodeRelayedResponseIfNeeded(
                 data: rawResult.0,

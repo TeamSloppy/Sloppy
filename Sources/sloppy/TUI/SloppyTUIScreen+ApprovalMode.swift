@@ -2,12 +2,13 @@ import Foundation
 import Protocols
 
 enum SloppyTUIApprovalMode {
-    static let options: [SessionApprovalMode] = [.askForApproval, .approveForMe]
+    static let options: [SessionApprovalMode] = [.askForApproval, .approveForMe, .fullAccess]
 
     static func title(_ mode: SessionApprovalMode) -> String {
         switch mode {
         case .askForApproval: "Ask for approval"
         case .approveForMe: "Approve for me"
+        case .fullAccess: "Full Access"
         }
     }
 
@@ -15,6 +16,7 @@ enum SloppyTUIApprovalMode {
         switch mode {
         case .askForApproval: "Ask you before actions that require approval."
         case .approveForMe: "JEV reviews actions, with Visor as backup. Human decisions still come to you."
+        case .fullAccess: "Run tools without approval prompts or automatic review."
         }
     }
 }

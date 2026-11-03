@@ -60,7 +60,15 @@ extension CoreService {
         var policies = try readSessionApprovalPolicies()
         policies[agentID, default: [:]][sessionID] = policy.mode
         try JSONEncoder().encode(policies).write(to: sessionApprovalPoliciesURL, options: .atomic)
-        if policy.mode == .approveForMe {
+        if policy.mode == .fullAccess {
+            // Include hidden reviews and inherited worker requests. An explicit
+            // manual override on a child chat keeps its pending request intact.
+            for record in await toolApprovalService.listPending(includeUnpublished: true)
+                where record.agentId == agentID
+                    && sessionApprovalMode(agentID: agentID, sessionID: record.sessionId) == .fullAccess {
+                _ = await resolveSessionToolApproval(record, mode: .fullAccess)
+            }
+        } else if policy.mode == .approveForMe {
             let pending = await toolApprovalService.listPending().filter {
                 $0.agentId == agentID && ($0.sessionId == sessionID || $0.displaySessionId == sessionID)
             }
@@ -73,6 +81,11 @@ extension CoreService {
     }
 
     func resolveSessionToolApproval(_ record: ToolApprovalRecord, mode: SessionApprovalMode) async -> Bool {
+        if mode == .fullAccess {
+            guard sessionApprovalMode(agentID: record.agentId, sessionID: record.sessionId) == .fullAccess else { return false }
+            return await approveToolApproval(id: record.id, decidedBy: SessionApprovalMode.fullAccess.rawValue,
+                scope: .once, decisionReason: "Full Access is enabled for this chat.") != nil
+        }
         guard mode == .approveForMe, let sessionID = record.sessionId else { return false }
         let context: SubagentToolApprovalContext
         if let delegated = subagentToolApprovalContext(record) {

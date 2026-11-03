@@ -375,7 +375,7 @@ extension SloppyTUIScreen {
             return
         }
         guard let effort = ReasoningEffort(rawValue: value) else {
-            appendLocalCard("Unknown effort `\(value)`. Use low, medium, high, default, or run `/effort` to pick interactively.")
+            appendLocalCard("Unknown effort `\(value)`. Use low, medium, high, xhigh, max, default, or run `/effort` to pick interactively.")
             return
         }
         reasoningEffort = effort

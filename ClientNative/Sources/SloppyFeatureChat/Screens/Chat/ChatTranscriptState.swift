@@ -52,10 +52,19 @@ public final class ChatTranscriptState {
         let updates: [ChatMessage.ID: ChatMessage] = revealingEarlier ? [:]
             : Dictionary(newMessages.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         var existingIDs = Set(allMessages.map(\.id))
-        let additions = newMessages.filter { existingIDs.insert($0.id).inserted }.map { updates[$0.id] ?? $0 }
-        allMessages = (allMessages.map { updates[$0.id] ?? $0 }
-            + additions)
-            .sorted { $0.createdAt < $1.createdAt }
+        var merged = allMessages.map { updates[$0.id] ?? $0 }
+        var nextMessageID: ChatMessage.ID?
+        // Several events can share a timestamp. Insert recovered messages at
+        // their history anchors before sorting, rather than after every live row.
+        for message in newMessages.reversed() {
+            if existingIDs.insert(message.id).inserted {
+                let index = nextMessageID.flatMap { id in merged.firstIndex { $0.id == id } }
+                    ?? (revealingEarlier ? merged.startIndex : merged.endIndex)
+                merged.insert(updates[message.id] ?? message, at: index)
+            }
+            nextMessageID = message.id
+        }
+        allMessages = merged.sorted { $0.createdAt < $1.createdAt }
         if revealingEarlier {
             visibleStartIndex = 0
         } else if let visibleAnchorID, let index = allMessages.firstIndex(where: { $0.id == visibleAnchorID }) {
@@ -120,7 +129,7 @@ public final class ChatTranscriptState {
     func appendStreamingAssistantText(_ text: String, messageId: String) {
         if let messageIndex = allMessages.lastIndex(where: { $0.id == messageId }) {
             var message = allMessages[messageIndex]
-            if let segmentIndex = message.segments.lastIndex(where: { $0.kind == .text }) {
+            if let segmentIndex = message.segments.indices.last, message.segments[segmentIndex].kind == .text {
                 message.segments[segmentIndex].text = (message.segments[segmentIndex].text ?? "") + text
             } else {
                 message.segments.append(ChatMessageSegment(kind: .text, text: text))
@@ -131,7 +140,8 @@ public final class ChatTranscriptState {
             let visibleIndex = messageIndex - visibleStartIndex
             if messages.indices.contains(visibleIndex),
                let entryIndex = entries.lastIndex(where: { $0.id == "message:\(messageId)" }),
-               case .message = entries[entryIndex] {
+               case .message = entries[entryIndex],
+               !entries.contains(where: { $0.sourceMessage?.id == messageId }) {
                 messages[visibleIndex] = message
                 var response = message
                 response.segments.removeAll(where: \.isAssistantActivity)

@@ -49,6 +49,9 @@ struct BrowserFavoriteRows: View {
             pageLabel(item).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
             .buttonStyle(.plain)
+            .modifier(BrowserSidebarRowHover(isSelected: state.tab(forFavorite: item.id).map {
+                state.selectedTabIDs.contains($0.id)
+            } ?? false))
             .tag(BrowserSidebarSelection.favorite(item.id))
             .accessibilityIdentifier("browser-favorite-page-\(item.id)")
 #else

@@ -52,7 +52,8 @@ if [[ ! -d "$APP_PATH" ]]; then
     exit 1
 fi
 
-"$SCRIPT_DIR/sign_macos_app.sh" "$APP_PATH" "${MACOS_SIGNING_IDENTITY:--}" >&2
+"$SCRIPT_DIR/sign_macos_app.sh" "$APP_PATH" "${MACOS_SIGNING_IDENTITY:--}" \
+    "$PROJECT_DIR/SupportingFiles/macOS/SloppyClient.entitlements" >&2
 
 OUTPUT_PATH="$OUTPUT_DIR/SloppyClient-macos-universal-${VERSION}.pkg"
 PACKAGE_ROOT="$(mktemp -d)"

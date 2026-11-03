@@ -8,6 +8,11 @@ import UniformTypeIdentifiers
 extension ChatScreenViewModel {
     func disconnectCurrentSession() {
         cancelDictationIfNeeded()
+        approvalModeLoadTask?.cancel()
+        approvalModeLoadTask = nil
+        approvalModeRevision = UUID()
+        isLoadingApprovalMode = false
+        isSavingApprovalMode = false
         let manager = socketManager
         if let agentId = selectedAgent?.id,
            let sessionId = selectedSessionId ?? activeComposerDraftKey,
@@ -342,12 +347,16 @@ extension ChatScreenViewModel {
     }
 
     private func upsertMessage(_ message: ChatMessage, sessionId: String) {
+        // A persisted event is a chronological boundary for buffered text.
+        flushPendingStreamingAssistantText()
         let isAssistantResponse = message.role == .assistant
             && message.segments.contains(where: { $0.kind == .text })
 
         if isAssistantResponse {
             cancelPendingStreamingAssistantText(for: sessionId)
-            if let streamingMessageId = streamingTurnTracker.claimFinalMessageId(for: sessionId) {
+            if transcript.messages.contains(where: { $0.id == message.id }) {
+                transcript.upsert(message)
+            } else if let streamingMessageId = streamingTurnTracker.claimFinalMessageId(for: sessionId) {
                 transcript.replaceStreamingAssistant(
                     messageId: streamingMessageId,
                     with: message
@@ -362,10 +371,7 @@ extension ChatScreenViewModel {
             return
         }
 
-        transcript.upsert(
-            message,
-            before: currentStreamingAssistantMessageId(for: sessionId)
-        )
+        transcript.upsert(message)
     }
 
     private func updateComputerUseActivity(from message: ChatMessage) {

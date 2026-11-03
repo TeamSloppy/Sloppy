@@ -144,10 +144,18 @@ async function select(title) {
 try {
   await page.goto(`${baseURL}/?session=one`);
   await expectMode("Ask for approval");
+  assert.equal(await page.evaluate(() => window.normalizedApprovalDefault({ defaultChatApprovalMode: "full_access" })), "full_access");
+  await select("Full Access");
+  await expectMode("Full Access");
+  assert.equal(modes.get("one"), "full_access");
+  await page.reload();
+  await expectMode("Full Access");
+  await select("Ask for approval");
   assert.equal(await page.evaluate(() => window.normalizedApprovalDefault({})), null);
   assert.equal(await page.evaluate(() => window.normalizedApprovalDefault({ defaultChatApprovalMode: "approve_for_me" })), "approve_for_me");
   await page.getByRole("button", { name: /^Approval mode:/ }).click();
-  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
   assert.match(await page.evaluate(() => document.activeElement.textContent), /^Approve for me/);
   await page.keyboard.press("Enter");
   await expectMode("Approve for me");

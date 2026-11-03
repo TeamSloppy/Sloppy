@@ -19,6 +19,7 @@ struct BrowserSplitRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         for index in 0..<3 { state.open(url.appendingPathComponent("page-\(index)"), inNewTab: true) }
         let ids = state.tabs.map(\.id)
         let controller = NSHostingController(rootView:

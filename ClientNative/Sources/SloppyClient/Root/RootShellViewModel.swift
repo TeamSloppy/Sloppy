@@ -77,6 +77,7 @@ final class RootShellViewModel {
     private var notificationManager: NotificationSocketManager?
     private var notificationListenerTask: Task<Void, Never>?
     private var notificationBaseURL: URL?
+    private var notificationConnectionRevision = UUID()
     private let logger: Logger
     private var mobileConnectionRevision = UUID()
     private var mobileConnectionRecovery = MobileConnectionRecovery()
@@ -541,38 +542,62 @@ final class RootShellViewModel {
             Task { await notificationManager.disconnect() }
         }
 
+        let revision = UUID()
+        notificationConnectionRevision = revision
         let manager = NotificationSocketManager(baseURL: baseURL, onConnect: { [weak self] in
-            await self?.reloadProactiveHistory(baseURL: baseURL)
+            await self?.reloadNotificationHistory(baseURL: baseURL, revision: revision)
         })
         notificationManager = manager
         notificationBaseURL = baseURL
         pendingChatApprovalTracker = PendingChatApprovalTracker()
         notificationListenerTask = Task { @MainActor in
+            // Restore pending requests (and refresh HTTP credentials) even if
+            // the notification socket cannot complete its first handshake yet.
+            await reloadPendingToolApprovals(baseURL: baseURL, revision: revision)
+            guard !Task.isCancelled, notificationConnectionRevision == revision else { return }
             let stream = await manager.connect()
-            do {
-                let pending = try await SloppyAPIClient(baseURL: baseURL).fetchPendingToolApprovals()
-                var tracker = pendingChatApprovalTracker
-                for approval in pending {
-                    tracker.apply(approval)
-                    if let notification = AgentToolApprovalNotification(approval: approval) {
-                        Task { await LocalAgentResponseNotificationScheduler.shared.scheduleApproval(notification) }
-                    }
-                }
-                pendingChatApprovalTracker = tracker
-            } catch {
-                logger.warning(
-                    "app.notifications.pending-approvals-load-failed",
-                    metadata: ["error": .string(String(describing: error))]
-                )
-            }
             for await notification in stream {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, notificationConnectionRevision == revision else { return }
                 var tracker = pendingChatApprovalTracker
                 tracker.apply(notification)
                 pendingChatApprovalTracker = tracker
                 showBanner(for: notification)
-                Task { await LocalAgentResponseNotificationScheduler.shared.updateToolApproval(notification) }
+                Task {
+                    guard notificationConnectionRevision == revision else { return }
+                    await LocalAgentResponseNotificationScheduler.shared.updateToolApproval(notification)
+                }
             }
+        }
+    }
+
+    private func reloadNotificationHistory(baseURL: URL, revision: UUID) async {
+        await reloadPendingToolApprovals(baseURL: baseURL, revision: revision)
+        guard notificationConnectionRevision == revision else { return }
+        await reloadProactiveHistory(baseURL: baseURL)
+    }
+
+    private func reloadPendingToolApprovals(baseURL: URL, revision: UUID) async {
+        let fetchedAt = Date()
+        do {
+            let pending = try await SloppyAPIClient(baseURL: baseURL).fetchPendingToolApprovals()
+            guard notificationConnectionRevision == revision else { return }
+            let previousIDs = pendingChatApprovalTracker.approvalIDs
+            pendingChatApprovalTracker.reconcilePending(pending, fetchedAt: fetchedAt)
+            let currentIDs = pendingChatApprovalTracker.approvalIDs
+            for id in previousIDs.subtracting(currentIDs) {
+                LocalAgentResponseNotificationScheduler.shared.dismissApproval(id: id)
+            }
+            for approval in pending where currentIDs.contains(approval.id) {
+                if let notification = AgentToolApprovalNotification(approval: approval) {
+                    Task {
+                        guard notificationConnectionRevision == revision else { return }
+                        await LocalAgentResponseNotificationScheduler.shared.scheduleApproval(notification)
+                    }
+                }
+            }
+        } catch {
+            logger.warning("app.notifications.pending-approvals-load-failed",
+                metadata: ["error": .string(String(describing: error))])
         }
     }
 
@@ -957,6 +982,7 @@ final class RootShellViewModel {
         }
         notificationManager = nil
         notificationBaseURL = nil
+        notificationConnectionRevision = UUID()
         pendingChatApprovalTracker = PendingChatApprovalTracker()
     }
 

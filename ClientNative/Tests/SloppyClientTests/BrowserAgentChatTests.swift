@@ -8,6 +8,54 @@ import Testing
 @Suite("Browser agent chat", .serialized, .appKitIsolation)
 @MainActor
 struct BrowserAgentChatTests {
+    @Test func pageSummarySendsOnlyItsSourceAndKeepsTheComposerDraft() async throws {
+        let fixture = try BrowserAgentChatTestFixture()
+        defer { fixture.close() }
+        fixture.state.show()
+        await fixture.chat.waitForInitialData()
+        fixture.chat.useStarterPrompt("My unfinished question")
+        let draftQuote = ChatComposerQuote(text: "Unrelated draft source", browserSource:
+            .init(url: try #require(URL(string: "https://example.com/draft")), title: "Draft"))
+        let receive = try #require(fixture.state.makeAnnotationReceiver())
+        #expect(receive(draftQuote))
+        let page = ChatComposerQuote(text: "The page explains Swift concurrency.", browserSource:
+            .init(url: try #require(URL(string: "https://example.com/article")), title: "Article"))
+        #expect(fixture.chat.summarizeBrowserPage(page))
+        #expect(!fixture.chat.summarizeBrowserPage(page))
+        for _ in 0..<200 {
+            if fixture.chat.messages.contains(where: { $0.role == .assistant }) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let sent = try #require(fixture.probe.posts.first)
+        #expect(fixture.probe.posts.count == 1)
+        #expect(sent.contains(page.text))
+        #expect(sent.contains("https://example.com/article"))
+        #expect(!sent.contains("My unfinished question"))
+        #expect(!sent.contains(draftQuote.text))
+        #expect(fixture.chat.composerDraft.text == "My unfinished question")
+        #expect(fixture.chat.composerQuotes == [draftQuote])
+    }
+
+    @Test(arguments: ["/sessions", "/messages"])
+    func summaryFailureKeepsTheExistingDraft(_ suffix: String) async throws {
+        let fixture = try BrowserAgentChatTestFixture()
+        defer { fixture.close() }
+        fixture.state.show()
+        await fixture.chat.waitForInitialData()
+        fixture.chat.useStarterPrompt("Keep my draft after a network error")
+        fixture.probe.failingPathSuffix = suffix
+        let page = ChatComposerQuote(text: "Page content", browserSource:
+            .init(url: try #require(URL(string: "https://example.com/article")), title: "Article"))
+        #expect(fixture.chat.summarizeBrowserPage(page))
+        for _ in 0..<200 {
+            if fixture.chat.sendErrorMessage != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(fixture.chat.sendErrorMessage != nil)
+        #expect(fixture.chat.composerDraft.text == "Keep my draft after a network error")
+        #expect(fixture.chat.composerQuotes.isEmpty)
+    }
+
     @Test func launcherPromptSurvivesBootstrapAndDoesNotSendAutomatically() async throws {
         let fixture = try BrowserAgentChatTestFixture()
         defer { fixture.close() }
@@ -106,10 +154,18 @@ final class BrowserAgentChatTestProbe: @unchecked Sendable {
     private let lock = NSLock()
     private var sent: [String] = []
     private var clientMessageID = "user"
+    private var failingSuffix: String?
+    var failingPathSuffix: String? {
+        get { lock.withLock { failingSuffix } }
+        set { lock.withLock { failingSuffix = newValue } }
+    }
     var posts: [String] { lock.withLock { sent } }
 
     func response(_ request: URLRequest, body: Data) throws -> Data {
         let path = request.url?.path ?? ""
+        if request.httpMethod == "POST", let suffix = failingPathSuffix, path.hasSuffix(suffix) {
+            throw URLError(.cannotConnectToHost)
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let summary = ChatSessionSummary(id: "browse-session", agentId: "agent", title: "Browse")

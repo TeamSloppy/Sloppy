@@ -179,6 +179,28 @@ struct ChatAnnotationTests {
         #expect(!receiver(attachment))
         #expect(model.composerAttachments.isEmpty)
     }
+
+    @Test("device captures keep markup and reject a changed destination or oversized export")
+    @MainActor
+    func deviceCaptureDelivery() throws {
+        let api = SloppyAPIClient()
+        let model = ChatScreenViewModel(apiClient: api, cacheStore: ClientCacheStore(path: ":memory:"),
+            settings: ClientSettings(), connectionMonitor: ConnectionMonitor(baseURL: api.baseURL),
+            restoresLastSession: false, responseNotificationScheduler: AnnotationTestNotifications(),
+            onOpenSettings: { _ in })
+        model.syncComposerDraft(toSessionId: "one", projectId: nil, taskId: nil, agentId: "agent")
+        let receive = model.makeImageAnnotationReceiver()
+        var capture = ChatComposerAttachment(name: "iOS devices.png", mimeType: "image/png", data: Data([1, 2, 3]))
+        capture.markup = ChatImageMarkup(strokes: [], pngData: Data([4, 5, 6]))
+        #expect(receive(capture))
+        #expect(model.composerAttachments.last?.markup == capture.markup)
+        #expect(!model.makeBrowserAnnotationReceiver()(capture))
+        capture.markup = ChatImageMarkup(strokes: [], pngData: Data(repeating: 0, count: 26 * 1024 * 1024))
+        #expect(!receive(capture))
+        model.syncComposerDraft(toSessionId: "two", projectId: nil, taskId: nil, agentId: "agent")
+        #expect(!receive(capture))
+        #expect(model.composerAttachments.isEmpty)
+    }
 }
 
 @MainActor

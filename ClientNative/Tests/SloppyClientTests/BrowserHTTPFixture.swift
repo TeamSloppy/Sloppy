@@ -1,15 +1,25 @@
 #if os(macOS)
 import Foundation
 import Network
+@testable import SloppyClient
 
 final class BrowserHTTPFixture: @unchecked Sendable {
+    private let consentSuite = "BrowserHTTPFixture.\(UUID())"
+    private let requestLock = NSLock()
+    private var requests = 0
+    var requestCount: Int { requestLock.withLock { requests } }
+    private let redirectURL: URL?
     private let listener: NWListener
     private let responseDelay: Double
     private let contentSecurityPolicy: String?
     private let customHTML: String?
+    private let responses: [String: (contentType: String, body: Data)]
     private let queue = DispatchQueue(label: "sloppy.browser.fixture")
 
-    init(responseDelay: Double = 0.3, contentSecurityPolicy: String? = nil, html: String? = nil) throws {
+    init(responseDelay: Double = 0.3, contentSecurityPolicy: String? = nil, html: String? = nil, redirectURL: URL? = nil,
+         responses: [String: (contentType: String, body: Data)] = [:]) throws {
+        self.responses = responses
+        self.redirectURL = redirectURL
         self.responseDelay = responseDelay
         self.contentSecurityPolicy = contentSecurityPolicy
         self.customHTML = html
@@ -17,12 +27,27 @@ final class BrowserHTTPFixture: @unchecked Sendable {
     }
 
     func start() async throws -> URL {
+        let redirectURL = redirectURL
         let responseDelay = responseDelay
         let customHTML = customHTML
+        let responses = responses
         let securityHeader = contentSecurityPolicy.map { "Content-Security-Policy: \($0)\r\n" } ?? ""
         listener.newConnectionHandler = { connection in
             connection.start(queue: .global())
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
+                self?.requestLock.withLock { self?.requests += 1 }
+                let path = data.flatMap { String(data: $0, encoding: .utf8)?.split(separator: " ").dropFirst().first.map(String.init) }
+                if let path, let route = responses[path] {
+                    let header = "HTTP/1.1 200 OK\r\nContent-Type: \(route.contentType)\r\nContent-Length: \(route.body.count)\r\nConnection: close\r\n\r\n"
+                    connection.send(content: Data(header.utf8) + route.body,
+                                    completion: .contentProcessed { _ in connection.cancel() })
+                    return
+                }
+                if let redirectURL {
+                    let response = "HTTP/1.1 302 Found\r\nLocation: \(redirectURL.absoluteString)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+                    return
+                }
                 if let data, String(decoding: data, as: UTF8.self).hasPrefix("GET /download ") {
                     let body = "Sloppy download fixture"
                     let response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=source.txt\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
@@ -62,6 +87,21 @@ final class BrowserHTTPFixture: @unchecked Sendable {
         return url
     }
 
-    deinit { listener.cancel() }
+    @MainActor
+    func permissionStore() throws -> BrowserSitePermissions {
+        guard let defaults = UserDefaults(suiteName: consentSuite), let port = listener.port,
+              let url = URL(string: "http://127.0.0.1:\(port.rawValue)"), let origin = BrowserSiteOrigin(url) else { throw URLError(.badURL) }
+        let permissions = BrowserSitePermissions(defaults: defaults)
+        permissions.set(.allow, for: origin, resource: .http)
+        return permissions
+    }
+    @MainActor func allowHTTP(in model: WorkspaceWebViewModel) throws { model.sitePermissions = try permissionStore() }
+    @MainActor func allowHTTP(in state: BrowserWorkspaceState) throws { state.sitePermissions = try permissionStore() }
+    @MainActor func allowHTTP(in runtime: WorkspaceBrowserToolRuntime) throws { runtime.sitePermissions = try permissionStore() }
+
+    deinit {
+        listener.cancel()
+        UserDefaults(suiteName: consentSuite)?.removePersistentDomain(forName: consentSuite)
+    }
 }
 #endif

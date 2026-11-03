@@ -266,6 +266,8 @@ ACP sessions stream events back to Sloppy in real time:
 
 Sloppy's ACP client delegate handles permission requests from the external agent. By default, it auto-approves with "allow once" when available. File system read/write and terminal operations requested by the ACP agent are executed locally by Sloppy.
 
+A chat in Full Access automatically selects an available allow option without presenting an approval request. It prefers "allow once" when offered, avoiding a permanent upstream grant for those calls. Other chat modes retain the target's configured `permissionMode`. The chat policy is checked on every request, including in an already running ACP session.
+
 ## Minimal target config
 
 A target only requires `id` and `command`:

@@ -181,7 +181,7 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("ChatSessionContextBar(viewModel: viewModel)"))
         #expect(source.contains("viewModel.activeSessionTitle"))
         #expect(source.contains("viewModel.sendErrorMessage"))
-        #expect(source.contains("providerSettingsRecoveryMessageIDs.contains(message.id)"))
+        #expect(source.contains("entry.messageIDs.intersection(providerSettingsRecoveryMessageIDs)"))
         #expect(source.contains("viewModel.openSettings(.providers)"))
         #expect(source.contains("Current session:"))
     }

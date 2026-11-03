@@ -157,20 +157,12 @@ struct TransparentWindowSourceTests {
         #expect(rootView.contains("openWindow(id: \"main\")"))
     }
 
-    @Test("desktop overlay shows three recent chats and sends an inline prompt")
-    func desktopOverlayShowsRecentChatsAndSendsInlinePrompt() throws {
-        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
-
-        let content = try source("Sources/SloppyClient/Overlays/SloppyDesktopNotchContent.swift")
+    @Test("desktop overlay sends an inline prompt")
+    func desktopOverlaySendsInlinePrompt() throws {
         let chat = try source("Sources/SloppyFeatureChat/Screens/Chat/NotchChatView.swift")
-        #expect(content.contains("state.recentChats.prefix(3)"))
-        #expect(content.contains("Recent chats"))
-        #expect(overlay.contains("state.setRecentChats(activity.recentChats)"))
-        #expect(content.contains("state.openRecentChat(chat)"))
         #expect(chat.contains("TextField("))
         #expect(chat.contains("viewModel.sendMessage(content: content)"))
         #expect(chat.contains("ChatTranscriptPane("))
-
     }
 
     @Test("desktop overlay creates an agent task in the selected project")

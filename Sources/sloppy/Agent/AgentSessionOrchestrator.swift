@@ -264,6 +264,7 @@ actor AgentSessionOrchestrator {
     private var activeSessionRunIDsByChannel: [String: UUID] = [:]
     private var interruptedSessionRunChannels: Set<String> = []
     private var streamedAssistantByChannel: [String: String] = [:]
+    private var responseTimelineByChannel: [String: AgentSessionResponseTimeline] = [:]
     private var streamedAssistantLastPersistedByChannel: [String: String] = [:]
     private var streamedAssistantLastPersistedAtByChannel: [String: Date] = [:]
     private var pausedInputRequestByChannel: [String: String] = [:]
@@ -567,6 +568,8 @@ actor AgentSessionOrchestrator {
             : nil
 
         let verificationChannelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        responseTimelineByChannel[verificationChannelID] = AgentSessionResponseTimeline()
+        defer { responseTimelineByChannel.removeValue(forKey: verificationChannelID) }
         sessionVerificationEvidenceByChannel[verificationChannelID] = []
         turnGuardByChannel[verificationChannelID] = SessionTurnGuardState()
         defer {
@@ -682,12 +685,15 @@ actor AgentSessionOrchestrator {
         }
 
         let requestMode = effectiveRequest.mode ?? .defaultMode
+        let continuationMode = requestMode == .auto
+            ? Self.unfinishedAutoRouteMode(events: (try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID).events) ?? [])
+            : nil
         let installedSkills = requestMode == .auto ? loadInstalledSkills(agentID: agentID) : []
         let autoRouteCatalog = requestMode == .auto
             ? AutoRouteCatalog.markdown(installedSkills: installedSkills)
             : nil
         let runtimeContent = Self.contentWithFriendReminder(
-            Self.runtimeContent(content, mode: effectiveRequest.mode, autoRouteCatalog: autoRouteCatalog),
+            Self.runtimeContent(content, mode: effectiveRequest.mode, autoRouteCatalog: autoRouteCatalog, continuationMode: continuationMode),
             documents: runtimeDocuments
         )
 
@@ -739,6 +745,7 @@ actor AgentSessionOrchestrator {
                 selectedModel: selectedModel,
                 reasoningEffort: reasoningEffort,
                 mode: requestMode,
+                continuationMode: continuationMode,
                 images: nativeImages(agentID: agentID, attachments: attachments),
                 publishResponseChunks: !isCoordinator,
                 memoryQuery: Self.memoryRecallQuery(
@@ -988,7 +995,9 @@ actor AgentSessionOrchestrator {
             )
         }
 
-        if !runtimeOutcome.assistantText.isEmpty {
+        let finalResponseText = responseTimelineByChannel[verificationChannelID]?.remainingText(from: runtimeOutcome.assistantText)
+            ?? runtimeOutcome.assistantText
+        if !finalResponseText.isEmpty {
             let assistantEvent = AgentSessionEvent(
                 agentId: agentID,
                 sessionId: sessionID,
@@ -997,7 +1006,7 @@ actor AgentSessionOrchestrator {
                     id: responseMessageID ?? UUID().uuidString,
                     role: .assistant,
                     segments: [
-                        .init(kind: .text, text: runtimeOutcome.assistantText)
+                        .init(kind: .text, text: finalResponseText)
                     ],
                     userId: "agent"
                 )
@@ -1185,7 +1194,7 @@ actor AgentSessionOrchestrator {
 
         return AgentSessionMessageResponse(
             summary: summary,
-            appendedEvents: initialEvents + finalEvents,
+            appendedEvents: initialEvents + (responseTimelineByChannel[verificationChannelID]?.persistedResponses ?? []) + finalEvents,
             routeDecision: runtimeOutcome.routeDecision
         )
     }
@@ -1424,6 +1433,7 @@ actor AgentSessionOrchestrator {
         _ content: String,
         mode: AgentChatMode?,
         autoRouteCatalog: String? = nil,
+        continuationMode: AgentChatMode? = nil,
         modeInstructionProvider: (AgentChatMode) -> String = { BuiltInSkillCatalog.modeSkillMarkdown(for: $0) }
     ) -> String {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1445,7 +1455,14 @@ actor AgentSessionOrchestrator {
         if resolvedMode == .auto {
             let catalog = autoRouteCatalog?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let resolvedCatalog = catalog.isEmpty ? AutoRouteCatalog.defaultMarkdown() : catalog
-            headerWithCatalog = "\(header)\n\n\(resolvedCatalog)"
+            let continuation = continuationMode.map {
+                """
+
+                [Unfinished Auto route]
+                The previous \($0.rawValue) task has no successful completed outcome. Continue that task when this message supplies missing input, retries a blocker, or asks to resume. A successful prerequisite check alone does not finish the original task. The runtime retains the \($0.rawValue) completion requirements unless you explicitly select a different route with planning.select_route because the user changed the task (including mode-ask for a standalone question).
+                """
+            } ?? ""
+            headerWithCatalog = "\(header)\n\n\(resolvedCatalog)\n\(continuation)"
         } else {
             headerWithCatalog = header
         }
@@ -1653,11 +1670,15 @@ actor AgentSessionOrchestrator {
         selectedModel: String?,
         reasoningEffort: ReasoningEffort?,
         mode: AgentChatMode,
+        continuationMode: AgentChatMode? = nil,
         images: [Transcript.ImageSegment] = [],
         publishResponseChunks: Bool = true,
         memoryQuery: String? = nil
     ) async -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        if mode == .auto, let continuationMode {
+            selectedAutoRouteModeByChannel[channelID] = continuationMode
+        }
         if let toolExclusionProvider {
             let excluded = await toolExclusionProvider(agentID)
             if await runtime.setChannelExcludedTools(channelId: channelID, toolIDs: excluded) {
@@ -2303,6 +2324,8 @@ actor AgentSessionOrchestrator {
         }
         if let selectedMode = Self.autoRouteMode(route) {
             selectedAutoRouteModeByChannel[channelID] = selectedMode
+        } else {
+            selectedAutoRouteModeByChannel.removeValue(forKey: channelID)
         }
         return ToolInvocationResult(
             tool: request.tool,
@@ -2313,6 +2336,23 @@ actor AgentSessionOrchestrator {
                 "message": .string("Auto route recorded.")
             ])
         )
+    }
+
+    /// Carry coding completion requirements across retries and missing-input replies. Only typed,
+    /// successful tool results can establish or finish a route; assistant prose is never a signal.
+    static func unfinishedAutoRouteMode(events: [AgentSessionEvent]) -> AgentChatMode? {
+        for event in events.reversed() {
+            guard let result = event.toolResult, result.ok else { continue }
+            if result.tool == SessionCompleteTool.toolName,
+               result.data?.asObject?["status"]?.asString == SessionCompletionDisposition.completed.rawValue {
+                return nil
+            }
+            if result.tool == "planning.select_route", let mode = result.data?.asObject?["mode"]?.asString {
+                guard let mode = AgentChatMode(rawValue: mode), requiresExplicitCodingCompletion(mode: mode) else { return nil }
+                return mode
+            }
+        }
+        return nil
     }
 
     private static func autoRouteMode(_ route: String) -> AgentChatMode? {
@@ -2416,6 +2456,12 @@ actor AgentSessionOrchestrator {
             kind = .run
             command = request.arguments["command"]?.asString
             arguments = request.arguments["arguments"]?.asArray?.compactMap(\.asString) ?? []
+            exitCode = nil
+        case "devices.preview":
+            guard request.arguments["operation"]?.asString == "screenshot", data["path"]?.asString != nil else { return result }
+            kind = .screenshot
+            command = nil
+            arguments = []
             exitCode = nil
         case "browser.screenshot", "computer.screenshot":
             kind = .screenshot
@@ -2777,8 +2823,12 @@ actor AgentSessionOrchestrator {
     }
 
     private func appendEventsSafely(agentID: String, sessionID: String, events: [AgentSessionEvent]) {
+        let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        var timeline = responseTimelineByChannel[channelID]
+        let orderedEvents = timeline?.prependingResponse(to: events, agentID: agentID, sessionID: sessionID) ?? events
         do {
-            _ = try appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: events)
+            _ = try appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: orderedEvents)
+            responseTimelineByChannel[channelID] = timeline
         } catch {
             logger.error(
                 "session.events.append_failed",
@@ -2806,6 +2856,7 @@ actor AgentSessionOrchestrator {
         }
 
         let normalized = partialText.replacingOccurrences(of: "\r\n", with: "\n")
+        responseTimelineByChannel[channelID]?.recordSnapshot(normalized)
         let previous = streamedAssistantByChannel[channelID] ?? ""
         let delta = AgentSessionStreamDelta.extract(previous: previous, snapshot: normalized)
         streamedAssistantByChannel[channelID] = normalized

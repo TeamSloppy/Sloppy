@@ -43,10 +43,14 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Sloppy uses the microphone to record audio for voice input.</string>
+	<string>Sloppy records voice input and lets websites use the microphone when you allow access.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Sloppy uses Speech Recognition to transcribe voice input when local fallback is needed.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>NSCameraUsageDescription</key>
+	<string>Sloppy lets websites use the camera when you allow access.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Sloppy lets websites access your location when you allow access.</string>
 </dict>
 </plist>

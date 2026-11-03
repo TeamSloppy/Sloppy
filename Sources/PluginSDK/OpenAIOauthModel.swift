@@ -106,6 +106,7 @@ extension OpenAIOAuthModel {
         var transcriptEntries: [Transcript.Entry] = []
         var text = result.text
         var pendingCalls = result.functionCalls
+        var responseItems = result.outputItems
 
         while !pendingCalls.isEmpty, let delegate = session.toolExecutionDelegate {
             let toolCalls = pendingCalls.map { call in
@@ -145,9 +146,11 @@ extension OpenAIOAuthModel {
                 break
             }
 
+            responseItems = appendingToolRound(to: responseItems, calls: pendingCalls, outputs: toolOutputs)
             let followUp = try buildFollowUpRequestBody(
                 transcript: transcript,
                 accumulatedEntries: transcriptEntries,
+                responseItems: responseItems,
                 functionCalls: pendingCalls,
                 toolOutputs: toolOutputs,
                 options: options,
@@ -157,6 +160,7 @@ extension OpenAIOAuthModel {
             let next = try await collectStreamingResponseWithTools(body: followUp)
             noteMalformedCalls(next.functionCalls)
             text = next.text
+            responseItems += next.outputItems
             pendingCalls = next.functionCalls
         }
 
@@ -197,6 +201,7 @@ extension OpenAIOAuthModel {
 
                     noteMalformedCalls(result.functionCalls)
                     var pendingCalls = result.functionCalls
+                    var responseItems = result.outputItems
                     var accumulatedEntries: [Transcript.Entry] = []
 
                     while !pendingCalls.isEmpty, let delegate = session.toolExecutionDelegate {
@@ -239,9 +244,11 @@ extension OpenAIOAuthModel {
                             break
                         }
 
+                        responseItems = appendingToolRound(to: responseItems, calls: pendingCalls, outputs: toolOutputs)
                         let followUp = try buildFollowUpRequestBody(
                             transcript: transcript,
                             accumulatedEntries: accumulatedEntries,
+                            responseItems: responseItems,
                             functionCalls: pendingCalls,
                             toolOutputs: toolOutputs,
                             options: options,
@@ -253,6 +260,7 @@ extension OpenAIOAuthModel {
                             contentType: type
                         )
                         noteMalformedCalls(next.functionCalls)
+                        responseItems += next.outputItems
                         pendingCalls = next.functionCalls
                     }
 
@@ -284,6 +292,7 @@ private extension OpenAIOAuthModel {
     struct StreamResult {
         var text: String
         var functionCalls: [FunctionCall]
+        var outputItems: [[String: Any]]
         var responseId: String?
         var usage: UsageInfo?
     }
@@ -338,10 +347,12 @@ private extension OpenAIOAuthModel {
 
         var accumulated = ""
         var functionCallAccumulator = ResponsesFunctionCallAccumulator()
+        var outputAccumulator = ResponsesOutputAccumulator()
         var responseId: String?
         var usage: UsageInfo?
 
         for try await line in asyncBytes.lines {
+            outputAccumulator.consume(line: line)
             if let delta = parseSSEOutputDelta(line) {
                 accumulated += delta
             } else if let reasoning = parseSSEReasoningDelta(line) {
@@ -368,7 +379,7 @@ private extension OpenAIOAuthModel {
             )
         }
 
-        return StreamResult(text: accumulated, functionCalls: functionCallAccumulator.calls, responseId: responseId, usage: usage)
+        return StreamResult(text: accumulated, functionCalls: functionCallAccumulator.calls, outputItems: outputAccumulator.items, responseId: responseId, usage: usage)
     }
 
     func performStreamingRequestWithTools<Content>(
@@ -409,10 +420,12 @@ private extension OpenAIOAuthModel {
 
         var accumulated = ""
         var functionCallAccumulator = ResponsesFunctionCallAccumulator()
+        var outputAccumulator = ResponsesOutputAccumulator()
         var responseId: String?
         var usage: UsageInfo?
 
         for try await line in asyncBytes.lines {
+            outputAccumulator.consume(line: line)
             if let delta = parseSSEOutputDelta(line) {
                 accumulated += delta
                 if Content.self == String.self {
@@ -446,7 +459,7 @@ private extension OpenAIOAuthModel {
             )
         }
 
-        return StreamResult(text: accumulated, functionCalls: functionCallAccumulator.calls, responseId: responseId, usage: usage)
+        return StreamResult(text: accumulated, functionCalls: functionCallAccumulator.calls, outputItems: outputAccumulator.items, responseId: responseId, usage: usage)
     }
 
     func classifyHTTPError(statusCode: Int, body: String) -> OpenAIError {
@@ -490,15 +503,18 @@ extension OpenAIOAuthModel {
     func buildFollowUpRequestBodyForTesting(
         transcript: Transcript,
         accumulatedEntries: [Transcript.Entry],
+        responseItems: [[String: Any]] = [],
         functionCalls: [ResponsesFunctionCall],
-        toolOutputs: [(callId: String, output: String)]
+        toolOutputs: [(callId: String, output: String)],
+        options: GenerationOptions = GenerationOptions()
     ) throws -> Data {
         try buildFollowUpRequestBody(
             transcript: transcript,
             accumulatedEntries: accumulatedEntries,
+            responseItems: responseItems,
             functionCalls: functionCalls,
             toolOutputs: toolOutputs,
-            options: GenerationOptions(),
+            options: options,
             tools: []
         )
     }
@@ -629,9 +645,7 @@ private extension OpenAIOAuthModel {
         if let temperature = options.temperature {
             body["temperature"] = temperature
         }
-        if reasoningCapture != nil {
-            body["reasoning"] = ["summary": "auto"]
-        }
+        applyReasoningOptions(options, to: &body)
         applyPromptCacheHints(to: &body)
         return try JSONSerialization.data(withJSONObject: body)
     }
@@ -639,17 +653,22 @@ private extension OpenAIOAuthModel {
     func buildFollowUpRequestBody(
         transcript: Transcript,
         accumulatedEntries: [Transcript.Entry],
+        responseItems: [[String: Any]] = [],
         functionCalls: [FunctionCall],
         toolOutputs: [(callId: String, output: String)],
         options: GenerationOptions,
         tools: [[String: Any]]
     ) throws -> Data {
         var inputItems = transcriptToResponsesInput(transcript)
+        inputItems += responseItems
+        let providerCallIDs = Set(responseItems.filter { $0["type"] as? String == "function_call" }.compactMap { $0["call_id"] as? String })
+        let providerOutputIDs = Set(responseItems.filter { $0["type"] as? String == "function_call_output" }.compactMap { $0["call_id"] as? String })
 
         for entry in accumulatedEntries {
             switch entry {
             case .toolCalls(let toolCalls):
                 for call in toolCalls {
+                    guard !providerCallIDs.contains(call.id) else { continue }
                     let argumentsJSON: String
                     if let data = try? JSONEncoder().encode(call.arguments),
                        let jsonString = String(data: data, encoding: .utf8),
@@ -667,6 +686,7 @@ private extension OpenAIOAuthModel {
                     ])
                 }
             case .toolOutput(let output):
+                guard !providerOutputIDs.contains(output.id) else { continue }
                 let text = output.segments.compactMap { segment -> String? in
                     if case .text(let t) = segment { return t.content }
                     return nil
@@ -681,14 +701,14 @@ private extension OpenAIOAuthModel {
             }
         }
 
-        let replayedCallIDs = Set(accumulatedEntries.flatMap { entry -> [String] in
+        let replayedCallIDs = providerCallIDs.union(Set(accumulatedEntries.flatMap { entry -> [String] in
             if case .toolCalls(let toolCalls) = entry { return toolCalls.map(\.id) }
             return []
-        })
-        let replayedOutputIDs = Set(accumulatedEntries.compactMap { entry -> String? in
+        }))
+        let replayedOutputIDs = providerOutputIDs.union(Set(accumulatedEntries.compactMap { entry -> String? in
             if case .toolOutput(let output) = entry { return output.id }
             return nil
-        })
+        }))
         inputItems += functionCalls.filter { !replayedCallIDs.contains($0.callId) }.map { call in
             [
                 "type": "function_call",
@@ -719,11 +739,40 @@ private extension OpenAIOAuthModel {
         if let temperature = options.temperature {
             body["temperature"] = temperature
         }
-        if reasoningCapture != nil {
-            body["reasoning"] = ["summary": "auto"]
-        }
+        applyReasoningOptions(options, to: &body)
         applyPromptCacheHints(to: &body)
         return try JSONSerialization.data(withJSONObject: body)
+    }
+
+    func appendingToolRound(
+        to items: [[String: Any]],
+        calls: [FunctionCall],
+        outputs: [(callId: String, output: String)]
+    ) -> [[String: Any]] {
+        var replay = items
+        let callIDs = Set(items.filter { $0["type"] as? String == "function_call" }.compactMap { $0["call_id"] as? String })
+        // Compatibility for streams that omit completed output items.
+        replay += calls.filter { !callIDs.contains($0.callId) }.map { call in
+            ["type": "function_call", "call_id": call.callId, "name": call.name,
+             "arguments": ResponsesFunctionCallAccumulator.isJSONObject(call.arguments) ? call.arguments : "{}"]
+        }
+        replay += outputs.map { ["type": "function_call_output", "call_id": $0.callId, "output": $0.output] }
+        return replay
+    }
+
+    func applyReasoningOptions(_ options: GenerationOptions, to body: inout [String: Any]) {
+        let custom = options[custom: OpenAILanguageModel.self]
+        var reasoning: [String: String] = [:]
+        if let effort = custom?.reasoning?.effort ?? custom?.reasoningEffort {
+            reasoning["effort"] = effort.rawValue
+        }
+        if let summary = custom?.reasoning?.summary {
+            reasoning["summary"] = summary
+        } else if reasoningCapture != nil {
+            reasoning["summary"] = "auto"
+        }
+        if !reasoning.isEmpty { body["reasoning"] = reasoning }
+        body["include"] = ["reasoning.encrypted_content"]
     }
 
     func noteMalformedCalls(_ calls: [FunctionCall]) {

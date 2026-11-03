@@ -225,6 +225,7 @@ struct WorkspaceDockRenderingTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = WorkspaceWebViewModel(history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: model)
         var externallyOpenedURL: URL?
         let host = NSHostingView(rootView: WorkspaceBrowserPanelView(viewModel: model)
             .environment(\.openURL, OpenURLAction { url in
@@ -294,9 +295,11 @@ struct WorkspaceDockRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let previous = WorkspaceWebViewModel(history: history)
+        try server.allowHTTP(in: previous)
         _ = try await previous.ensureBrowserRuntime().open(url: url.absoluteString)
         #expect(history.sites.first?.url == url)
         let model = WorkspaceWebViewModel(history: history)
+        try server.allowHTTP(in: model)
         let host = NSHostingView(rootView: WorkspaceBrowserPanelView(viewModel: model)
             .environment(\.theme, .sloppyDark).preferredColorScheme(.dark))
         let window = NSWindow(contentRect: NSRect(x: 150, y: 150, width: 700, height: 600),

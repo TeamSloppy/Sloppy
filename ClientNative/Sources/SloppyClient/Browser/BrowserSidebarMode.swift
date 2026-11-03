@@ -23,6 +23,7 @@ extension EnvironmentValues {
 final class BrowserSidebarDrafts {
     var taskQuery = ""
     var taskTitle = ""
+    var newTask: BrowserPersonalTask?
     var taskFilter = BrowserTaskFilter.all
     var timeWeek = false
     var timeSite = ""

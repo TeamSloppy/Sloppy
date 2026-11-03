@@ -33,6 +33,25 @@ extension FocusedValues {
 }
 #endif
 
+/// State retains this inexpensive holder; constructing a View must not open
+/// databases or restore browser state inside its parent's observation scope.
+@MainActor
+private final class MainViewModels {
+    typealias Content = (
+        viewModel: MainViewModel,
+        browserWorkspace: BrowserWorkspaceState,
+        browserAgentChat: BrowserAgentChatState,
+        canvasWorkspaceViewModel: CanvasWorkspaceViewModel
+    )
+
+    private let makeContent: @MainActor () -> Content
+    lazy var content = makeContent()
+
+    init(makeContent: @escaping @MainActor () -> Content) {
+        self.makeContent = makeContent
+    }
+}
+
 @MainActor
 struct MainView: View {
     var onBrowserTextAnnotationTarget: BrowserTextAnnotationTarget?
@@ -122,11 +141,12 @@ struct MainView: View {
     let onConsumeDeepLink: @MainActor (AppDeepLinkRequest) -> Void
     let approvalRequiredSessionIDs: Set<String>
 
-    @State var browserWorkspace = BrowserWorkspaceState()
-    @State var browserAgentChat: BrowserAgentChatState
+    @State private var models: MainViewModels
+    var browserWorkspace: BrowserWorkspaceState { models.content.browserWorkspace }
+    var browserAgentChat: BrowserAgentChatState { models.content.browserAgentChat }
     @State var browserCanvasError: String?
     @State var collectedBrowserCanvas: CanvasWorkspaceSummary?
-    @State var viewModel: MainViewModel
+    var viewModel: MainViewModel { models.content.viewModel }
     @State var mobileTabPagingDirection = 1
     @State var mobileTabsHeroOverlay: MobileTabsHeroOverlayState?
     @State var mobileTabsSnapshotImage: MobileTabsSnapshotImage?
@@ -148,7 +168,7 @@ struct MainView: View {
     @State var selectedTextSearchHit: LocatedTextSearchHit?
     @State var isToolbarSearchResultsPresented = false
     @State var showsApprovalRequiredChatsOnly = false
-    @State var canvasWorkspaceViewModel: CanvasWorkspaceViewModel
+    var canvasWorkspaceViewModel: CanvasWorkspaceViewModel { models.content.canvasWorkspaceViewModel }
     @State var hasActivatedWorkspaceMode = false
     @SceneStorage("sloppy.main-content-mode") var mainContentModeRawValue = MainContentMode.coding.rawValue
 #if os(macOS)
@@ -216,31 +236,34 @@ struct MainView: View {
         self.browserCollectionRequest = browserCollectionRequest
         self.onConsumeBrowserCollection = onConsumeBrowserCollection
         self.onBrowserTextAnnotationTarget = onBrowserTextAnnotationTarget
-        let mainModel = viewModel ?? MainViewModel(
-            endpoint: endpoint, settings: settings, connectionMonitor: connectionMonitor,
-            onOpenSettings: onOpenSettings, onOpenWorkspace: onOpenWorkspace
-        )
-        _browserWorkspace = State(initialValue: browserWorkspace ?? BrowserWorkspaceState())
-        let browserChat = browserAgentChat ?? BrowserAgentChatState(
-            chat: mainModel.makeStandaloneChatViewModel(), apiClient: mainModel.apiClient
-        )
-        if browserAgentChat == nil {
-            browserChat.chat.applyNavigationRequest(.init(id: 1, context: .blank))
-        }
-        _browserAgentChat = State(initialValue: browserChat)
+        _models = State(initialValue: MainViewModels {
+            let mainModel = viewModel ?? MainViewModel(
+                endpoint: endpoint, settings: settings, connectionMonitor: connectionMonitor,
+                onOpenSettings: onOpenSettings, onOpenWorkspace: onOpenWorkspace
+            )
+            let browser = browserWorkspace ?? BrowserWorkspaceState()
+            let browserChat = browserAgentChat ?? BrowserAgentChatState(
+                chat: mainModel.makeStandaloneChatViewModel(), apiClient: mainModel.apiClient
+            )
+            if browserAgentChat == nil {
+                browserChat.chat.applyNavigationRequest(.init(id: 1, context: .blank))
+            }
+            return (
+                viewModel: mainModel,
+                browserWorkspace: browser,
+                browserAgentChat: browserChat,
+                canvasWorkspaceViewModel: CanvasWorkspaceViewModel(
+                    baseURL: endpoint.coordinatorBaseURL,
+                    apiClient: SloppyAPIClient(endpoint: endpoint)
+                )
+            )
+        })
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.menuBarQuickActionRequest = menuBarQuickActionRequest
         self.onConsumeMenuBarQuickAction = onConsumeMenuBarQuickAction
         self.deepLinkRequest = deepLinkRequest
         self.onConsumeDeepLink = onConsumeDeepLink
         self.approvalRequiredSessionIDs = approvalRequiredSessionIDs
-        _canvasWorkspaceViewModel = State(
-            initialValue: CanvasWorkspaceViewModel(
-                baseURL: endpoint.coordinatorBaseURL,
-                apiClient: SloppyAPIClient(endpoint: endpoint)
-            )
-        )
-        _viewModel = State(initialValue: mainModel)
     }
 
 }

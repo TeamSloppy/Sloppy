@@ -13,7 +13,11 @@ struct BrowserWorkspaceView: View {
     var agentChat: BrowserAgentChatState?
     @State private var librarySection: BrowserLibrarySection?
     @Environment(\.theme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var compactColumn = NavigationSplitViewColumn.detail
+#if os(macOS)
+    @State private var isSidebarPeekPresented = false
+#endif
 
     var body: some View {
         Group {
@@ -21,6 +25,23 @@ struct BrowserWorkspaceView: View {
         // Disabling hit testing on the native split view drops its titlebar safe area.
         // The search overlay already intercepts clicks on the content underneath.
         browserSurface
+            .overlay(alignment: .leading) { sidebarPeek }
+            .background {
+                // The menu uses Command-=; accept the shifted '+' spelling too.
+                BrowserPageCommandButton(command: .zoomIn, workspace: state, key: "+")
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                BrowserSidebarPeekTracking(
+                    isEnabled: state.columnVisibility == .detailOnly && !state.isSearchPresented,
+                    isPresented: isSidebarPeekPresented
+                ) { presented in
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+                        isSidebarPeekPresented = presented
+                    }
+                }
+            }
+            .focusedSceneValue(\.workBrowseWorkspace, state)
             .task { await state.extensions.restore() }
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .accessibilityHidden(state.isSearchPresented)
@@ -30,6 +51,10 @@ struct BrowserWorkspaceView: View {
                 }
             }
             .onDisappear { state.isSearchPresented = false }
+            .onChange(of: state.columnVisibility) { _, _ in isSidebarPeekPresented = false }
+            .onChange(of: state.isSearchPresented) { _, presented in
+                if presented { isSidebarPeekPresented = false }
+            }
 #elseif os(iOS)
         MobileBrowserWorkspaceView(state: state, onAskAgent: onAskAgent, onCollect: onCollect,
                                    onSettings: onSettings, onAnnotateSelection: onAnnotateSelection,
@@ -61,6 +86,7 @@ struct BrowserWorkspaceView: View {
             .navigationTitle("Browse")
 #if os(macOS)
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
+            .toolbar(removing: .sidebarToggle)
 #else
             .navigationSplitViewColumnWidth(min: 260, ideal: 280, max: 360)
 #endif
@@ -73,20 +99,68 @@ struct BrowserWorkspaceView: View {
                 if let agentChat {
 #if os(macOS)
                     ToolbarSpacer(.flexible, placement: .primaryAction)
-#endif
                     ToolbarItem(placement: .primaryAction) {
-                        Button(action: agentChat.toggle) {
-                            Label("Assistant", systemImage: "sidebar.right")
+                        HStack(spacing: 0) {
+                            Button {
+                                Task { await agentChat.summarizeCurrentPage(from: state) }
+                            } label: {
+                                Label("Summarize page", systemImage: "text.alignleft")
+                                    .frame(width: 32, height: 36)
+                                    .contentShape(Rectangle())
+                            }
+                            .labelStyle(.iconOnly)
+                            .disabled(!agentChat.canSummarizePage(from: state))
+                            .help("Summarize page")
+                            .accessibilityIdentifier("browser-summarize-page")
+                            assistantToggle(agentChat)
+                                .frame(height: 36)
                         }
-                        .labelStyle(.titleAndIcon)
-                        .help(agentChat.panel.isPresented ? "Hide assistant" : "Show assistant")
-                        .accessibilityIdentifier("browser-agent-toggle")
-                        .accessibilityValue(agentChat.panel.isPresented ? "Expanded" : "Collapsed")
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 10)
+                        .frame(height: 36)
+                        .modifier(BrowserToolbarSurface())
                     }
+                    .sharedBackgroundVisibility(.hidden)
+#else
+                    ToolbarItem(placement: .primaryAction) {
+                        assistantToggle(agentChat)
+                    }
+#endif
                 }
             }
 #if os(macOS)
+            // Keep the logical window title, but render the visible title as a
+            // toolbar item so AppKit cannot fade it while the page has focus.
+            .toolbar(removing: .title)
             .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        isSidebarPeekPresented = false
+                        state.columnVisibility = state.columnVisibility == .detailOnly ? .all : .detailOnly
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .frame(width: 36, height: 36)
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .modifier(BrowserToolbarSurface())
+                    .help("Toggle Sidebar (⇧⌘S)")
+                    .accessibilityLabel("Toggle Sidebar")
+                    .accessibilityIdentifier("browser-sidebar-toggle")
+                }
+                .sharedBackgroundVisibility(.hidden)
+                ToolbarItem(placement: .principal) {
+                    Text(state.selectedTab?.title ?? "Browse")
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .modifier(BrowserToolbarSurface())
+                        .help(state.selectedTab?.title ?? "Browse")
+                        .accessibilityIdentifier("browser-page-title")
+                }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .navigation) {
                     HStack(spacing: 0) {
                         BrowserNavigationButtons(state: state, group: .history)
@@ -94,8 +168,7 @@ struct BrowserWorkspaceView: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 8)
                     .frame(height: 36)
-                    .glassEffect(.regular, in: Capsule())
-                    .padding(.bottom, 8)
+                    .modifier(BrowserToolbarSurface())
                 }
                 .sharedBackgroundVisibility(.hidden)
                 if let split = state.activeSplit, let member = split.tabIDs.first {
@@ -119,6 +192,21 @@ struct BrowserWorkspaceView: View {
         .navigationSplitViewStyle(.balanced)
         .onChange(of: state.selectedID) { _, _ in compactColumn = .detail }
         .sheet(item: $librarySection) { BrowserLibrarySheet(section: $0, state: state) }
+    }
+
+    private func assistantToggle(_ agentChat: BrowserAgentChatState) -> some View {
+        Button(action: agentChat.toggle) {
+            Label {
+                Text("Assistant")
+            } icon: {
+                SloppyAssets.projectLogo.renderingMode(.template)
+                    .resizable().scaledToFit().frame(width: 18, height: 18)
+            }
+        }
+        .labelStyle(.titleAndIcon)
+        .help(agentChat.panel.isPresented ? "Hide assistant" : "Show assistant")
+        .accessibilityIdentifier("browser-agent-toggle")
+        .accessibilityValue(agentChat.panel.isPresented ? "Expanded" : "Collapsed")
     }
 
     private func browserPageSurface(toolbarInset: CGFloat) -> some View {
@@ -158,18 +246,34 @@ struct BrowserWorkspaceView: View {
 #if os(macOS)
             .overlay(alignment: .leading) {
                 Rectangle()
-                    .fill(theme.colors.border)
+                    .fill(state.columnVisibility == .detailOnly ? .clear : theme.colors.border)
                     .frame(width: 1)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
-            .padding(.leading, 12)
+            .padding(.leading, state.columnVisibility == .detailOnly ? 0 : 12)
 #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(theme.colors.background)
     }
+
+#if os(macOS)
+    @ViewBuilder
+    private var sidebarPeek: some View {
+        if state.columnVisibility == .detailOnly, !state.isSearchPresented, isSidebarPeekPresented {
+            BrowserSidebar(state: state, onLibrary: { librarySection = $0 },
+                           onSettings: onSettings, onCollect: onCollect)
+            .frame(width: 260)
+            .frame(maxHeight: .infinity)
+            .background(.regularMaterial)
+            .overlay(alignment: .trailing) { Divider() }
+            .transition(.move(edge: .leading).combined(with: .opacity))
+            .accessibilityIdentifier("browser-sidebar-peek")
+        }
+    }
+#endif
 
     private func pageTopInset(_ geometry: GeometryProxy) -> CGFloat {
 #if os(macOS)
@@ -255,6 +359,8 @@ struct BrowserWorkspacePage: View {
                     page.textSelection.annotationTarget = nil
                 }
         }
+        .onAppear { page.beginPresentation() }
+        .onDisappear { page.endPresentation() }
     }
 
     private var webContent: some View {

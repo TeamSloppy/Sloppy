@@ -18,6 +18,7 @@ struct BrowserSidebarChromeTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         for index in 0..<80 { state.open(url.appendingPathComponent("page-\(index)"), inNewTab: true) }
         let note = state.organizer.createNote()
         state.organizer.updateNote(note) { $0.body = Array(repeating: "Long note content", count: 100).joined(separator: "\n") }

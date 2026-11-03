@@ -58,7 +58,7 @@ export function ChatApprovalModePicker({ mode, busy, disabled, error, unavailabl
     <button type="button" ref={button} className="actor-team-search chat-approval-mode-trigger" aria-haspopup="menu" aria-expanded={open}
       aria-label={`Approval mode: ${unavailable && error ? "unavailable" : selected.title}`} disabled={disabled || busy}
       title={selected.detail} onClick={() => setOpen(!open)}>
-      <span className="material-symbols-rounded" aria-hidden="true">{mode === "approve_for_me" ? "verified_user" : "shield"}</span>
+      <span className="material-symbols-rounded" aria-hidden="true">{mode === "full_access" ? "lock_open" : mode === "approve_for_me" ? "verified_user" : "shield"}</span>
       <span>{busy ? "Updating approvals…" : unavailable && error ? "Approval mode unavailable" : selected.title}</span>
       <span aria-hidden="true">▾</span>
     </button>

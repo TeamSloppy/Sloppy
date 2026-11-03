@@ -18,27 +18,20 @@ struct ChatToolApprovalCard: View {
     let decide: @MainActor (Bool, ClientToolApprovalDecisionScope) -> Void
 
     @Environment(\.theme) private var theme
+    @State private var requestContentHeight: CGFloat = 44
 
     var body: some View {
         VStack(alignment: .leading, spacing: theme.spacing.s) {
+            approvalSummary
+            requestDetails
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: theme.spacing.s) {
-                    approvalSummary
-                    Spacer(minLength: theme.spacing.s)
-                    approvalActions
-                }
-                VStack(alignment: .leading, spacing: theme.spacing.s) {
-                    approvalSummary
-                    ViewThatFits(in: .horizontal) {
-                        approvalActions
-                        VStack(alignment: .trailing, spacing: theme.spacing.s) {
-                            persistentActions
-                            singleCallActions
-                        }
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
+                approvalActions
+                VStack(alignment: .trailing, spacing: theme.spacing.s) {
+                    persistentActions
+                    singleCallActions
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
             if let errorMessage, !errorMessage.isEmpty {
                 Text(errorMessage)
                     .font(.caption)
@@ -54,6 +47,7 @@ struct ChatToolApprovalCard: View {
                 .stroke(theme.colors.statusWarning.opacity(0.5), lineWidth: 1)
         }
         .disabled(isResolving)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.tool-approval")
     }
 
@@ -64,12 +58,70 @@ struct ChatToolApprovalCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Action required")
                     .font(.system(size: theme.typography.caption, weight: .semibold))
+                if let tool = approval.tool {
+                    Text(verbatim: tool)
+                        .font(.system(size: theme.typography.caption, design: .monospaced))
+                        .foregroundStyle(theme.colors.textSecondary)
+                }
                 Text(summary)
                     .font(.system(size: theme.typography.caption))
                     .foregroundStyle(theme.colors.textSecondary)
                     .lineLimit(2)
             }
         }
+    }
+
+    private var requestDetails: some View {
+        let presentation = ToolApprovalPresentation(approval: approval)
+        return VStack(alignment: .leading, spacing: theme.spacing.xs) {
+            HStack {
+                Text(presentation.title).font(.caption2.weight(.semibold))
+                Spacer(minLength: 0)
+                if requestContentHeight > 180 {
+                    Label("Scroll for full details", systemImage: "arrow.up.and.down")
+                        .font(.caption2)
+                }
+            }
+            .foregroundStyle(theme.colors.textMuted)
+            ScrollView(.vertical) {
+                requestContent(presentation)
+                    .onGeometryChange(for: CGFloat.self) { ceil($0.size.height) } action: { height in
+                        guard height.isFinite else { return }
+                        requestContentHeight = max(28, height)
+                    }
+            }
+            .id(approval.id)
+            .frame(height: min(180, requestContentHeight))
+            if let cwd = presentation.workingDirectory {
+                Text(verbatim: "Working directory: \(cwd)")
+                    .font(.caption)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Working directory: \(cwd)")
+                    .accessibilityIdentifier("chat.tool-approval.cwd")
+            }
+            Text(presentation.scopeDetail)
+                .font(.caption2)
+                .foregroundStyle(theme.colors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func requestContent(_ presentation: ToolApprovalPresentation) -> some View {
+        VStack(alignment: .leading, spacing: theme.spacing.xs) {
+            Text(verbatim: presentation.content)
+                .font(.system(size: theme.typography.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("chat.tool-approval.command")
+            ForEach(Array(presentation.accessDetails.enumerated()), id: \.offset) { _, access in
+                Text(verbatim: access).font(.caption).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .foregroundStyle(theme.colors.textPrimary)
     }
 
     @ViewBuilder
@@ -113,6 +165,7 @@ struct ChatToolApprovalCard: View {
             Button("Allow") {
                 decide(true, .once)
             }
+            .help("Allow this exact invocation once.")
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("chat.tool-approval.once")
         }

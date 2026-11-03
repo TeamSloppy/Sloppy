@@ -33,7 +33,8 @@ extension ChatScreenViewModel {
             responseNotificationScheduler.dismissApproval(id: previousApprovalID)
         }
         if let approval = pendingToolApproval {
-            if let notification = AgentToolApprovalNotification(approval: approval) {
+            if previousApprovalID != approval.id,
+               let notification = AgentToolApprovalNotification(approval: approval) {
                 await responseNotificationScheduler.scheduleApproval(notification)
             }
             guard isCurrentSession(agentId: agentId, sessionId: sessionId), pendingToolApproval?.id == approval.id else { return }

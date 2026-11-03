@@ -27,6 +27,22 @@ final class WorkspaceBrowserToolRuntime: NSObject {
 #if os(macOS) || os(iOS)
     // The runtime owns the page so hiding the panel never destroys an agent's page.
     let webView: WKWebView
+    var sitePermissions: BrowserSitePermissions {
+        didSet { oldValue.unregister(self); sitePermissions.register(self) }
+    }
+    var documentRevision = 0
+    var requestSystemMediaAccess: @MainActor (BrowserSiteResource) async -> Bool = BrowserMediaPermissions.requestSystemAccess
+    let sitePrompt = BrowserSitePrompt()
+    private var navigationPolicyRevision = 0
+    let agentPointer = BrowserAgentPointer()
+    var agentID: String?
+    var agentPaletteID: String?
+    let activity: BrowserPageActivityMonitor
+    let contentBlocker: BrowserContentBlocker?
+    private(set) var activeOperations = 0
+    private(set) var operationRevision = 0
+    private(set) var lastOperationAt = Date()
+    private var potentialAgentEdits = false
 #if os(macOS)
     private(set) lazy var documentInset = BrowserDocumentInset(webView: webView)
 #endif
@@ -41,10 +57,20 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     private var loadingObservations: [NSKeyValueObservation] = []
 
     init(webView: WKWebView? = nil, extensionController: WKWebExtensionController? = nil,
-         textSelection: WorkspaceBrowserSelection? = nil) {
+         textSelection: WorkspaceBrowserSelection? = nil, contentBlocker: BrowserContentBlocker? = nil,
+         sitePermissions: BrowserSitePermissions = .shared) {
+        self.sitePermissions = sitePermissions
+        self.contentBlocker = contentBlocker
         let configuration = WKWebViewConfiguration()
+        let activity = BrowserPageActivityMonitor()
+        self.activity = activity
+        activity.install(in: webView?.configuration ?? configuration)
 #if os(macOS)
         configuration.webExtensionController = extensionController
+        // Bare WKWebView omits Safari's version tokens. YouTube treats that UA
+        // as a legacy browser and disables prefers-color-scheme support.
+        // Safari 26 is our macOS deployment baseline; keep WebKit's native UA.
+        configuration.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
 #endif
         if webView == nil { textSelection?.install(in: configuration) }
 #if os(macOS)
@@ -54,6 +80,8 @@ final class WorkspaceBrowserToolRuntime: NSObject {
         self.webView.allowsBackForwardNavigationGestures = true
 #endif
         super.init()
+        sitePermissions.register(self)
+        activity.attach(to: self.webView)
         textSelection?.attach(to: self.webView)
         self.webView.navigationDelegate = self
         self.webView.uiDelegate = self
@@ -73,6 +101,12 @@ final class WorkspaceBrowserToolRuntime: NSObject {
             self.webView.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor [weak self] in self?.publishLoadingState() }
             },
+            self.webView.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.publishLoadingState() }
+            },
+            self.webView.observe(\.canGoForward, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.publishLoadingState() }
+            },
         ]
 #if os(iOS)
         loadingObservations.append(self.webView.observe(\.underPageBackgroundColor, options: [.new]) { [weak self] _, _ in
@@ -86,6 +120,8 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     }
 
     func open(url: String) async throws -> WorkspaceBrowserReadResult {
+        beginOperation(mayEdit: false)
+        defer { endOperation() }
         let resolvedURL = try Self.resolveURL(url)
         navigationError = nil
         navigationPending = true
@@ -105,6 +141,8 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     }
 
     func read() async throws -> WorkspaceBrowserReadResult {
+        beginOperation(mayEdit: false)
+        defer { endOperation() }
         try await waitForNavigation()
         let raw = try await webView.evaluateJavaScript(Self.readScript)
         guard let raw else { throw WorkspaceBrowserRuntimeError.unavailable }
@@ -121,6 +159,8 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     }
 
     func evaluate(expression: String) async throws -> WorkspaceBrowserJSONValue {
+        beginOperation(mayEdit: true)
+        defer { endOperation() }
         guard !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               expression.utf8.count <= 65536 else { throw WorkspaceBrowserRuntimeError.invalidArguments }
         try await waitForNavigation()
@@ -162,11 +202,17 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     }
 
     func click(selector: String) async throws -> WorkspaceBrowserActionResult {
+        beginOperation(mayEdit: true)
+        defer { endOperation() }
+        try await showAgentTarget(selector: selector, action: .click)
         try await perform(Self.elementScript(selector: selector, action: "node.click();"))
         return .init(ok: true, message: "Clicked \(selector)")
     }
 
     func type(selector: String, text: String) async throws -> WorkspaceBrowserActionResult {
+        beginOperation(mayEdit: true)
+        defer { endOperation() }
+        try await showAgentTarget(selector: selector, action: .type)
         let value = try Self.jsString(text)
         try await perform(Self.elementScript(selector: selector, action: """
         if (node.readOnly) throw new Error('element_read_only');
@@ -185,17 +231,25 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     }
 
     func scroll(x: Double, y: Double) async throws -> WorkspaceBrowserActionResult {
+        beginOperation(mayEdit: false)
+        defer { endOperation() }
         guard x.isFinite, y.isFinite else { throw WorkspaceBrowserRuntimeError.invalidArguments }
         try await perform("window.scrollTo(\(x), \(y)); true;")
+        if let agentID { agentPointer.show(in: webView, point: CGPoint(x: 0.5, y: 0.5), action: .scroll, agentID: agentID, paletteID: agentPaletteID) }
         return .init(ok: true, message: "Scrolled to \(x),\(y)")
     }
 
     func scrollTo(selector: String) async throws -> WorkspaceBrowserActionResult {
+        beginOperation(mayEdit: false)
+        defer { endOperation() }
         try await perform(Self.elementScript(selector: selector, action: ""))
+        try await showAgentTarget(selector: selector, action: .scroll)
         return .init(ok: true, message: "Scrolled to \(selector)")
     }
 
     func screenshot() async throws -> WorkspaceBrowserScreenshotResult {
+        beginOperation(mayEdit: false)
+        defer { endOperation() }
         try await waitForNavigation()
         let image = try await webView.takeSnapshot(configuration: nil)
 #if os(macOS)
@@ -211,8 +265,73 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     }
 
     func stop() {
+        if sitePrompt.isPending { navigationError = WorkspaceBrowserRuntimeError.permissionDenied("The site permission request was cancelled.") }
+        agentPointer.clear()
+        navigationPolicyRevision &+= 1
+        documentRevision &+= 1
+        sitePrompt.cancel()
         webView.stopLoading()
         navigationPending = false
+    }
+
+    func noteAccess() {
+        lastOperationAt = .now
+        operationRevision &+= 1
+    }
+
+    private func beginOperation(mayEdit: Bool = false) {
+        activeOperations += 1
+        potentialAgentEdits = potentialAgentEdits || mayEdit
+        noteAccess()
+    }
+
+    private func endOperation() {
+        activeOperations = max(0, activeOperations - 1)
+        noteAccess()
+    }
+
+    func safeToDiscard(at now: Date) async -> Bool {
+        guard activeOperations == 0, !sitePrompt.isPending, !navigationPending, !webView.isLoading, !potentialAgentEdits,
+              now.timeIntervalSince(lastOperationAt) >= 60 else { return false }
+        let operation = operationRevision
+        let revision = activity.revision
+        guard await activity.inspect() else { return false }
+        return activeOperations == 0 && operationRevision == operation && activity.revision == revision
+            && !navigationPending && !webView.isLoading && !potentialAgentEdits
+            && webView.cameraCaptureState == .none && webView.microphoneCaptureState == .none
+    }
+
+    func detachForDiscard() {
+        stop()
+        agentPointer.detach()
+        webView.setCameraCaptureState(.none, completionHandler: nil)
+        webView.setMicrophoneCaptureState(.none, completionHandler: nil)
+        contentBlocker?.detach(from: webView)
+        activity.detach()
+        onStateChange = nil
+        onNavigationFinished = nil
+        onDownload = nil
+        onNavigationStarted = nil
+        navigationBlock = nil
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        loadingObservations.removeAll()
+        titleObservation = nil
+    }
+
+    private func showAgentTarget(selector: String, action: BrowserAgentPointerState.Action) async throws {
+        guard let agentID else { return }
+        try await waitForNavigation()
+        let script = try Self.elementScript(selector: selector, action: """
+        const r = node.getBoundingClientRect();
+        const v = window.visualViewport;
+        return { x: (r.left + r.width / 2 - (v?.offsetLeft ?? 0)) / (v?.width ?? innerWidth),
+                 y: (r.top + r.height / 2 - (v?.offsetTop ?? 0)) / (v?.height ?? innerHeight) };
+        """)
+        guard let point = try await webView.evaluateJavaScript(script) as? [String: Double],
+              let x = point["x"], let y = point["y"] else { return }
+        agentPointer.show(in: webView, point: CGPoint(x: x, y: y), action: action, agentID: agentID, paletteID: agentPaletteID)
+        try await Task.sleep(for: .milliseconds(160))
     }
 
     private func perform(_ script: String) async throws {
@@ -300,7 +419,9 @@ final class WorkspaceBrowserToolRuntime: NSObject {
 #if os(macOS) || os(iOS)
 extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, WorkspaceWebViewControlling {
     func open(_ address: String) {
+        beginOperation()
         Task {
+            defer { endOperation() }
             do { _ = try await open(url: address) }
             catch { onStateChange?(webView, WorkspaceBrowserNavigationFailure.message(for: error)) }
         }
@@ -310,9 +431,12 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     func goForward() { navigationError = nil; webView.goForward() }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        documentRevision &+= 1
+        agentPointer.clear()
         onNavigationStarted?()
         navigationError = nil
         navigationPending = true
+        operationRevision &+= 1
         onStateChange?(webView, nil)
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -326,6 +450,8 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
         onNavigationFinished?(webView)
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        potentialAgentEdits = false
+        operationRevision &+= 1
 #if os(macOS)
         documentInset.refresh()
 #endif
@@ -353,6 +479,26 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
             navigationError = WorkspaceBrowserRuntimeError.timeLimit(reason)
             return .cancel
         }
+        if navigationAction.targetFrame?.isMainFrame == true || (navigationAction.targetFrame == nil && navigationAction.shouldPerformDownload) {
+            navigationPolicyRevision &+= 1
+            let revision = navigationPolicyRevision
+            sitePrompt.cancel()
+            if let url = navigationAction.request.url, url.scheme?.lowercased() == "http", let origin = BrowserSiteOrigin(url) {
+                let allowed = await sitePermissions.authorize(origin, resource: .http) { [weak self] in
+                    guard let self else { return .cancel }
+                    return await sitePrompt.request(origin, resource: .http, in: webView)
+                }
+                guard allowed, revision == navigationPolicyRevision, !Task.isCancelled else {
+                    if revision == navigationPolicyRevision {
+                        navigationPending = false
+                        navigationError = WorkspaceBrowserRuntimeError.permissionDenied("HTTP navigation was not allowed for \(origin.id). Change Site Settings or try again.")
+                        publishLoadingState()
+                    }
+                    return .cancel
+                }
+            }
+        }
+
         if onDownload != nil, navigationAction.shouldPerformDownload,
            ["http", "https", "blob", "data"].contains(navigationAction.request.url?.scheme?.lowercased() ?? "") {
             return .download
@@ -363,6 +509,9 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
             navigationError = WorkspaceBrowserRuntimeError.invalidURL
             onStateChange?(webView, WorkspaceBrowserNavigationFailure.message(for: navigationError))
             return .cancel
+        }
+        if navigationAction.targetFrame?.isMainFrame != false {
+            await contentBlocker?.attach(to: webView)
         }
         return .allow
     }
@@ -395,10 +544,12 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
 
 enum WorkspaceBrowserRuntimeError: Error, LocalizedError {
     case unavailable, invalidURL, invalidArguments, snapshotFailed, navigationTimedOut
+    case permissionDenied(String)
     case timeLimit(String)
     case evaluationFailed(String)
     var errorDescription: String? {
         switch self {
+        case .permissionDenied(let message): message
         case .timeLimit(let message): message
         case .evaluationFailed(let message): "JavaScript: \(message)"
         case .unavailable: "The in-app browser is unavailable."

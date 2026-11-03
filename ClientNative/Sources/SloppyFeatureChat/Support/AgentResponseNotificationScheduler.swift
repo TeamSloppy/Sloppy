@@ -77,6 +77,24 @@ public struct AgentToolApprovalNotification: Sendable, Equatable {
         self.expiresAt = approval.expiresAt
     }
 
+    public init?(notification: AppNotification) {
+        guard notification.type == .toolApproval else { return nil }
+        let formatter = ISO8601DateFormatter()
+        let expiresAt = notification.metadata["expiresAt"].flatMap { text in
+            if let date = formatter.date(from: text) { return date }
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter.date(from: text)
+        }
+        self.init(approval: PendingToolApprovalRecord(
+            id: notification.metadata["approvalId"] ?? notification.id,
+            status: notification.metadata["status"] ?? "pending",
+            agentId: notification.metadata["agentId"], sessionId: notification.metadata["sessionId"],
+            displaySessionId: notification.metadata["displaySessionId"], tool: notification.metadata["tool"],
+            reason: notification.metadata["reason"] ?? notification.message,
+            updatedAt: notification.timestamp, expiresAt: expiresAt
+        ))
+    }
+
     public var identifier: String { "tool-approval.\(approvalId)" }
     public var deepLink: String {
         AgentResponseCompletionNotification(agentName: agentId, sessionTitle: "", responsePreview: nil,
@@ -101,14 +119,28 @@ public extension AgentResponseNotificationScheduling {
 public final class LocalAgentResponseNotificationScheduler: AgentResponseNotificationScheduling {
     public static let shared = LocalAgentResponseNotificationScheduler()
 
-    private let center: UNUserNotificationCenter
+    private let center: any AgentNotificationCenter
     private var notifiedApprovalIDs: Set<String> = []
+    private var resolvedApprovalIDs: Set<String> = []
     private var approvalExpirationTasks: [String: Task<Void, Never>] = [:]
     private let logger = Logger(label: "sloppy.local-notifications")
     private var authorizationTask: Task<Void, Never>?
 
     public init(center: UNUserNotificationCenter = .current()) {
-        self.center = center
+        self.center = SystemAgentNotificationCenter(center)
+    }
+
+    init(notificationCenter: any AgentNotificationCenter) {
+        self.center = notificationCenter
+    }
+
+    private func canSchedule() async -> Bool {
+        let status = await center.authorizationStatus()
+        if status == .authorized || status == .provisional { return true }
+        #if os(iOS) || os(visionOS)
+        if status == .ephemeral { return true }
+        #endif
+        return false
     }
 
     public func prepareAuthorization() async {
@@ -118,9 +150,8 @@ public final class LocalAgentResponseNotificationScheduler: AgentResponseNotific
         }
 
         let task = Task { @MainActor [center] in
-            let settings = await center.notificationSettings()
-            guard settings.authorizationStatus == .notDetermined else { return }
-            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            guard await center.authorizationStatus() == .notDetermined else { return }
+            try? await center.requestAuthorization()
         }
         authorizationTask = task
         await task.value
@@ -129,13 +160,7 @@ public final class LocalAgentResponseNotificationScheduler: AgentResponseNotific
     public func schedule(_ notification: AgentResponseCompletionNotification) async {
         await prepareAuthorization()
 
-        let settings = await center.notificationSettings()
-        var canSchedule = settings.authorizationStatus == .authorized
-            || settings.authorizationStatus == .provisional
-        #if os(iOS) || os(visionOS)
-        canSchedule = canSchedule || settings.authorizationStatus == .ephemeral
-        #endif
-        guard canSchedule else {
+        guard await canSchedule() else {
             return
         }
 
@@ -157,11 +182,12 @@ public final class LocalAgentResponseNotificationScheduler: AgentResponseNotific
     }
 
     public func scheduleApproval(_ notification: AgentToolApprovalNotification) async {
-        guard notification.expiresAt.map({ $0 > Date() }) ?? true,
+        guard !resolvedApprovalIDs.contains(notification.approvalId),
+              notification.expiresAt.map({ $0 > Date() }) ?? true,
               notifiedApprovalIDs.insert(notification.approvalId).inserted else { return }
         await prepareAuthorization()
-        let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional,
+        guard await canSchedule(),
+              !resolvedApprovalIDs.contains(notification.approvalId),
               notifiedApprovalIDs.contains(notification.approvalId),
               notification.expiresAt.map({ $0 > Date() }) ?? true else {
             notifiedApprovalIDs.remove(notification.approvalId)
@@ -169,7 +195,9 @@ public final class LocalAgentResponseNotificationScheduler: AgentResponseNotific
         }
         let content = UNMutableNotificationContent()
         content.title = "Approval required"
-        content.body = notification.reason ?? "Allow \(notification.tool) to continue this chat."
+        let reason = notification.reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let reason, !reason.isEmpty { content.body = reason }
+        else { content.body = "Allow \(notification.tool) to continue this chat." }
         content.sound = .default
         content.threadIdentifier = notification.sessionId
         content.categoryIdentifier = "TOOL_APPROVAL_REQUIRED"
@@ -195,26 +223,21 @@ public final class LocalAgentResponseNotificationScheduler: AgentResponseNotific
     }
 
     public func dismissApproval(id: String) {
+        resolvedApprovalIDs.insert(id)
         notifiedApprovalIDs.remove(id)
         approvalExpirationTasks.removeValue(forKey: id)?.cancel()
         let identifier = "tool-approval.\(id)"
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
-        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.remove(identifier: identifier)
     }
 
     public func updateToolApproval(_ notification: AppNotification) async {
-        guard notification.type == .toolApproval, let id = notification.metadata["approvalId"] else { return }
-        guard notification.metadata["status"] == "pending" else {
+        guard notification.type == .toolApproval else { return }
+        let id = notification.metadata["approvalId"] ?? notification.id
+        guard (notification.metadata["status"] ?? "pending") == "pending" else {
             dismissApproval(id: id)
             return
         }
-        let record = PendingToolApprovalRecord(
-            id: id, status: "pending", agentId: notification.metadata["agentId"],
-            sessionId: notification.metadata["sessionId"], displaySessionId: notification.metadata["displaySessionId"],
-            tool: notification.metadata["tool"], reason: notification.metadata["reason"], updatedAt: notification.timestamp,
-            expiresAt: notification.metadata["expiresAt"].flatMap { ISO8601DateFormatter().date(from: $0) }
-        )
-        if let approval = AgentToolApprovalNotification(approval: record) {
+        if let approval = AgentToolApprovalNotification(notification: notification) {
             await scheduleApproval(approval)
         }
     }

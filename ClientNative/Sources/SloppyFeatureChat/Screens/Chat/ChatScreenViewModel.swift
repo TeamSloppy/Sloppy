@@ -51,6 +51,7 @@ public final class ChatScreenViewModel {
     var failedApprovalModeSaveKeys: Set<String> = []
     var hasDraftApprovalModeOverride = false
     var approvalModeRevision = UUID()
+    @ObservationIgnored var approvalModeLoadTask: Task<Void, Never>?
     @ObservationIgnored var approvalModeSaveTask: Task<ChatApprovalPolicy, Error>?
     public internal(set) var activeInputRequest: ChatPlanInputRequest?
     public internal(set) var isSubmittingInputResponse = false

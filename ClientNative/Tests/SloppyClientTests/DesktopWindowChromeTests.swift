@@ -108,4 +108,144 @@ private final class WindowChromeNotifications: AgentResponseNotificationScheduli
     func prepareAuthorization() async {}
     func schedule(_ notification: AgentResponseCompletionNotification) async {}
 }
+
+@Suite("Transparent window lifecycle", .serialized, .appKitIsolation)
+@MainActor
+struct TransparentWindowLifecycleTests {
+    @Test func repeatedAttachmentDoesNotRewriteWindowDragBehavior() {
+        let window = makeWindow()
+        defer { window.close() }
+        window.isMovableByWindowBackground = true
+        let overlay = SloppyDesktopOverlay()
+        overlay.attach(window: window)
+        #expect(!window.isMovableByWindowBackground)
+        window.backgroundDragWrites = 0
+        for _ in 0..<50 { overlay.attach(window: window) }
+        #expect(window.backgroundDragWrites == 0)
+    }
+
+    @Test func windowUpdatesAreDeferredCoalescedAndCancelledWhenTheBridgeIsRemoved() async {
+        let first = makeWindow()
+        let second = makeWindow()
+        defer { first.contentView = nil; second.contentView = nil; first.close(); second.close() }
+        var configuredWindows: [Int] = []
+        var isPostingUpdate = false
+        let coordinator = TransparentWindowConfigurationView.Coordinator { window in
+            #expect(!isPostingUpdate)
+            configuredWindows.append(window.windowNumber)
+        }
+        let view = TransparentWindowConfigurationView.WindowView()
+        view.onWindowChange = { [weak coordinator] view in coordinator?.configureWindow(from: view) }
+        first.contentView = view
+        #expect(configuredWindows.isEmpty)
+        isPostingUpdate = true
+        for _ in 0..<50 { NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: first) }
+        isPostingUpdate = false
+        #expect(configuredWindows.isEmpty)
+        await drainMainQueue()
+        #expect(configuredWindows == [first.windowNumber])
+
+        configuredWindows.removeAll()
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: first)
+        first.contentView = nil
+        second.contentView = view
+        await drainMainQueue()
+        #expect(configuredWindows == [second.windowNumber])
+
+        configuredWindows.removeAll()
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: second)
+        TransparentWindowConfigurationView.dismantleNSView(view, coordinator: coordinator)
+        second.contentView = nil
+        await drainMainQueue()
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: second)
+        await drainMainQueue()
+        #expect(configuredWindows.isEmpty)
+    }
+
+    @Test(.appKitUI)
+    func repeatedWorkBrowseSwitchesKeepWindowChromeAndRetainedStateStable() async throws {
+        let fixture = try BrowserAgentChatTestFixture()
+        defer { fixture.close() }
+        let server = try BrowserHTTPFixture(responseDelay: 0)
+        let url = try await server.start()
+        let suite = "WindowSwitch.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let browser = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: browser)
+        browser.open(url, inNewTab: true)
+        let page = try #require(browser.selectedPage)
+        _ = try await page.ensureBrowserRuntime().open(url: url.absoluteString)
+        let webView = try #require(page.nativeWebView)
+        _ = try await webView.evaluateJavaScript("document.querySelector('#name').value='Retained browser input'")
+
+        let monitor = ConnectionMonitor(baseURL: fixture.api.baseURL)
+        let model = MainViewModel(endpoint: fixture.api.endpoint, settings: fixture.settings,
+            connectionMonitor: monitor, cacheStore: ClientCacheStore(path: ":memory:"), apiClient: fixture.api,
+            responseNotificationScheduler: WindowChromeNotifications(), onOpenSettings: { _ in }, onOpenWorkspace: {})
+        model.didLoadProjects = true
+        await model.loadAggregatedChatCatalogIfNeeded()
+        model.chatViewModel.didLoadInitialData = true
+        model.createBlankChatTab()
+        let main = MainView(endpoint: fixture.api.endpoint, settings: fixture.settings,
+            connectionMonitor: monitor, onOpenSettings: { _ in }, onOpenWorkspace: {},
+            viewModel: model, browserWorkspace: browser, browserAgentChat: fixture.state)
+        let chat = try #require(main.activeChatViewModel)
+        chat.didLoadInitialData = true
+        chat.useStarterPrompt("Retained work draft")
+        #expect(model.hasLoadedInitialContent)
+        let overlay = SloppyDesktopOverlay()
+        let controller = NSHostingController(rootView: main.workAndBrowseContent
+            .background { TransparentWindowConfigurationView { overlay.attach(window: $0) } }
+            .theme(.sloppyDark).preferredColorScheme(.dark))
+        let window = makeWindow()
+        window.toolbar = NSToolbar(identifier: "window-switch-regression")
+        window.contentViewController = controller
+        window.setContentSize(NSSize(width: 1200, height: 800))
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            chat.closeSession()
+            model.chatViewModel.closeSession()
+            window.contentViewController = nil
+            window.close()
+        }
+        try await Task.sleep(for: .milliseconds(250))
+        window.backgroundDragWrites = 0
+        for _ in 0..<30 {
+            browser.isBrowsing.toggle()
+            controller.view.layoutSubtreeIfNeeded()
+            NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+            try await Task.sleep(for: .milliseconds(40))
+            #expect(!window.isMovableByWindowBackground)
+        }
+        #expect(window.backgroundDragWrites == 0)
+        #expect(page.nativeWebView === webView)
+        #expect(try await webView.evaluateJavaScript("document.querySelector('#name').value") as? String == "Retained browser input")
+        #expect(main.activeChatViewModel === chat)
+        #expect(chat.composerDraft.text == "Retained work draft")
+    }
+
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
+    private func makeWindow() -> DragBehaviorCountingWindow {
+        let window = DragBehaviorCountingWindow(contentRect: NSRect(x: 100, y: 100, width: 1200, height: 800),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        return window
+    }
+}
+
+@MainActor
+private final class DragBehaviorCountingWindow: NSWindow {
+    var backgroundDragWrites = 0
+
+    override var isMovableByWindowBackground: Bool {
+        get { super.isMovableByWindowBackground }
+        set { backgroundDragWrites += 1; super.isMovableByWindowBackground = newValue }
+    }
+}
 #endif

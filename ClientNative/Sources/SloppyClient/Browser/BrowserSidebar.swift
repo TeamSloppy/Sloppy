@@ -3,9 +3,9 @@ import SloppyClientUI
 
 enum BrowserSidebarSelection: Hashable { case home, tab(UUID), favorite(UUID) }
 enum BrowserLibrarySection: String, Identifiable {
-    case history, downloads, bookmarks, time, notes, tasks
+    case history, downloads, bookmarks, time, notes, tasks, adBlocking
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String { self == .adBlocking ? "Ad Blocking" : rawValue.capitalized }
 }
 
 private struct BrowserGroupDraft: Identifiable {
@@ -74,6 +74,7 @@ struct BrowserSidebar: View {
                 Spacer(minLength: 0)
                 Menu {
                     Button("Settings", systemImage: "gearshape", action: onSettings)
+                    Button("Ad Blocking", systemImage: "shield.lefthalf.filled") { onLibrary(.adBlocking) }
 #if !os(macOS)
                     Button("Time & Focus", systemImage: "timer") { onLibrary(.time) }
                     Button("Notes", systemImage: "note.text") { onLibrary(.notes) }
@@ -225,6 +226,7 @@ struct BrowserSidebar: View {
     @ViewBuilder
     private var sidebarRows: some View {
         homeRow
+            .modifier(BrowserSidebarRowHover(isSelected: state.selectedID == nil))
             .tag(BrowserSidebarSelection.home)
             .accessibilityIdentifier("browser-home-button")
 #if !os(macOS)
@@ -354,6 +356,11 @@ struct BrowserSidebar: View {
             tabLink(tab)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAction(named: "Close tab") { state.close(tab.id) }
+            if tab.url != nil, state.pages[tab.id] == nil {
+                Image(systemName: "moon.zzz").font(.system(size: 10)).foregroundStyle(.secondary)
+                    .help("Sleeping page — loads when selected")
+                    .accessibilityLabel("Sleeping page")
+            }
             if state.splits.contains(where: { $0.tabIDs.contains(tab.id) }) {
                 Image(systemName: "rectangle.split.2x1")
                     .font(.system(size: 10))
@@ -389,6 +396,7 @@ struct BrowserSidebar: View {
     private func tabRows(groupID: UUID?) -> some View {
         ForEach(state.regularTabs.filter { $0.groupID == groupID }) { tab in
             tabRow(tab)
+            .modifier(BrowserSidebarRowHover(isSelected: state.selectedTabIDs.contains(tab.id)))
             .tag(BrowserSidebarSelection.tab(tab.id))
             .accessibilityIdentifier("browser-tab-\(tab.id)")
 #if !os(macOS)
@@ -402,6 +410,29 @@ struct BrowserSidebar: View {
             let tabs = state.regularTabs.filter { $0.groupID == groupID }
             offsets.map { tabs[$0].id }.forEach { state.close($0) }
         }
+    }
+}
+
+struct BrowserSidebarRowHover: ViewModifier {
+    var isSelected = false
+#if os(macOS)
+    @State private var isHovered = false
+#endif
+
+    func body(content: Content) -> some View {
+#if os(macOS)
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(isHovered && !isSelected ? 0.07 : 0))
+                    .allowsHitTesting(false)
+            )
+#else
+        content
+#endif
     }
 }
 

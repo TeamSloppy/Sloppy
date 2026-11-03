@@ -1,0 +1,468 @@
+Another instance of SwiftPM (PID: 13454) is already running using '/Users/vlad-prusakov/Developer/Sloppy/.build', waiting until that process has finished execution...warning: 'swift-sdk': Conflicting identity for eventsource: dependency 'github.com/mattt/eventsource' and dependency '/users/vlad-prusakov/developer/sloppy/vendor/eventsource' both point to the same package identity 'eventsource'. The dependencies are introduced through the following chains: (A) /users/vlad-prusakov/developer/sloppy->github.com/modelcontextprotocol/swift-sdk->github.com/mattt/eventsource (B) /users/vlad-prusakov/developer/sloppy->/users/vlad-prusakov/developer/sloppy/vendor/anylanguagemodel->/users/vlad-prusakov/developer/sloppy/vendor/eventsource. If there are multiple chains that lead to the same dependency, only the first chain is shown here. To see all chains use debug output option. To resolve the conflict, coordinate with the maintainer of the package that introduces the conflicting dependency. This will be escalated to an error in future versions of SwiftPM.
+warning: 'anylanguagemodel': Conflicting identity for swift-syntax: dependency 'github.com/swiftlang/swift-syntax' and dependency 'github.com/apple/swift-syntax' both point to the same package identity 'swift-syntax'. The dependencies are introduced through the following chains: (A) /users/vlad-prusakov/developer/sloppy->/users/vlad-prusakov/developer/sloppy/vendor/anylanguagemodel->github.com/swiftlang/swift-syntax (B) /users/vlad-prusakov/developer/sloppy->github.com/teamsloppy/codexbar->github.com/apple/swift-syntax. If there are multiple chains that lead to the same dependency, only the first chain is shown here. To see all chains use debug output option. To resolve the conflict, coordinate with the maintainer of the package that introduces the conflicting dependency. This will be escalated to an error in future versions of SwiftPM.
+[0/1] Planning build
+Building for production...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/5] Compiling SwiftProtobuf AnyMessageStorage.swift
+[4/6] Compiling sloppy ACPLoggingTransport.swift
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Agent/AgentSessionOrchestrator.swift:2569:30: warning: literal value is already handled by previous pattern; consider removing it
+2538 |             default: return nil
+2539 |             }
+2540 |         case "npm", "pnpm", "yarn", "bun":
+     |                                     `- note: first occurrence of identical literal pattern is here
+2541 |             let script = first == "run" ? normalizedArguments.dropFirst().first ?? "" : first
+2542 |             switch script {
+     :
+2567 |             guard let tail = shellScriptTailCommand(arguments) else { return nil }
+2568 |             return verificationKind(command: tail.first, arguments: Array(tail.dropFirst()))
+2569 |         case "node", "deno", "bun":
+     |                              `- warning: literal value is already handled by previous pattern; consider removing it
+2570 |             if executable != "node", first == "test" { return .test }
+2571 |             if executable == "node", normalizedArguments.contains("--test") { return .test }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Browser/SafariBridgeService.swift:136:17: warning: no 'async' operations occur within 'await' expression
+134 |             Task {
+135 |                 try? await Task.sleep(for: .milliseconds(commandTimeoutMs))
+136 |                 await timeoutCommand(command.id)
+    |                 `- warning: no 'async' operations occur within 'await' expression
+137 |             }
+138 |         }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/CLI/Commands/RunCommand.swift:446:33: warning: 'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+444 |         return nil
+445 |     }
+446 |     return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().standardizedFileURL
+    |                                 `- warning: 'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+447 | #endif
+448 | }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/CLI/Commands/ServiceCommands.swift:388:28: warning: result of call to 'shellStatus' is unused [#no-usage]
+386 |         if FileManager.default.fileExists(atPath: plistURL.path) {
+387 |             print(CLIStyle.dim("  Unloading existing agent…"))
+388 |             ServiceManager.shellStatus(["launchctl", "unload", "-w", plistURL.path])
+    |                            `- warning: result of call to 'shellStatus' is unused [#no-usage]
+389 |         }
+390 | 
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/CLI/Commands/ServiceCommands.swift:438:24: warning: result of call to 'shellStatus' is unused [#no-usage]
+436 |         }
+437 | 
+438 |         ServiceManager.shellStatus(["systemctl", "--user", "daemon-reload"])
+    |                        `- warning: result of call to 'shellStatus' is unused [#no-usage]
+439 | 
+440 |         let enableStatus = ServiceManager.shellStatus(["systemctl", "--user", "enable", "--now", "sloppy.service"])
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/CLI/Commands/ServiceCommands.swift:487:24: warning: result of call to 'shellStatus' is unused [#no-usage]
+485 |         }
+486 | 
+487 |         ServiceManager.shellStatus(["launchctl", "unload", "-w", plistURL.path])
+    |                        `- warning: result of call to 'shellStatus' is unused [#no-usage]
+488 |         try FileManager.default.removeItem(at: plistURL)
+489 |         CLIStyle.success("Sloppy service removed.")
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/CLI/Commands/ServiceCommands.swift:499:24: warning: result of call to 'shellStatus' is unused [#no-usage]
+497 |         }
+498 | 
+499 |         ServiceManager.shellStatus(["systemctl", "--user", "disable", "--now", "sloppy.service"])
+    |                        `- warning: result of call to 'shellStatus' is unused [#no-usage]
+500 |         try FileManager.default.removeItem(at: serviceURL)
+501 |         ServiceManager.shellStatus(["systemctl", "--user", "daemon-reload"])
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/CLI/Commands/ServiceCommands.swift:501:24: warning: result of call to 'shellStatus' is unused [#no-usage]
+499 |         ServiceManager.shellStatus(["systemctl", "--user", "disable", "--now", "sloppy.service"])
+500 |         try FileManager.default.removeItem(at: serviceURL)
+501 |         ServiceManager.shellStatus(["systemctl", "--user", "daemon-reload"])
+    |                        `- warning: result of call to 'shellStatus' is unused [#no-usage]
+502 |         CLIStyle.success("Sloppy service removed.")
+503 |     }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:87:29: warning: result of 'try?' is unused [#no-usage]
+ 85 |                         // Upgrade completion is not guaranteed to run on the channel loop.
+ 86 |                         context.eventLoop.execute {
+ 87 |                             try? context.pipeline.syncOperations.removeHandler(httpHandler)
+    |                             `- warning: result of 'try?' is unused [#no-usage]
+ 88 |                         }
+ 89 |                     }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:93:40: warning: type 'any HTTPServerProtocolUpgrader' does not conform to the 'Sendable' protocol
+ 91 | 
+ 92 |                 return channel.pipeline.configureHTTPServerPipeline(
+ 93 |                     withServerUpgrade: upgradeConfig
+    |                                        `- warning: type 'any HTTPServerProtocolUpgrader' does not conform to the 'Sendable' protocol
+ 94 |                 ).flatMap {
+ 95 |                     channel.pipeline.addHandler(httpHandler)
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:87:34: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+ 85 |                         // Upgrade completion is not guaranteed to run on the channel loop.
+ 86 |                         context.eventLoop.execute {
+ 87 |                             try? context.pipeline.syncOperations.removeHandler(httpHandler)
+    |                                  `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+ 88 |                         }
+ 89 |                     }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:87:29: warning: no calls to throwing functions occur within 'try' expression
+ 85 |                         // Upgrade completion is not guaranteed to run on the channel loop.
+ 86 |                         context.eventLoop.execute {
+ 87 |                             try? context.pipeline.syncOperations.removeHandler(httpHandler)
+    |                             `- warning: no calls to throwing functions occur within 'try' expression
+ 88 |                         }
+ 89 |                     }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:222:49: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+220 |                 switch result {
+221 |                 case .success(let response):
+222 |                     self.writeResponse(context: context, requestHead: head, response: response)
+    |                                                 `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+223 |                 case .failure(let error):
+224 |                     self.logger.error("Failed to handle request: \(String(describing: error))")
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:270:13: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+268 |                 return
+269 |             }
+270 |             context.eventLoop.execute {
+    |             `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+271 |                 context.close(promise: nil)
+272 |             }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:271:17: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+269 |             }
+270 |             context.eventLoop.execute {
+271 |                 context.close(promise: nil)
+    |                 `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+272 |             }
+273 |         }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:349:13: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+347 |                 return
+348 |             }
+349 |             context.eventLoop.execute {
+    |             `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+350 |                 context.close(promise: nil)
+351 |             }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:350:17: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+348 |             }
+349 |             context.eventLoop.execute {
+350 |                 context.close(promise: nil)
+    |                 `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+351 |             }
+352 |         }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:436:29: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+434 |                     if !keepAlive {
+435 |                         el.execute {
+436 |                             context.close(promise: nil)
+    |                             `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+437 |                         }
+438 |                     }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:436:29: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+434 |                     if !keepAlive {
+435 |                         el.execute {
+436 |                             context.close(promise: nil)
+    |                             `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+437 |                         }
+438 |                     }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:617:21: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+615 |                 let frame = WebSocketFrame(fin: true, opcode: .connectionClose, data: data)
+616 |                 context.writeAndFlush(self.wrapOutboundOut(frame)).whenComplete { _ in
+617 |                     context.eventLoop.execute {
+    |                     `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+618 |                         context.close(promise: nil)
+619 |                     }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreHTTPServer.swift:618:25: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+616 |                 context.writeAndFlush(self.wrapOutboundOut(frame)).whenComplete { _ in
+617 |                     context.eventLoop.execute {
+618 |                         context.close(promise: nil)
+    |                         `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+619 |                     }
+620 |                     continuation.resume()
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/CoreRouter.swift:492:12: warning: no 'async' operations occur within 'await' expression
+ 490 |         consoleContext: ConsoleAuthorizationContext?
+ 491 |     ) async -> CoreRouterResponse {
+ 492 |         if await service.consoleTrustUnavailable { return Self.json(status: 503, payload: ["error": "console_trust_unavailable"]) }
+     |            `- warning: no 'async' operations occur within 'await' expression
+ 493 |         guard let httpMethod = HTTPRouteMethod(rawValue: method.uppercased()) else {
+ 494 |             return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/DashboardHTTPServer.swift:298:13: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+296 |                 return
+297 |             }
+298 |             context.eventLoop.execute {
+    |             `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+299 |                 context.close(promise: nil)
+300 |             }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/DashboardHTTPServer.swift:299:17: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+297 |             }
+298 |             context.eventLoop.execute {
+299 |                 context.close(promise: nil)
+    |                 `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+300 |             }
+301 |         }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/DashboardHTTPServer.swift:319:13: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+317 |                 return
+318 |             }
+319 |             context.eventLoop.execute {
+    |             `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+320 |                 context.close(promise: nil)
+321 |             }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/DashboardHTTPServer.swift:320:17: warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+318 |             }
+319 |             context.eventLoop.execute {
+320 |                 context.close(promise: nil)
+    |                 `- warning: capture of 'context' with non-Sendable type 'ChannelHandlerContext' in a '@Sendable' closure [#SendableClosureCaptures]
+321 |             }
+322 |         }
+
+/Users/vlad-prusakov/Developer/Sloppy/.build/checkouts/swift-nio/Sources/NIOCore/ChannelPipeline.swift:1859:20: note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1857 | /// at the right point in time. Often, the right behaviour is to react to an event and then forward it to the next
+1858 | /// `ChannelHandler`.
+1859 | public final class ChannelHandlerContext: ChannelInvoker {
+     |                    `- note: class 'ChannelHandlerContext' does not conform to the 'Sendable' protocol
+1860 |     // visible for ChannelPipeline to modify
+1861 |     fileprivate var next: Optional<ChannelHandlerContext>
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:28:133: warning: no 'async' operations occur within 'await' expression
+ 26 |         }
+ 27 |         router.get("/v1/console/account", metadata: RouteMetadata(summary: "Local Console account", description: "Returns metadata only, never OAuth credentials", tags: ["Console"])) { request in
+ 28 |             guard let owner = await accountOwner(request), let environment = environment(request.query["environment"]), let store = await service.consoleTrustStore else { return denied() }
+    |                                                                                                                                     `- warning: no 'async' operations occur within 'await' expression
+ 29 |             do {
+ 30 |                 let controller = try await service.dashboardConsole()
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:72:114: warning: no 'async' operations occur within 'await' expression
+ 70 |         router.post("/v1/console/account/binding", metadata: RouteMetadata(summary: "Review Console binding", description: "Prepares an unsigned binding for explicit local-owner review", tags: ["Console"])) { request in
+ 71 |             struct Prepare: Decodable { var environment: ConsoleEnvironment }
+ 72 |             guard let owner = await accountOwner(request), let input = request.decode(Prepare.self), let store = await service.consoleTrustStore, await allowedEnvironment(input.environment), await store.binding()?.status != .active else { return denied() }
+    |                                                                                                                  `- warning: no 'async' operations occur within 'await' expression
+ 73 |             do {
+ 74 |                 let controller = try await service.dashboardConsole()
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:86:129: warning: no 'async' operations occur within 'await' expression
+ 84 |         router.post("/v1/console/account/binding/confirm", metadata: RouteMetadata(summary: "Confirm Console binding", description: "Signs only the exact proposal reviewed by this local owner", tags: ["Console"])) { request in
+ 85 |             struct Confirm: Decodable { var environment: ConsoleEnvironment; var proposalID: UUID; var confirm: Bool }
+ 86 |             guard let owner = await accountOwner(request), let input = request.decode(Confirm.self), input.confirm, let store = await service.consoleTrustStore, await allowedEnvironment(input.environment), await store.binding()?.status != .active else { return denied() }
+    |                                                                                                                                 `- warning: no 'async' operations occur within 'await' expression
+ 87 |             do {
+ 88 |                 let controller = try await service.dashboardConsole()
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:100:31: warning: no 'async' operations occur within 'await' expression
+ 98 |             struct Unbind: Decodable { var environment: ConsoleEnvironment; var confirm: Bool }
+ 99 |             guard let owner = await accountOwner(request), let input = request.decode(Unbind.self), input.confirm,
+100 |                   let store = await service.consoleTrustStore, let binding = await store.binding(),
+    |                               `- warning: no 'async' operations occur within 'await' expression
+101 |                   await allowedEnvironment(input.environment) else { return denied() }
+102 |             do {
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:110:58: warning: no 'async' operations occur within 'await' expression
+108 |         }
+109 |         router.get("/v1/console/identity", metadata: RouteMetadata(summary: "Local Console identity", description: "Returns the local instance identity to its authenticated local owner", tags: ["Console"])) { request in
+110 |             guard await localOwner(request), let store = await service.consoleTrustStore else { return denied() }
+    |                                                          `- warning: no 'async' operations occur within 'await' expression
+111 |             do {
+112 |                 let local = await store.identity()
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:119:58: warning: no 'async' operations occur within 'await' expression
+117 |         }
+118 |         router.post("/v1/console/approve", metadata: RouteMetadata(summary: "Sign Console proposal", description: "The local owner confirms the exact proposal reviewed in Sloppy", tags: ["Console"])) { request in
+119 |             guard await localOwner(request), let store = await service.consoleTrustStore, let body = request.body else { return denied() }
+    |                                                          `- warning: no 'async' operations occur within 'await' expression
+120 |             do {
+121 |                 let proposal = try ConsoleWire.decode(AccessProposal.self, from: body)
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:127:58: warning: no 'async' operations occur within 'await' expression
+125 |         }
+126 |         router.post("/v1/console/binding", metadata: RouteMetadata(summary: "Install confirmed Console binding", description: "Pins the Console proof key after a locally signed binding", tags: ["Console"])) { request in
+127 |             guard await localOwner(request), let store = await service.consoleTrustStore, let body = request.body else { return denied() }
+    |                                                          `- warning: no 'async' operations occur within 'await' expression
+128 |             struct Install: Decodable { var signed: SignedAccessProposal; var consolePublicKey: Data; var environment: ConsoleEnvironment? }
+129 |             do { let payload = try ConsoleWire.decode(Install.self, from: body); try await store.installBinding(payload.signed, consolePublicKey: payload.consolePublicKey, environment: payload.environment ?? .production); await service.startConsoleRelayIfBound(); return CoreRouter.json(status: 200, payload: ["status": "bound"]) }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:133:58: warning: no 'async' operations occur within 'await' expression
+131 |         }
+132 |         router.post("/v1/console/trust", metadata: RouteMetadata(summary: "Synchronize signed Console trust", description: "Accepts signed grants and monotonic revocations without trusting directory keys", tags: ["Console"])) { request in
+133 |             guard await localOwner(request), let store = await service.consoleTrustStore, let body = request.body else { return denied() }
+    |                                                          `- warning: no 'async' operations occur within 'await' expression
+134 |             do { try await store.synchronize(ConsoleWire.decode(ConsoleTrustSnapshot.self, from: body)); return CoreRouter.json(status: 200, payload: ["status": "synchronized"]) }
+135 |             catch { return denied() }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:138:58: warning: no 'async' operations occur within 'await' expression
+136 |         }
+137 |         router.post("/v1/console/migration", metadata: RouteMetadata(summary: "Confirm legacy account migration", description: "The local admin maps active users to approved Console accounts and confirms backup pairing", tags: ["Console"])) { request in
+138 |             guard await localOwner(request), let store = await service.consoleTrustStore, let body = request.body,
+    |                                                          `- warning: no 'async' operations occur within 'await' expression
+139 |                   let actor = await CoreRouter.identityActor(for: request, service: service) else { return denied() }
+140 |             do {
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:148:58: warning: no 'async' operations occur within 'await' expression
+146 |         }
+147 |         router.delete("/v1/console/binding", metadata: RouteMetadata(summary: "Unbind Console locally", description: "Revokes local cloud grants without deleting instance data", tags: ["Console"])) { request in
+148 |             guard await localOwner(request), let store = await service.consoleTrustStore else { return denied() }
+    |                                                          `- warning: no 'async' operations occur within 'await' expression
+149 |             do { await service.stopConsoleRelay(); try await store.unbind(); return CoreRouter.json(status: 200, payload: ["status": "unbound"]) } catch { return denied() }
+150 |         }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Gateway/Routers/ConsoleAPIRouter.swift:154:27: warning: no 'async' operations occur within 'await' expression
+152 |     private func environment(_ value: String?) -> ConsoleEnvironment? { value.flatMap(ConsoleEnvironment.init(rawValue:)) ?? (value == nil ? .test : nil) }
+153 |     private func allowedEnvironment(_ environment: ConsoleEnvironment) async -> Bool {
+154 |         guard let store = await service.consoleTrustStore, await store.binding() != nil else { return true }
+    |                           `- warning: no 'async' operations occur within 'await' expression
+155 |         return await store.environment() == environment
+156 |     }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/LSP/LSPServerManager.swift:97:50: warning: left side of nil coalescing operator '??' has non-optional type 'ReferencesRequest.Response' (aka 'Array<Location>'), so the right side is never used
+ 95 |             context: ReferencesContext(includeDeclaration: true)
+ 96 |         )
+ 97 |         return try await send(request, on: conn) ?? []
+    |                                                  `- warning: left side of nil coalescing operator '??' has non-optional type 'ReferencesRequest.Response' (aka 'Array<Location>'), so the right side is never used
+ 98 |     }
+ 99 | 
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/LSP/LSPServerManager.swift:384:14: warning: result of call to 'send(_:reply:)' is unused [#no-usage]
+382 |     private func send<R: RequestType>(_ request: R, on conn: JSONRPCConnection) async throws -> R.Response {
+383 |         let pending = LSPPendingReply<R.Response>()
+384 |         conn.send(request) { result in
+    |              `- warning: result of call to 'send(_:reply:)' is unused [#no-usage]
+385 |             Task { await pending.resolve(result.mapError { $0 as Error }) }
+386 |         }
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Providers/ClaudeCode/ClaudeCodeProtocol.swift:112:9: warning: no calls to throwing functions occur within 'try' expression
+110 | 
+111 |     static func blocks(_ segments: [Transcript.Segment]) throws -> [JSONValue] {
+112 |         try segments.map { segment in
+    |         `- warning: no calls to throwing functions occur within 'try' expression
+113 |             switch segment {
+114 |             case .text(let value): return .object(["type": .string("text"), "text": .string(value.content)])
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/SQLiteStore+ChannelAccess.swift:16:16: warning: value 'platform' was defined but never used; consider replacing with boolean test [#no-usage]
+ 14 |         }
+ 15 |         let sql: String
+ 16 |         if let platform {
+    |                `- warning: value 'platform' was defined but never used; consider replacing with boolean test [#no-usage]
+ 17 |             sql = "SELECT id, platform, platform_user_id, display_name, status, created_at, updated_at FROM channel_access_users WHERE platform = ? ORDER BY created_at DESC;"
+ 18 |         } else {
+
+/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/Services/CoreKeychain.swift:28:50: warning: 'SecKeychainSetUserInteractionAllowed' was deprecated in macOS 10.10: SecKeychain is deprecated [#DeprecatedDeclaration]
+26 |     // items use the file-based implementation, which requires this legacy API.
+27 |     // This is process-wide: never temporarily restore it around concurrent requests.
+28 |     private static let interactionPolicyStatus = SecKeychainSetUserInteractionAllowed(false)
+   |                                                  `- warning: 'SecKeychainSetUserInteractionAllowed' was deprecated in macOS 10.10: SecKeychain is deprecated [#DeprecatedDeclaration]
+29 |     #endif
+30 | 
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[4/6] Write Objects.LinkFileList
+[5/6] Linking sloppy
+Build of product 'sloppy' complete! (413.78s)

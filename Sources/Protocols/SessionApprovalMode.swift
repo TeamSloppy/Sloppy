@@ -4,6 +4,7 @@ import Foundation
 public enum SessionApprovalMode: String, Codable, Sendable, Equatable {
     case askForApproval = "ask_for_approval"
     case approveForMe = "approve_for_me"
+    case fullAccess = "full_access"
 }
 
 public struct SessionApprovalPolicy: Codable, Sendable, Equatable {

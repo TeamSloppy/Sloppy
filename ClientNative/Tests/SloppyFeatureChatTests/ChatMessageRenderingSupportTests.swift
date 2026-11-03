@@ -5,6 +5,31 @@ import SloppyClientCore
 
 @Suite("Chat message rendering support")
 struct ChatMessageRenderingSupportTests {
+    @Test("mixed assistant segments preserve every activity and response boundary")
+    func interleavedAssistantSegments() {
+        let message = ChatMessage(id: "mixed", role: .assistant, segments: [
+            .init(kind: .thinking, text: "Plan"),
+            .init(kind: .toolCall, title: "read"),
+            .init(kind: .text, text: "First response"),
+            .init(kind: .toolResult, title: "read"),
+            .init(kind: .thinking, text: "Next step"),
+            .init(kind: .text, text: "Second response"),
+            .init(kind: .toolCall, title: "test"),
+        ])
+        let entries = ChatTranscriptGrouping.entries(from: [message])
+        #expect(entries.count == 5)
+        #expect(Set(entries.map(\.id)).count == 5)
+        #expect(entries.map(\.segmentOffset) == [0, 2, 3, 5, 6])
+        #expect(entries.allSatisfy { $0.sourceMessage == message && $0.messageIDs == [message.id] })
+        let renderedSegments = entries.flatMap { entry in
+            switch entry.presentation {
+            case .message(let part): return part.segments
+            case .systemGroup(let parts): return parts.flatMap(\.segments)
+            }
+        }
+        #expect(renderedSegments == message.segments)
+    }
+
     @Test("tools and assistant thinking share one activity group before the reply")
     func assistantThinkingJoinsToolActivity() throws {
         let user = ChatMessage(id: "user", role: .user, segments: [.init(kind: .text, text: "Hello")])

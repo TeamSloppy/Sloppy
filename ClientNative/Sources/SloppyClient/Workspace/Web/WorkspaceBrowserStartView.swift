@@ -22,7 +22,7 @@ struct WorkspaceBrowserStartView: View {
                                 repeating: GridItem(.flexible(), spacing: 10),
                                 count: geometry.size.width >= 560 ? 2 : 1
                             ), spacing: 8) {
-                                ForEach([WorkspaceSidePanelItem.review, .terminal, .files, .sideChat]) { item in
+                                ForEach([WorkspaceSidePanelItem.review, .terminal, .files, .sideChat, .devices]) { item in
                                     WorkspaceBrowserToolCard(
                                         item: item,
                                         isEnabled: !item.requiresProject || allowsProjectTools,

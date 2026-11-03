@@ -20,7 +20,7 @@ struct ChatBubbleRenderingTests {
     func assistantMessagesRenderAllSegments() throws {
         let source = try source
 
-        #expect(source.contains("ForEach(Array(message.segments.enumerated())"))
+        #expect(source.contains("ForEach(Array((segments ?? message.segments).enumerated())"))
         #expect(source.contains("ChatSegmentCollapsibleCard"))
         #expect(source.contains("ChatBuildProgressView(progress: progress)"))
         #expect(source.contains("ChatMarkdownTextStack"))
@@ -56,7 +56,9 @@ struct ChatBubbleRenderingTests {
         let macOSBranch = stackSource[macOSBranchStart.lowerBound..<fallbackBranchStart.lowerBound]
 
         #expect(macOSBranch.contains(".textual.textSelection(.enabled)"))
-        #expect(macOSBranch.contains(".textual.textSelectionActions(selectionActions.textualActions)"))
+        #expect(macOSBranch.contains(".textual.textSelectionActions(selectionActions.textualActions("))
+        #expect(macOSBranch.contains("messageID: annotationMessageID, segmentIndex: annotationSegmentIndex"))
+        #expect(macOSBranch.contains(".textual.textAnnotations(selectionActions.textAnnotations("))
         #expect(stackSource.contains(".textual.textSelection(.enabled)"))
 
         let bubbleBodyStart = try #require(source.range(of: "public var body: some View"))

@@ -9,6 +9,28 @@ import SloppyUITestSupport
 @Suite("Browser document inset", .serialized, .appKitUI, .appKitIsolation)
 @MainActor
 struct BrowserDocumentInsetTests {
+    @Test func pageZoomKeepsToolbarClearanceConstantAcrossNavigation() async throws {
+        let server = try BrowserHTTPFixture(responseDelay: 0, html: Self.html)
+        let url = try await server.start()
+        let runtime = WorkspaceBrowserToolRuntime()
+        try server.allowHTTP(in: runtime)
+        let window = show(runtime)
+        defer { window.close() }
+        runtime.documentInset.update(96)
+        _ = try await runtime.open(url: url.absoluteString)
+        for zoom in [0.5, 2.0, 1.0] {
+            runtime.webView.pageZoom = zoom
+            try await settle()
+            for navigating in [false, true] {
+                if navigating { _ = try await runtime.open(url: url.appendingPathComponent("zoom-\(zoom)").absoluteString) }
+                try await settle()
+                let values = try await geometry(runtime.webView)
+                #expect(abs(try #require(values["fixed"]) * zoom - 96) < 0.1)
+                #expect(abs((try #require(values["padding"]) - 12) * zoom - 96) < 0.1)
+            }
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["SLOPPY_BROWSER_LAYOUT_SMOKE_URL"] != nil,
                    "Optional live page layout check"))
     func livePageHeaderStartsBelowTheDocumentInset() async throws {
@@ -50,6 +72,7 @@ struct BrowserDocumentInsetTests {
         let server = try BrowserHTTPFixture(html: Self.html)
         let url = try await server.start()
         let runtime = WorkspaceBrowserToolRuntime()
+        try server.allowHTTP(in: runtime)
         let window = show(runtime)
         defer { window.close() }
         runtime.documentInset.update(96)
@@ -77,6 +100,7 @@ struct BrowserDocumentInsetTests {
         let server = try BrowserHTTPFixture(html: Self.html)
         let url = try await server.start()
         let runtime = WorkspaceBrowserToolRuntime()
+        try server.allowHTTP(in: runtime)
         let window = show(runtime)
         defer { window.close() }
         runtime.documentInset.update(96)
@@ -112,10 +136,12 @@ struct BrowserDocumentInsetTests {
         let server = try BrowserHTTPFixture(contentSecurityPolicy: "default-src 'none'; script-src 'none'; style-src 'none'", html: "<title>Inset CSP</title><p>Content</p>")
         let url = try await server.start()
         let runtime = WorkspaceBrowserToolRuntime()
+        try server.allowHTTP(in: runtime)
         let window = show(runtime)
         defer { window.close() }
         let sentinel = WKUserScript(source: "globalThis.layoutSentinel = (globalThis.layoutSentinel || 0) + 1;",
                                     injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        let foreignScripts = runtime.webView.configuration.userContentController.userScripts.map { $0 }
         runtime.webView.configuration.userContentController.addUserScript(sentinel)
         runtime.documentInset.update(96)
         runtime.documentInset.update(112)
@@ -125,10 +151,13 @@ struct BrowserDocumentInsetTests {
             #expect(try await number(runtime.webView, "getComputedStyle(document.documentElement).paddingTop") == 112)
             #expect(try await runtime.webView.evaluateJavaScript("globalThis.layoutSentinel") as? Int == 1)
         }
-        #expect(runtime.webView.configuration.userContentController.userScripts.count == 2)
+        #expect(runtime.webView.configuration.userContentController.userScripts.count == foreignScripts.count + 2)
         runtime.documentInset.update(0)
-        #expect(runtime.webView.configuration.userContentController.userScripts.count == 1)
-        #expect(runtime.webView.configuration.userContentController.userScripts.first === sentinel)
+        let remaining = runtime.webView.configuration.userContentController.userScripts
+        #expect(remaining.count == foreignScripts.count + 1)
+        #expect(zip(remaining, foreignScripts).allSatisfy { $0 === $1 })
+        #expect(remaining.last === sentinel)
+        #expect(await runtime.activity.inspect())
     }
 
     private func settle() async throws { try await Task.sleep(for: .milliseconds(150)) }

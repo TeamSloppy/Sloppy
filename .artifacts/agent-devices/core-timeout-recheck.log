@@ -1,0 +1,22 @@
+warning: 'swift-sdk': Conflicting identity for eventsource: dependency 'github.com/mattt/eventsource' and dependency '/users/vlad-prusakov/developer/sloppy/vendor/eventsource' both point to the same package identity 'eventsource'. The dependencies are introduced through the following chains: (A) /users/vlad-prusakov/developer/sloppy->github.com/modelcontextprotocol/swift-sdk->github.com/mattt/eventsource (B) /users/vlad-prusakov/developer/sloppy->/users/vlad-prusakov/developer/sloppy/vendor/anylanguagemodel->/users/vlad-prusakov/developer/sloppy/vendor/eventsource. If there are multiple chains that lead to the same dependency, only the first chain is shown here. To see all chains use debug output option. To resolve the conflict, coordinate with the maintainer of the package that introduces the conflicting dependency. This will be escalated to an error in future versions of SwiftPM.
+warning: 'anylanguagemodel': Conflicting identity for swift-syntax: dependency 'github.com/swiftlang/swift-syntax' and dependency 'github.com/apple/swift-syntax' both point to the same package identity 'swift-syntax'. The dependencies are introduced through the following chains: (A) /users/vlad-prusakov/developer/sloppy->/users/vlad-prusakov/developer/sloppy/vendor/anylanguagemodel->github.com/swiftlang/swift-syntax (B) /users/vlad-prusakov/developer/sloppy->github.com/teamsloppy/codexbar->github.com/apple/swift-syntax. If there are multiple chains that lead to the same dependency, only the first chain is shown here. To see all chains use debug output option. To resolve the conflict, coordinate with the maintainer of the package that introduces the conflicting dependency. This will be escalated to an error in future versions of SwiftPM.
+[0/1] Planning build
+Test Suite 'Selected tests' started at 2026-11-03 18:15:36.167.
+Test Suite 'SloppyPackageTests.xctest' started at 2026-11-03 18:15:36.174.
+Test Suite 'SloppyPackageTests.xctest' passed at 2026-11-03 18:15:36.174.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-03 18:15:36.174.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Test nodeMeshRelayUsesProjectedMembershipForRPC() started.
+􁁛  Test nodeMeshRelayUsesProjectedMembershipForRPC() passed after 0.057 seconds.
+􀟈  Test discordInteractionChannelLinkShowsButtonsAndLinksSelection() started.
+2026-11-03T18:15:36+0300 info tests.discord: [ChannelPluginDiscord] Discord gateway plugin starting. channels=["general"] allowedGuilds=0 allowedChannels=0 allowedUsers=0
+2026-11-03T18:15:36+0300 info tests.discord: [ChannelPluginDiscord] Discord gateway loop started. Waiting for messages...
+2026-11-03T18:15:36+0300 info tests.discord: [ChannelPluginDiscord] Discord gateway READY received. botUserId=bot-1 applicationId=app-1
+2026-11-03T18:15:36+0300 info tests.discord: [ChannelPluginDiscord] Discord global slash commands registered: 16 commands
+2026-11-03T18:15:36+0300 info tests.discord: [ChannelPluginDiscord] Discord gateway plugin stopped.
+􁁛  Test discordInteractionChannelLinkShowsButtonsAndLinksSelection() passed after 0.163 seconds.
+􁁛  Test run with 2 tests in 0 suites passed after 0.221 seconds.

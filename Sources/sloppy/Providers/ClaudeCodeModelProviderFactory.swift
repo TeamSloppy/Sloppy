@@ -38,7 +38,7 @@ struct ClaudeCodeModelProvider: ModelProvider {
         case nil: nil
         case .low: "low"
         case .medium: "medium"
-        case .high: "high"
+        case .high, .xhigh, .max: "high" // Claude Code uses its own effort scale.
         }
         options[custom: ClaudeCodeLanguageModel.self] = .init(effort: effort)
         return options

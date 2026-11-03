@@ -21,6 +21,7 @@ struct BrowserWorkspaceRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let state = BrowserWorkspaceState(defaults: defaults)
+        try server.allowHTTP(in: state)
         state.open(url, inNewTab: true)
         let firstID = try #require(state.selectedID)
         let page = try #require(state.selectedPage)
@@ -48,6 +49,7 @@ struct BrowserWorkspaceRenderingTests {
         #expect(state.selectedTab?.interactionState != nil)
         try await save(host, name: "browser-desktop.png")
         let restored = BrowserWorkspaceState(defaults: defaults)
+        try server.allowHTTP(in: restored)
         host.rootView = BrowserWorkspaceView(state: restored, onAskAgent: { _ in }, onCollect: { _ in })
             .environment(\.theme, .sloppyDark).preferredColorScheme(.dark)
         let restoredPage = try #require(restored.selectedPage)
@@ -100,6 +102,7 @@ struct BrowserWorkspaceRenderingTests {
         let url = try await server.start()
         let settings = ClientSettings()
         let state = BrowserWorkspaceState(defaults: defaults)
+        try server.allowHTTP(in: state)
         let monitor = ConnectionMonitor(baseURL: url)
         let model = MainViewModel(endpoint: .direct(baseURL: url), settings: settings, connectionMonitor: monitor,
                                   cacheStore: ClientCacheStore(path: ":memory:"),
@@ -150,6 +153,7 @@ struct BrowserWorkspaceRenderingTests {
         let settings = ClientSettings()
         let monitor = ConnectionMonitor(baseURL: url)
         let browser = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: browser)
         let model = MainViewModel(endpoint: .direct(baseURL: url), settings: settings, connectionMonitor: monitor,
                                   cacheStore: ClientCacheStore(path: ":memory:"),
                                   responseNotificationScheduler: BrowserTestNotifications(),
@@ -291,6 +295,7 @@ struct BrowserWorkspaceRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let page = WorkspaceWebViewModel(history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: page)
         page.onDownload = { library.receive($0) }
         let runtime = page.ensureBrowserRuntime()
         runtime.webView.load(URLRequest(url: url.appendingPathComponent("download")))
@@ -362,6 +367,7 @@ struct BrowserWorkspaceRenderingTests {
         let previous = try #require(model.selectedTabID.flatMap { model.tabStates[$0]?.chatState?.viewModel })
         previous.useStarterPrompt("Keep this draft")
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         state.isBrowsing = true
         let main = MainView(endpoint: .direct(baseURL: url), settings: settings, connectionMonitor: monitor,
                             onOpenSettings: { _ in }, onOpenWorkspace: {}, viewModel: model, browserWorkspace: state)
@@ -420,6 +426,7 @@ struct BrowserWorkspaceRenderingTests {
         let server = try BrowserHTTPFixture(responseDelay: 1.5)
         let url = try await server.start()
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         state.open(url, inNewTab: true)
         let page = try #require(state.selectedPage)
         let host = NSHostingView(rootView: BrowserWorkspaceView(state: state, onAskAgent: { _ in }, onCollect: { _ in })
@@ -531,6 +538,7 @@ struct BrowserWorkspaceRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         state.open(url, inNewTab: true)
         let controller = NSHostingController(rootView:
             BrowserWorkspaceView(state: state, onAskAgent: { _ in }, onCollect: { _ in })
@@ -567,6 +575,7 @@ struct BrowserWorkspaceRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let model = WorkspaceWebViewModel(history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: model)
         let runtime = model.ensureBrowserRuntime()
         _ = try await runtime.open(url: url.absoluteString)
         runtime.webView(runtime.webView, didFailProvisionalNavigation: nil, withError: URLError(.cancelled))
@@ -584,6 +593,7 @@ struct BrowserWorkspaceRenderingTests {
         let address = "localhost:\(port)"
         let destination = try #require(BrowserSearchEngine.google.destination(for: address))
         let model = WorkspaceWebViewModel(history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: model)
         _ = try await model.ensureBrowserRuntime().open(url: address)
         #expect(destination.scheme == "http")
         #expect(model.currentURL?.scheme == "http")
@@ -644,6 +654,7 @@ struct BrowserWorkspaceRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         state.open(url, inNewTab: true)
         let page = try #require(state.selectedPage)
         let controller = NSHostingController(rootView:

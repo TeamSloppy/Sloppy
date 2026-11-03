@@ -5,6 +5,118 @@ import Testing
 
 @Suite("Chat approval modes")
 struct SessionApprovalPolicyTests {
+
+    @Test("Full Access bypasses forced risky calls and missing access without reviewers")
+    func fullAccessNeverCreatesApprovalRequests() async throws {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        defer { Task { await service.stop() } }
+        let session = try await service.approvalPolicyFixture(mode: .fullAccess)
+        let jev = ChatApprovalDecisionProvider(choice: "reject")
+        await service.semanticModelRouter.setProviderFactory { _ in jev }
+        let visor = await service.setVisorApprovalTestDecision(.reject)
+        for tool in ["runtime.exec", "files.write", "mcp.call_tool", "agents.delegate_task"] {
+            let result = await service.requestToolApprovalIfNeeded(
+                agentID: "policy-test", sessionID: session.id, channelID: nil, topicID: nil,
+                request: .init(tool: tool), requireApproval: true, forcePerInvocation: true, timeoutSeconds: 0.1)
+            #expect(result == nil)
+        }
+        let grants = [ToolApprovalGrant(kind: .directory, tool: "runtime.exec", operation: "exec", resource: "/workspace/extra")]
+        let access = Task {
+            await service.requestMissingAccessApproval(agentID: "policy-test", sessionID: session.id,
+                channelID: nil, topicID: nil, request: request, grants: grants)
+        }
+        let watchdog = Task {
+            for _ in 0..<200 {
+                if let pending = await service.toolApprovalService.listPending(includeUnpublished: true).first {
+                    Issue.record("Full Access created a pending approval")
+                    _ = await service.rejectToolApproval(id: pending.id, decidedBy: "test")
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(10))
+                if Task.isCancelled { return }
+            }
+        }
+        let result = await access.value
+        watchdog.cancel()
+        guard case .approved(let record) = result else { Issue.record("Expected invocation-scoped access"); return }
+        #expect(record.decidedBy == "full_access")
+        #expect(record.grants == grants)
+        #expect(await service.toolApprovalService.listPending(includeUnpublished: true).isEmpty)
+        #expect(await jev.calls.isEmpty)
+        #expect(await visor.calls == 0)
+        #expect(await service.isToolApprovalAllowedForSession(agentID: "policy-test",
+            sessionID: session.id, channelID: nil, toolID: "runtime.exec") == false)
+    }
+
+    @Test("Full Access allows a disabled tool for this call without changing the agent policy")
+    func fullAccessExecutesDisabledToolWithoutLeakingGrants() async throws {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        defer { Task { await service.stop() } }
+        let session = try await service.approvalPolicyFixture(mode: .fullAccess)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("proof.txt")
+        try "Full Access proof".write(to: file, atomically: true, encoding: .utf8)
+        _ = try await service.updateAgentToolsPolicy(agentID: "policy-test",
+            request: .init(tools: ["files.read": false]))
+        let invocation = Task {
+            await service.invokeToolFromRuntime(agentID: "policy-test", sessionID: session.id,
+                request: .init(tool: "files.read", arguments: ["path": .string(file.path)]), recordSessionEvents: false)
+        }
+        let watchdog = Task {
+            for _ in 0..<200 {
+                for record in await service.toolApprovalService.listPending(includeUnpublished: true) {
+                    Issue.record("Full Access requested tool access")
+                    _ = await service.rejectToolApproval(id: record.id, decidedBy: "test")
+                }
+                try? await Task.sleep(for: .milliseconds(10))
+                if Task.isCancelled { return }
+            }
+        }
+        let result = await invocation.value
+        watchdog.cancel()
+        #expect(result.ok)
+        #expect(await service.toolApprovalService.listPending(includeUnpublished: true).isEmpty)
+        #expect(try await service.toolsAuthorization.policy(agentID: "policy-test").tools["files.read"] == false)
+    }
+
+    @Test("switching to Full Access resolves visible and hidden inherited approvals but respects child overrides",
+          arguments: [SessionApprovalMode.askForApproval, .approveForMe])
+    func fullAccessResolvesWaitingCalls(initialMode: SessionApprovalMode) async throws {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        defer { Task { await service.stop() } }
+        let parent = try await service.approvalPolicyFixture(mode: initialMode)
+        let child = try await service.createAgentSession(agentID: "policy-test", request: .init(parentSessionId: parent.id))
+        let manual = try await service.createAgentSession(agentID: "policy-test", request: .init(parentSessionId: parent.id))
+        _ = try await service.setSessionApprovalPolicy(agentID: "policy-test", sessionID: manual.id, policy: .init(mode: .askForApproval))
+        var records: [ToolApprovalRecord] = []
+        for sessionID in [parent.id, child.id, manual.id] {
+            records.append(await service.toolApprovalService.createPending(
+                agentId: "policy-test", sessionId: sessionID, displaySessionId: parent.id,
+                channelId: nil, topicId: nil, request: request,
+                publishRequest: initialMode == .askForApproval))
+        }
+        #expect(await service.toolApprovalService.listPending(includeUnpublished: true).count == 3)
+        _ = try await service.setSessionApprovalPolicy(agentID: "policy-test", sessionID: parent.id, policy: .init(mode: .fullAccess))
+        let remaining = await service.toolApprovalService.listPending(includeUnpublished: true)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.sessionId == manual.id)
+        for record in remaining { _ = await service.rejectToolApproval(id: record.id, decidedBy: "human") }
+        for original in records.prefix(2) {
+            guard case .approved(let record) = await service.toolApprovalService.waitForDecision(id: original.id) else {
+                Issue.record("Full Access did not resume the call"); continue
+            }
+            #expect(record.decidedBy == "full_access")
+        }
+        guard case .rejected = await service.toolApprovalService.waitForDecision(id: records[2].id) else {
+            Issue.record("Manual child override was bypassed"); return
+        }
+        #expect(await service.sessionApprovalMode(agentID: "policy-test", sessionID: child.id) == .fullAccess)
+        _ = try await service.setSessionApprovalPolicy(agentID: "policy-test", sessionID: parent.id, policy: .init(mode: .askForApproval))
+        #expect(await service.sessionApprovalMode(agentID: "policy-test", sessionID: child.id) == .askForApproval)
+        #expect(await service.sessionApprovalGrants(agentID: "policy-test", sessionID: child.id, channelID: nil).isEmpty)
+    }
     @Test("JEV resolves an exact call without invoking Visor", arguments: ["approve", "reject"])
     func jevDecision(choice: String) async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
@@ -196,7 +308,9 @@ struct SessionApprovalPolicyTests {
         let response = await router.handle(method: "PUT", path: path, body: Data(#"{"mode":"ask_for_approval"}"#.utf8))
         #expect(response.status == 200)
         #expect(try await service.getSessionApprovalPolicy(agentID: "policy-test", sessionID: parent.id).mode == .askForApproval)
-        #expect(await router.handle(method: "PUT", path: path, body: Data(#"{"mode":"full_access"}"#.utf8)).status == 400)
+        #expect(await router.handle(method: "PUT", path: path, body: Data(#"{"mode":"full_access"}"#.utf8)).status == 200)
+        #expect(try await service.getSessionApprovalPolicy(agentID: "policy-test", sessionID: parent.id).mode == .fullAccess)
+        #expect(await router.handle(method: "PUT", path: path, body: Data(#"{"mode":"unsupported"}"#.utf8)).status == 400)
     }
 
     private var request: ToolInvocationRequest {

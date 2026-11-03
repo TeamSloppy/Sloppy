@@ -4,6 +4,46 @@ import SloppyClientCore
 enum ChatTranscriptEntry: Identifiable, Equatable {
     case message(ChatMessage)
     case systemGroup([ChatMessage])
+    case fragment(ChatMessage, Range<Int>)
+
+    enum Presentation: Equatable {
+        case message(ChatMessage)
+        case systemGroup([ChatMessage])
+    }
+
+    var presentation: Presentation {
+        switch self {
+        case .message(let message): return .message(message)
+        case .systemGroup(let messages): return .systemGroup(messages)
+        case .fragment(let message, let range):
+            var part = message
+            part.segments = Array(message.segments[range])
+            return part.segments.first?.isAssistantActivity == true ? .systemGroup([part]) : .message(part)
+        }
+    }
+
+    var segmentOffset: Int {
+        if case .fragment(_, let range) = self { return range.lowerBound }
+        return 0
+    }
+
+    var sourceMessage: ChatMessage? {
+        if case .fragment(let message, _) = self { return message }
+        return nil
+    }
+
+    var messageIDs: Set<ChatMessage.ID> {
+        switch presentation {
+        case .message(let message): return [message.id]
+        case .systemGroup(let messages): return Set(messages.map(\.id))
+        }
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        // A growing response must not invalidate earlier fragments of the same
+        // canonical message when their displayed segments have not changed.
+        lhs.id == rhs.id && lhs.segmentOffset == rhs.segmentOffset && lhs.presentation == rhs.presentation
+    }
 
     var id: String {
         switch self {
@@ -11,6 +51,8 @@ enum ChatTranscriptEntry: Identifiable, Equatable {
             return "message:\(message.id)"
         case .systemGroup(let messages):
             return "system-group:\(messages.first?.id ?? "empty")"
+        case .fragment(let message, let range):
+            return "fragment:\(message.id):\(range.lowerBound)"
         }
     }
 
@@ -20,6 +62,7 @@ enum ChatTranscriptEntry: Identifiable, Equatable {
             return message.createdAt
         case .systemGroup(let messages):
             return messages.first?.createdAt ?? .distantPast
+        case .fragment(let message, _): return message.createdAt
         }
     }
 }
@@ -63,6 +106,14 @@ enum ChatTranscriptGrouping {
             if isGroupableSystemMessage(message) {
                 pendingSystemMessages.append(message)
             } else if message.role == .assistant {
+                let ranges = segmentRanges(in: message)
+                // Interleaved text and activity must stay in segment order. Keep
+                // canonical message IDs and segment indices for actions/annotations.
+                if ranges.count > 2 || (ranges.count == 2 && !message.segments[0].isAssistantActivity) {
+                    flushSystemMessages()
+                    entries.append(contentsOf: ranges.map { .fragment(message, $0) })
+                    continue
+                }
                 let activitySegments = message.segments.filter(\.isAssistantActivity)
                 guard !activitySegments.isEmpty else {
                     flushSystemMessages()
@@ -92,6 +143,20 @@ enum ChatTranscriptGrouping {
     private static func isGroupableSystemMessage(_ message: ChatMessage) -> Bool {
         message.role == .system
             && message.segments.allSatisfy { $0.buildProgress == nil }
+    }
+
+    private static func segmentRanges(in message: ChatMessage) -> [Range<Int>] {
+        guard !message.segments.isEmpty else { return [] }
+        var ranges: [Range<Int>] = []
+        var start = 0
+        for index in message.segments.indices.dropFirst() {
+            if message.segments[index].isAssistantActivity != message.segments[start].isAssistantActivity {
+                ranges.append(start..<index)
+                start = index
+            }
+        }
+        ranges.append(start..<message.segments.count)
+        return ranges
     }
 
     static func usesCompactSpacing(
@@ -151,7 +216,7 @@ extension ChatMessageSegment {
 
 private extension ChatTranscriptEntry {
     var isSystemActivity: Bool {
-        switch self {
+        switch presentation {
         case .message(let message):
             return message.role == .system
         case .systemGroup:

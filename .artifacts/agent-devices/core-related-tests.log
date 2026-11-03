@@ -1,0 +1,97 @@
+Another instance of SwiftPM (PID: 30946) is already running using '/Users/vlad-prusakov/Developer/Sloppy/.build', waiting until that process has finished execution...warning: 'swift-sdk': Conflicting identity for eventsource: dependency 'github.com/mattt/eventsource' and dependency '/users/vlad-prusakov/developer/sloppy/vendor/eventsource' both point to the same package identity 'eventsource'. The dependencies are introduced through the following chains: (A) /users/vlad-prusakov/developer/sloppy->github.com/modelcontextprotocol/swift-sdk->github.com/mattt/eventsource (B) /users/vlad-prusakov/developer/sloppy->/users/vlad-prusakov/developer/sloppy/vendor/anylanguagemodel->/users/vlad-prusakov/developer/sloppy/vendor/eventsource. If there are multiple chains that lead to the same dependency, only the first chain is shown here. To see all chains use debug output option. To resolve the conflict, coordinate with the maintainer of the package that introduces the conflicting dependency. This will be escalated to an error in future versions of SwiftPM.
+warning: 'anylanguagemodel': Conflicting identity for swift-syntax: dependency 'github.com/swiftlang/swift-syntax' and dependency 'github.com/apple/swift-syntax' both point to the same package identity 'swift-syntax'. The dependencies are introduced through the following chains: (A) /users/vlad-prusakov/developer/sloppy->/users/vlad-prusakov/developer/sloppy/vendor/anylanguagemodel->github.com/swiftlang/swift-syntax (B) /users/vlad-prusakov/developer/sloppy->github.com/teamsloppy/codexbar->github.com/apple/swift-syntax. If there are multiple chains that lead to the same dependency, only the first chain is shown here. To see all chains use debug output option. To resolve the conflict, coordinate with the maintainer of the package that introduces the conflicting dependency. This will be escalated to an error in future versions of SwiftPM.
+[0/1] Planning build
+Test Suite 'Selected tests' started at 2026-11-03 18:12:22.828.
+Test Suite 'SloppyPackageTests.xctest' started at 2026-11-03 18:12:22.835.
+Test Suite 'SloppyPackageTests.xctest' passed at 2026-11-03 18:12:22.835.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-03 18:12:22.835.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite BrowserWorkspaceToolTests started.
+􀟈  Suite "Workspace browser bridge" started.
+􀟈  Suite "ToolRegistry" started.
+􀟈  Suite DevicePreviewToolTests started.
+􀟈  Test evaluationUsesAssignedPageAndReturnsJSONWithoutFallback() started.
+􀟈  Test "ToolCatalog schema advertises project.current arguments" started.
+􀟈  Test workspaceCommandsRequireAdvertisedCapability() started.
+􀟈  Test "Built-in and MCP tools are registered" started.
+􀟈  Test isolatesSessionsAndChecksResultOwner() started.
+􀟈  Test "Memory tools reject shared scope when disabled" started.
+􀟈  Test "Catalog entries count matches unique tools" started.
+􀟈  Test cancellationReleasesPendingCommand() started.
+􀟈  Test disconnectFailsPendingAndPreventsFallback() started.
+􀟈  Test discoveryExportsActualRequiredArguments() started.
+􀟈  Test oldOrDisconnectedClientsCannotStartSomethingOnCore() started.
+􀟈  Test expiredCommandsAreNotReplayed() started.
+􀟈  Test "Project task create schema requires title" started.
+􀟈  Test cannotReplaceLiveBrowser() started.
+􀟈  Test routesDeviceCommandsAndStoresOnlyTheReturnedPNG() started.
+􀟈  Test servicePrefersInAppBrowserEvenWithoutChromium() started.
+􀟈  Test "Memory recall and search schemas advertise scope arguments" started.
+􀟈  Test "allTools count matches catalog entries count" started.
+􀟈  Test "all tool parameter schemas encode object roots" started.
+􀟈  Test "Skills manage schema exports as provider-safe object schema" started.
+􀟈  Test "session.complete schema requires a typed outcome" started.
+􀟈  Test routesDeliverCommandsAndRejectUnknownSessions() started.
+􀟈  Test "ToolCatalog.knownToolIDs contains expected tools" started.
+􀟈  Test "Skills manage schema advertises save arguments" started.
+􀟈  Test "ToolCatalog.entries is non-empty" started.
+􀟈  Test "Memory save still rejects missing scope" started.
+􀟈  Test "allTools returns unique tools with valid names and parameters" started.
+􀟈  Test "Dynamic MCP tool ids use configured prefix or server default" started.
+􀟈  Test browserEvaluateSchemaRequiresExpression() started.
+􀟈  Test "all tool schemas avoid nested refs after root resolution" started.
+􀟈  Test "Memory corrections update the same record and cannot cross scopes" started.
+􀟈  Test discoveryIncludesTheDeviceOperationSchema() started.
+􀟈  Test rejectsMalformedPollingFieldsAndDropsUnrelatedArguments() started.
+􀟈  Test browserEvaluateRejectsMissingEmptyAndOversizedExpressions() started.
+􀟈  Test "Catalog entry IDs match known tool IDs" started.
+􁁛  Test cannotReplaceLiveBrowser() passed after 0.023 seconds.
+􁁛  Test oldOrDisconnectedClientsCannotStartSomethingOnCore() passed after 0.023 seconds.
+􁁛  Test "Built-in and MCP tools are registered" passed after 0.024 seconds.
+􁁛  Test "Project task create schema requires title" passed after 0.024 seconds.
+􁁛  Test "Skills manage schema exports as provider-safe object schema" passed after 0.023 seconds.
+􁁛  Test "Memory recall and search schemas advertise scope arguments" passed after 0.024 seconds.
+􁁛  Test "Catalog entries count matches unique tools" passed after 0.024 seconds.
+􁁛  Test "ToolCatalog schema advertises project.current arguments" passed after 0.024 seconds.
+􁁛  Test "allTools count matches catalog entries count" passed after 0.024 seconds.
+􁁛  Test "ToolCatalog.knownToolIDs contains expected tools" passed after 0.024 seconds.
+􁁛  Test "ToolCatalog.entries is non-empty" passed after 0.024 seconds.
+􁁛  Test "Dynamic MCP tool ids use configured prefix or server default" passed after 0.024 seconds.
+􁁛  Test "Skills manage schema advertises save arguments" passed after 0.024 seconds.
+􁁛  Test "session.complete schema requires a typed outcome" passed after 0.024 seconds.
+􁁛  Test rejectsMalformedPollingFieldsAndDropsUnrelatedArguments() passed after 0.024 seconds.
+􁁛  Test "allTools returns unique tools with valid names and parameters" passed after 0.024 seconds.
+􁁛  Test browserEvaluateSchemaRequiresExpression() passed after 0.024 seconds.
+􁁛  Test "Catalog entry IDs match known tool IDs" passed after 0.024 seconds.
+􁁛  Test isolatesSessionsAndChecksResultOwner() passed after 0.025 seconds.
+􁁛  Test evaluationUsesAssignedPageAndReturnsJSONWithoutFallback() passed after 0.025 seconds.
+􁁛  Test routesDeviceCommandsAndStoresOnlyTheReturnedPNG() passed after 0.026 seconds.
+􁁛  Test disconnectFailsPendingAndPreventsFallback() passed after 0.026 seconds.
+􁁛  Test cancellationReleasesPendingCommand() passed after 0.026 seconds.
+􁁛  Test workspaceCommandsRequireAdvertisedCapability() passed after 0.026 seconds.
+􁁛  Test servicePrefersInAppBrowserEvenWithoutChromium() passed after 0.026 seconds.
+􁁛  Test discoveryIncludesTheDeviceOperationSchema() passed after 0.028 seconds.
+􁁛  Suite DevicePreviewToolTests passed after 0.028 seconds.
+􁁛  Test discoveryExportsActualRequiredArguments() passed after 0.031 seconds.
+􁁛  Suite BrowserWorkspaceToolTests passed after 0.031 seconds.
+􁁛  Test browserEvaluateRejectsMissingEmptyAndOversizedExpressions() passed after 0.034 seconds.
+􁁛  Test "Memory tools reject shared scope when disabled" passed after 0.034 seconds.
+􁁛  Test "Memory save still rejects missing scope" passed after 0.034 seconds.
+􁁛  Test "Memory corrections update the same record and cannot cross scopes" passed after 0.034 seconds.
+􁁛  Test "all tool parameter schemas encode object roots" passed after 0.042 seconds.
+2026-11-03T18:12:23+0300 info sloppy.memory: [sloppy] Memory provider: using built-in local provider
+􁁛  Test "all tool schemas avoid nested refs after root resolution" passed after 0.044 seconds.
+􁁛  Suite "ToolRegistry" passed after 0.045 seconds.
+􁁛  Test expiredCommandsAreNotReplayed() passed after 0.047 seconds.
+2026-11-03T18:12:23+0300 info sloppy.core.visor: agent_id=browser-route-feaf277e-7c47-4f75-8f0b-25b027b96452 agent_role=Testing [sloppy] onboarding.agent.created
+2026-11-03T18:12:23+0300 info sloppy.core.visor: artifacts=0 channels=0 events=0 tasks=0 [sloppy] runtime.recovery.completed
+2026-11-03T18:12:23+0300 info sloppy.core.sessions: agent_id=browser-route-feaf277e-7c47-4f75-8f0b-25b027b96452 parent_session_id=(none) title=Browser task [sloppy] Session creation requested
+2026-11-03T18:12:23+0300 info sloppy.core.sessions: agent_id=browser-route-feaf277e-7c47-4f75-8f0b-25b027b96452 parent_session_id=(none) session_id=session-a0aa4ab1-e3d9-43e2-847a-f291dfde80d8 title=Browser task [sloppy] Session created
+2026-11-03T18:12:23+0300 warning sloppy.session.store: agent_id=browser-route-feaf277e-7c47-4f75-8f0b-25b027b96452 agents_root=/var/folders/cp/2pym2k7n6z52p2j9vvxn3_cr0000gn/T/workspace-test-3ADC60AD-C00A-4964-82B7-E9CFDDCC9869/agents session_id=missing [SloppyRuntime] Session file URL resolution failed
+􁁛  Test routesDeliverCommandsAndRejectUnknownSessions() passed after 0.270 seconds.
+􁁛  Suite "Workspace browser bridge" passed after 0.270 seconds.
+􁁛  Test run with 35 tests in 4 suites passed after 0.270 seconds.

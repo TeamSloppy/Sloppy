@@ -4,7 +4,8 @@ import type { SessionApprovalMode } from "../../../shared/api/coreApi";
 
 export const CHAT_APPROVAL_MODES: { mode: SessionApprovalMode; title: string; detail: string }[] = [
   { mode: "ask_for_approval", title: "Ask for approval", detail: "Ask you before actions that require approval." },
-  { mode: "approve_for_me", title: "Approve for me", detail: "JEV reviews actions, with Visor as backup. Human decisions still come to you." }
+  { mode: "approve_for_me", title: "Approve for me", detail: "JEV reviews actions, with Visor as backup. Human decisions still come to you." },
+  { mode: "full_access", title: "Full Access", detail: "Run tools without approval prompts or automatic review." }
 ];
 
 export function useChatApprovalPolicy(agentId: string, sessionId: string | null, projectId: string | null) {

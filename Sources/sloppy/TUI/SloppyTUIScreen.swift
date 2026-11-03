@@ -205,7 +205,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("diff", "Show source-control working tree diff"),
         SloppyTUISlashCommand("feedback", "Open GitHub issues for feedback"),
         SloppyTUISlashCommand("plan-web", "Open the latest Plan mode web page"),
-        SloppyTUISlashCommand("effort", "Set reasoning effort level", argument: "low|medium|high"),
+        SloppyTUISlashCommand("effort", "Set reasoning effort level", argument: "low|medium|high|xhigh|max"),
         SloppyTUISlashCommand("skills", "Show enabled skills"),
         SloppyTUISlashCommand("editor", "Open code editor, optionally choose cursor/xcode/code"),
         SloppyTUISlashCommand("model", "Switch agent model"),

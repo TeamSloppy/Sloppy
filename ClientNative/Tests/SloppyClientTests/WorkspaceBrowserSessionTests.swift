@@ -29,6 +29,7 @@ struct WorkspaceBrowserSessionTests {
             window.contentView = browser?.viewModel.browserRuntime?.webView
         }
         let active = try #require(browser)
+        try site.allowHTTP(in: active.viewModel)
         active.start()
         defer {
             active.stop()
@@ -51,12 +52,21 @@ struct WorkspaceBrowserSessionTests {
         #expect(screenshot.starts(with: [137, 80, 78, 71]))
         #expect(presentations == 7)
         #expect(await probe.usedExpectedToken)
+        let previousPage = active.viewModel
+        #expect(previousPage.automationUses == 1)
+        let newPage = WorkspaceWebViewModel()
+        try site.allowHTTP(in: newPage)
+        active.viewModel = newPage
+        #expect(previousPage.automationUses == 0)
+        #expect(newPage.automationUses == 1)
         active.stop()
         for _ in 0..<100 {
             if await probe.didDisconnect { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(await probe.didDisconnect)
+        await active.stopAndWait()
+        #expect(newPage.automationUses == 0)
         withExtendedLifetime(site) {}
     }
 }

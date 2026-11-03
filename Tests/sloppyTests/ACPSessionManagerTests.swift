@@ -616,6 +616,32 @@ func acpSessionManagerSelectsExactAllowOncePermissionOption() async throws {
 }
 
 @Test
+func acpSessionManagerChatFullAccessIsDynamicAndDoesNotRequestApproval() async throws {
+    let target = CoreConfig.ACP.Target(id: "local", title: "Local", transport: .stdio,
+        command: "/bin/echo", permissionMode: .deny)
+    let client = MockACPTransportClient(initializeResponse: makeInitializeResponse(loadSession: false),
+        permissionRequest: RequestPermissionRequest(message: "Run command?", options: [
+            PermissionOption(kind: "decision", name: "Allow once", optionId: "allow_once"),
+            PermissionOption(kind: "decision", name: "Always allow", optionId: "allow_always"),
+        ]))
+    let (manager, _, sessionID) = try makeSessionManagerFixture(target: target, clients: [client])
+    let recorder = EventRecorder()
+    await manager.updateSessionFullAccessProvider { agent, session in agent == "agent-1" && session == sessionID }
+    _ = try await manager.postMessage(agentID: "agent-1", sloppySessionID: sessionID,
+        runtime: .init(type: .acp, acp: .init(targetId: "local")),
+        content: [.text(TextContent(text: "first"))], localSessionHadPriorMessages: false, primerContent: nil,
+        onChunk: { _ in }, onEvent: { await recorder.append(event: $0) })
+    #expect(await client.snapshot().permissionOutcome?.outcome.optionId == "allow_once")
+    #expect(await recorder.events.contains { $0.runStatus?.label == "Permission requested" } == false)
+    await manager.updateSessionFullAccessProvider { _, _ in false }
+    _ = try await manager.postMessage(agentID: "agent-1", sloppySessionID: sessionID,
+        runtime: .init(type: .acp, acp: .init(targetId: "local")),
+        content: [.text(TextContent(text: "second"))], localSessionHadPriorMessages: true, primerContent: nil,
+        onChunk: { _ in }, onEvent: { await recorder.append(event: $0) })
+    #expect(await client.snapshot().permissionOutcome?.outcome.outcome == "cancelled")
+}
+
+@Test
 func acpSessionManagerFullAccessSelectsBestAllowPermissionOption() async throws {
     let target = CoreConfig.ACP.Target(
         id: "local",

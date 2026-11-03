@@ -14,6 +14,7 @@ struct WorkspaceBrowserContextMenuTests {
         let url = try await server.start()
         let view = ContextMenuCaptureWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 750), configuration: WKWebViewConfiguration())
         let runtime = WorkspaceBrowserToolRuntime(webView: view)
+        try server.allowHTTP(in: runtime)
         let window = NSWindow(contentRect: view.bounds, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
@@ -71,6 +72,7 @@ struct WorkspaceBrowserContextMenuTests {
         let server = try BrowserHTTPFixture(responseDelay: 0)
         let url = try await server.start()
         let runtime = WorkspaceBrowserToolRuntime()
+        try server.allowHTTP(in: runtime)
         _ = try await runtime.open(url: url.absoluteString)
         _ = try await runtime.open(url: url.appendingPathComponent("second").absoluteString)
         let view = try #require(runtime.webView as? WorkspaceBrowserWebView)

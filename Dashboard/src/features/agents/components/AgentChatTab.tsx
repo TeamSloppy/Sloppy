@@ -84,7 +84,9 @@ const REASONING_EFFORT_OPTIONS = [
   { id: "default", label: "Agent default", icon: "tune" },
   { id: "low", label: "Low", icon: "trending_down" },
   { id: "medium", label: "Medium", icon: "speed" },
-  { id: "high", label: "High", icon: "rocket_launch" }
+  { id: "high", label: "High", icon: "rocket_launch" },
+  { id: "xhigh", label: "Extra high", icon: "rocket_launch" },
+  { id: "max", label: "Max", icon: "rocket_launch" }
 ];
 
 /** Web-chat-only commands (not in channel plugin list). */

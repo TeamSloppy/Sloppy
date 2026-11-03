@@ -5,7 +5,7 @@ import WebKit
 
 @MainActor
 final class BrowserToolbarBackdrop {
-    private static let fadeHeight: CGFloat = 32
+    private static let fadeHeight: CGFloat = 8
     private weak var webView: WKWebView?
     private let blurLayer = CALayer()
     private let fade = CAGradientLayer()
@@ -15,7 +15,7 @@ final class BrowserToolbarBackdrop {
 
     static func unobscuredContentInset(for toolbarHeight: CGFloat) -> CGFloat {
         guard toolbarHeight > 0 else { return 0 }
-        return toolbarHeight + fadeHeight + 8
+        return toolbarHeight + fadeHeight + 2
     }
 
     init(webView: WKWebView) {
@@ -24,7 +24,7 @@ final class BrowserToolbarBackdrop {
         webView.wantsLayer = true
         webView.layerUsesCoreImageFilters = true
         let blur = CIFilter.gaussianBlur()
-        blur.radius = 12
+        blur.radius = 5
         let clamp = CIFilter.affineClamp()
         clamp.transform = .identity
         blurLayer.backgroundFilters = [clamp, blur]

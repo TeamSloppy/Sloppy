@@ -33,7 +33,9 @@ const REASONING_EFFORT_OPTIONS = [
   { value: "", label: "Default" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
-  { value: "high", label: "High" }
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "Extra high" },
+  { value: "max", label: "Max" }
 ];
 
 function emptyAgentConfigDraft(agentId) {

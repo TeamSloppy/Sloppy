@@ -252,7 +252,7 @@ struct BrowserScrollTool: CoreTool {
     }
 }
 
-private func browserResult(tool: String, operation: () async throws -> JSONValue) async -> ToolInvocationResult {
+func browserResult(tool: String, operation: () async throws -> JSONValue) async -> ToolInvocationResult {
     do {
         return toolSuccess(tool: tool, data: try await operation())
     } catch let error as WorkspaceBrowserBridgeError {

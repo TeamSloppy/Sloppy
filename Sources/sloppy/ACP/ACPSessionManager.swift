@@ -184,6 +184,16 @@ actor ACPSessionManager {
     private var workspaceRootURL: URL
     private var sessions: [String: ACPManagedSession] = [:]
     private var permissionNotificationSink: (@Sendable (String, String, String) async -> Void)?
+    private var sessionFullAccessProvider: (@Sendable (String, String) async -> Bool)?
+
+    func updateSessionFullAccessProvider(_ provider: (@Sendable (String, String) async -> Bool)?) {
+        sessionFullAccessProvider = provider
+    }
+
+    private func sessionHasFullAccess(_ key: String) async -> Bool {
+        guard let run = sessions[key]?.currentRun else { return false }
+        return await sessionFullAccessProvider?(run.agentID, run.sloppySessionID) ?? false
+    }
 
     init(
         config: CoreConfig.ACP,
@@ -939,6 +949,7 @@ actor ACPSessionManager {
 
         let delegate = ACPClientDelegateAdapter(
             permissionMode: target.permissionMode,
+            sessionFullAccess: { [weak self] in await self?.sessionHasFullAccess(sessionKey) ?? false },
             permissionEventSink: { [weak self] summary in
                 if summary.hasPrefix("requested: ") {
                     await self?.handlePermissionRequested(
@@ -1281,13 +1292,16 @@ private actor ACPClientDelegateAdapter: ClientDelegate {
     private let fileSystemDelegate = FileSystemDelegate()
     private let terminalDelegate = TerminalDelegate()
     private let permissionMode: CoreConfig.ACP.Target.PermissionMode
+    private let sessionFullAccess: @Sendable () async -> Bool
     private let permissionEventSink: @Sendable (String) async -> Void
 
     init(
         permissionMode: CoreConfig.ACP.Target.PermissionMode,
+        sessionFullAccess: @escaping @Sendable () async -> Bool,
         permissionEventSink: @escaping @Sendable (String) async -> Void
     ) {
         self.permissionMode = permissionMode
+        self.sessionFullAccess = sessionFullAccess
         self.permissionEventSink = permissionEventSink
     }
 
@@ -1328,6 +1342,18 @@ private actor ACPClientDelegateAdapter: ClientDelegate {
 
     func handlePermissionRequest(request: RequestPermissionRequest) async throws -> RequestPermissionResponse {
         let requested = Self.permissionRequestSummary(request)
+        if await sessionFullAccess() {
+            // Prefer a one-call grant so switching the chat back to a reviewed
+            // mode does not leave a permanent permission in the upstream agent.
+            let optionID = request.options?.first { $0.optionId == PermissionDecision.allowOnce.rawValue }?.optionId
+                ?? Self.fullAccessOptionId(from: request)
+            if let optionID {
+                await permissionEventSink("\(requested) -> \(optionID) (Full Access)")
+                return RequestPermissionResponse(outcome: PermissionOutcome(optionId: optionID))
+            }
+            await permissionEventSink("\(requested) -> denied (allow unavailable)")
+            return RequestPermissionResponse(outcome: PermissionOutcome(cancelled: true))
+        }
         await permissionEventSink("requested: \(requested)")
 
         switch permissionMode {

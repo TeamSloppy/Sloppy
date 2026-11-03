@@ -279,7 +279,8 @@ final class SloppyDesktopOverlay {
                 group.addTask { [apiClient] in
                     let sessions = (try? await apiClient.fetchAgentSessions(
                         agentId: agent.id,
-                        limit: 8
+                        limit: 24,
+                        includeWorkers: true
                     )) ?? []
                     return (agent, sessions)
                 }
@@ -292,23 +293,27 @@ final class SloppyDesktopOverlay {
             return result
         }
 
-        let recentChats = sessionsByAgent.flatMap { agent, sessions in
-            sessions.map { session in
-                SloppyDesktopRecentChat(
-                    id: "\(agent.id)/\(session.id)",
-                    agentID: agent.id,
-                    sessionID: session.id,
-                    title: session.displayTitle,
-                    agentName: agent.displayName,
-                    updatedAt: session.updatedAt,
-                    projectID: session.projectId,
-                    projectName: state.projects.first { $0.id == session.projectId }?.name,
-                    taskID: session.taskId
-                )
-            }
+        let catalog = await SloppyDesktopRecentChatCatalog.restoringAncestors(sessionsByAgent.flatMap { $0.1 }) { [apiClient] agentID, sessionID in
+            try? await apiClient.fetchAgentSession(agentId: agentID, sessionId: sessionID, eventLimit: 1).summary
+        }
+        let agentsByID = Dictionary(agents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let recentChats = catalog.compactMap { session -> SloppyDesktopRecentChat? in
+            guard let agent = agentsByID[session.agentId] else { return nil }
+            return SloppyDesktopRecentChat(
+                id: "\(agent.id)/\(session.id)",
+                agentID: agent.id,
+                sessionID: session.id,
+                title: session.displayTitle,
+                agentName: agent.displayName,
+                updatedAt: session.updatedAt,
+                projectID: session.projectId,
+                projectName: state.projects.first { $0.id == session.projectId }?.name,
+                taskID: session.taskId,
+                parentSessionID: session.parentSessionId,
+                kind: session.kind
+            )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
-        .prefix(24)
 
         let cachedRuns = agentRunCache
         let lookups = await withTaskGroup(
@@ -316,7 +321,7 @@ final class SloppyDesktopOverlay {
             returning: [SloppyDesktopAgentRunLookup].self
         ) { group in
             for (agent, sessions) in sessionsByAgent {
-                for session in sessions {
+                for session in sessions.prefix(8) {
                     let cacheID = "\(agent.id)/\(session.id)"
                     group.addTask { [apiClient] in
                         if let cached = cachedRuns[cacheID], cached.updatedAt == session.updatedAt {
@@ -393,7 +398,9 @@ final class SloppyDesktopOverlay {
         if window.backgroundColor != .clear {
             window.backgroundColor = .clear
         }
-        window.hasShadow = true
+        if !window.hasShadow {
+            window.hasShadow = true
+        }
         if window.titleVisibility != .hidden {
             window.titleVisibility = .hidden
         }
@@ -406,12 +413,18 @@ final class SloppyDesktopOverlay {
         if window.toolbarStyle != .unified {
             window.toolbarStyle = .unified
         }
-        window.isMovableByWindowBackground = false
+        if window.isMovableByWindowBackground {
+            window.isMovableByWindowBackground = false
+        }
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }
-        window.contentView?.wantsLayer = true
-        window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+        if window.contentView?.wantsLayer == false {
+            window.contentView?.wantsLayer = true
+        }
+        if window.contentView?.layer?.backgroundColor != NSColor.clear.cgColor {
+            window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+        }
     }
 }
 
@@ -832,39 +845,60 @@ struct TransparentWindowConfigurationView: NSViewRepresentable {
         Coordinator(onWindowAvailable: onWindowAvailable)
     }
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        configureWindow(from: view, coordinator: context.coordinator)
+    func makeNSView(context: Context) -> WindowView {
+        let view = WindowView(frame: .zero)
+        view.onWindowChange = { [weak coordinator = context.coordinator] view in
+            coordinator?.configureWindow(from: view)
+        }
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        configureWindow(from: nsView, coordinator: context.coordinator)
+    func updateNSView(_ nsView: WindowView, context: Context) {
+        context.coordinator.onWindowAvailable = onWindowAvailable
+        context.coordinator.configureWindow(from: nsView)
     }
 
-    private func configureWindow(from view: NSView, coordinator: Coordinator) {
-        DispatchQueue.main.async { [weak view] in
-            guard let window = view?.window else { return }
-            coordinator.observe(window)
-            onWindowAvailable(window)
+    static func dismantleNSView(_ view: WindowView, coordinator: Coordinator) {
+        view.onWindowChange = nil
+        coordinator.stop()
+    }
+
+    final class WindowView: NSView {
+        var onWindowChange: ((WindowView) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            onWindowChange?(self)
         }
     }
 
     @MainActor
     final class Coordinator: NSObject {
         private weak var window: NSWindow?
-        private let onWindowAvailable: @MainActor (NSWindow) -> Void
+        private weak var view: WindowView?
+        var onWindowAvailable: @MainActor (NSWindow) -> Void
+        private var isActive = true
+        private var isConfigurationScheduled = false
+        private var revision = 0
 
         init(onWindowAvailable: @escaping @MainActor (NSWindow) -> Void) {
             self.onWindowAvailable = onWindowAvailable
         }
 
-        func observe(_ window: NSWindow) {
-            guard self.window !== window else { return }
-            if self.window != nil {
+        func configureWindow(from view: WindowView) {
+            guard isActive else { return }
+            if self.view !== view || self.window !== view.window {
+                revision &+= 1
+                isConfigurationScheduled = false
                 NotificationCenter.default.removeObserver(self)
+                self.view = view
+                window = view.window
+                if let window { observe(window) }
             }
-            self.window = window
+            scheduleConfiguration()
+        }
+
+        private func observe(_ window: NSWindow) {
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(windowDidUpdate(_:)),
@@ -876,7 +910,31 @@ struct TransparentWindowConfigurationView: NSViewRepresentable {
         @objc private func windowDidUpdate(_ notification: Notification) {
             guard let window = notification.object as? NSWindow,
                   window === self.window else { return }
-            onWindowAvailable(window)
+            scheduleConfiguration()
+        }
+
+        private func scheduleConfiguration() {
+            guard isActive, !isConfigurationScheduled, let view, let window else { return }
+            isConfigurationScheduled = true
+            let revision = revision
+            // SwiftUI may be replacing its graph during didUpdate. Mutating
+            // NSWindow here synchronously can notify an already detached host.
+            DispatchQueue.main.async { [weak self, weak view, weak window] in
+                guard let self, isActive, self.revision == revision else { return }
+                isConfigurationScheduled = false
+                guard let view, let window, self.view === view,
+                      self.window === window, view.window === window else { return }
+                onWindowAvailable(window)
+            }
+        }
+
+        func stop() {
+            isActive = false
+            revision &+= 1
+            isConfigurationScheduled = false
+            NotificationCenter.default.removeObserver(self)
+            view = nil
+            window = nil
         }
 
         deinit {
@@ -932,6 +990,19 @@ final class SloppyDesktopOverlayState {
     var activeAgentRuns: [SloppyDesktopAgentRun] = []
     var activeTasks: [SloppyDesktopTask] = []
     var recentChats: [SloppyDesktopRecentChat] = []
+    private(set) var expandedRecentChatIDs: Set<String> = []
+    var recentChatGroups: [SloppyDesktopRecentChatGroup] {
+        Array(SloppyDesktopRecentChatGroup.make(recentChats).prefix(24))
+    }
+
+    func recentChatRows(rootLimit: Int? = nil) -> [SloppyDesktopRecentChatRow] {
+        let groups = recentChatGroups
+        return groups.prefix(rootLimit ?? groups.count).flatMap { $0.visibleRows(expandedIDs: expandedRecentChatIDs) }
+    }
+
+    func toggleRecentChatGroup(_ id: String) {
+        if !expandedRecentChatIDs.insert(id).inserted { expandedRecentChatIDs.remove(id) }
+    }
     var projects: [SloppyDesktopProject] = []
     var isExpanded = false
     var errorMessage: String?
@@ -1077,6 +1148,7 @@ final class SloppyDesktopOverlayState {
         selectedChat = nil
         agents = []
         recentChats = []
+        expandedRecentChatIDs = []
         activeAgentRuns = []
         activeTasks = []
         agentPalettes = [:]
@@ -1236,6 +1308,7 @@ final class SloppyDesktopOverlayState {
         let previouslyUsedWideLayout = usesWideLayout
         let chatsChanged = recentChats != chats
         recentChats = chats
+        expandedRecentChatIDs.formIntersection(chats.map(\.id))
         if chatsChanged || previouslyUsedWideLayout != usesWideLayout {
             onExpansionChanged?()
         }
@@ -1345,11 +1418,13 @@ struct SloppyDesktopRecentChat: Identifiable, Equatable, Sendable {
     var projectID: String? = nil
     var projectName: String? = nil
     var taskID: String? = nil
+    var parentSessionID: String? = nil
+    var kind = "chat"
 
     var sessionSummary: ChatSessionSummary {
         ChatSessionSummary(
             id: sessionID, agentId: agentID, title: title, updatedAt: updatedAt,
-            projectId: projectID, taskId: taskID
+            kind: kind, projectId: projectID, taskId: taskID, parentSessionId: parentSessionID
         )
     }
 }

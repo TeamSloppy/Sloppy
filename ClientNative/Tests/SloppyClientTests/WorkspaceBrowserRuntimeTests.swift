@@ -133,6 +133,7 @@ struct WorkspaceBrowserRuntimeTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let runtime = WorkspaceBrowserToolRuntime()
+        try server.allowHTTP(in: runtime)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 750),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = runtime.webView

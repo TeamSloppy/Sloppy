@@ -75,6 +75,14 @@ final class WorkspaceDockState {
         isPresented = true
     }
 
+#if os(macOS)
+    func presentDevice(_ session: WorkspaceDeviceSession) {
+        let tab = tabs.first { $0.devices === session } ?? open(.devices)
+        tab.devices = session
+        select(tab)
+    }
+#endif
+
     func toggleVisibility() {
 #if os(macOS)
         if isPresented {
@@ -96,7 +104,11 @@ final class WorkspaceDockState {
 
     func close(_ id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        tabs.remove(at: index).terminal?.terminate()
+        let tab = tabs.remove(at: index)
+        tab.terminal?.terminate()
+#if os(macOS)
+        tab.devices?.stop()
+#endif
         if selectedID == id {
             selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id
         }
@@ -135,6 +147,9 @@ final class WorkspaceDockTab: Identifiable {
     var sourceFile: WorkspaceSourceFileViewModel?
     var referencedObject: ChatComposerReference?
     var referencePreview: WorkspaceReferencePreviewModel?
+#if os(macOS)
+    var devices: WorkspaceDeviceSession?
+#endif
 
     var systemImage: String { referencedObject?.systemImage ?? (sourceFile == nil ? kind.systemImage : "chevron.left.forwardslash.chevron.right") }
 

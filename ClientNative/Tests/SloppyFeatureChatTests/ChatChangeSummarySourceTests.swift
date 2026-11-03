@@ -25,7 +25,9 @@ struct ChatChangeSummarySourceTests {
         #expect(summary.contains("Text(\"Review\")"))
         #expect(summary.contains("sourceControl.linesAdded"))
         #expect(summary.contains("sourceControl.linesDeleted"))
-        #expect(summary.contains("ForEach(fileChanges)"))
+        #expect(screen.contains("workingTreeSourceControl.hasChanges"))
+        #expect(summary.contains("if sourceControl.hasChanges"))
+        #expect(summary.contains("reviewHandler?(sourceControl, nil, nil)"))
         #expect(summary.contains("accessibilityIdentifier(\"chat.change-summary\")"))
     }
 

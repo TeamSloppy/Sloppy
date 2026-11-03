@@ -20,6 +20,7 @@ struct BrowserTimeTracking: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task {
+                state.setWorkspacePresented(true)
                 sample()
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(1)) } catch { break }
@@ -29,6 +30,9 @@ struct BrowserTimeTracking: ViewModifier {
             .onChange(of: scenePhase) { _, _ in sample() }
             .onChange(of: isCovered) { _, _ in sample() }
             .onChange(of: state.isSearchPresented) { _, _ in sample() }
-            .onDisappear { state.setTimeTrackingActive(false) }
+            .onDisappear {
+                state.setWorkspacePresented(false)
+                state.setTimeTrackingActive(false)
+            }
     }
 }

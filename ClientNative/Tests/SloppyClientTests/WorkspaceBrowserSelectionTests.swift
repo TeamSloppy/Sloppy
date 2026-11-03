@@ -128,6 +128,7 @@ struct WorkspaceBrowserSelectionTests {
         window.makeKeyAndOrderFront(nil)
         let server = try BrowserHTTPFixture(contentSecurityPolicy: contentSecurityPolicy)
         let url = try await server.start()
+        try server.allowHTTP(in: browser)
         _ = try await runtime.open(url: url.absoluteString)
         #expect(try await runtime.webView.evaluateJavaScript("typeof globalThis.__sloppyBrowserSelection") as? String == "undefined")
         return Fixture(browser: browser, window: window, server: server, url: url)

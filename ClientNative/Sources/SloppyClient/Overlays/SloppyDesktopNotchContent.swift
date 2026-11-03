@@ -119,15 +119,15 @@ struct SloppyDesktopNotchContent<TaskComposer: View>: View {
                     ForEach(state.activeTasks.prefix(3)) { task in taskRow(task) }
                 }
                 if !state.recentChats.isEmpty {
-                    sectionHeader("Recent chats", count: state.recentChats.count)
-                    ForEach(state.recentChats.prefix(3)) { chat in chatRow(chat) }
+                    sectionHeader("Recent chats", count: state.recentChatGroups.count)
+                    SloppyDesktopRecentChatsView(state: state, rootLimit: 3)
                 }
             case .chats:
-                sectionHeader("Recent chats", count: state.recentChats.count)
+                sectionHeader("Recent chats", count: state.recentChatGroups.count)
                 if state.recentChats.isEmpty {
                     emptyState("No chats yet. Start one with +.")
                 }
-                ForEach(state.recentChats) { chat in chatRow(chat) }
+                SloppyDesktopRecentChatsView(state: state)
             case .tasks:
                 sectionHeader("Tasks", count: state.activeTasks.count)
                 if state.activeTasks.isEmpty {
@@ -201,18 +201,6 @@ struct SloppyDesktopNotchContent<TaskComposer: View>: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-    }
-
-    private func chatRow(_ chat: SloppyDesktopRecentChat) -> some View {
-        Button { state.openRecentChat(chat) } label: {
-            row(
-                agentID: chat.agentID, title: chat.title,
-                subtitle: [chat.agentName, chat.projectName].compactMap { $0 }.joined(separator: " · ")
-            )
-        }
-        .buttonStyle(.plain)
-        .help("Open chat with \(chat.agentName)")
-        .accessibilityIdentifier("notch.session.\(chat.id)")
     }
 
     private func taskRow(_ task: SloppyDesktopTask) -> some View {

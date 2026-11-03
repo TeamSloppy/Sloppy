@@ -12,7 +12,11 @@ struct BrowserLibrarySheet: View {
     @State private var query = ""
 
     var body: some View {
-        if section == .time {
+        if section == .adBlocking {
+            let page = state.selectedPage
+            BrowserContentBlockerView(blocker: state.contentBlocker, pageURL: state.selectedTab?.url,
+                                      onReload: { page?.reload() })
+        } else if section == .time {
             BrowserTimeView(state: state)
         } else if section == .notes {
             BrowserNotesView(state: state)
@@ -27,7 +31,7 @@ struct BrowserLibrarySheet: View {
         NavigationStack {
             Group {
                 switch section {
-                case .time, .notes, .tasks: EmptyView()
+                case .time, .notes, .tasks, .adBlocking: EmptyView()
                 case .history:
                     List {
                         Section {

@@ -16,6 +16,13 @@ protocol WorkspaceWebViewControlling: AnyObject {
 @Observable
 @MainActor
 final class WorkspaceWebViewModel {
+    var sitePermissions = BrowserSitePermissions.shared {
+        didSet {
+#if os(macOS) || os(iOS)
+            browserRuntime?.sitePermissions = sitePermissions
+#endif
+        }
+    }
     let history: WorkspaceBrowserHistory
     let textSelection = WorkspaceBrowserSelection()
 #if os(macOS)
@@ -33,6 +40,7 @@ final class WorkspaceWebViewModel {
     var currentURL: URL? { didSet { onPageChange?() } }
     var addressText: String = ""
     var pageTitle: String? { didSet { onPageChange?() } }
+    var isReloadingWithoutCache = false
     var isLoading = false
     var estimatedProgress = 0.0
     var hasOnlySecureContent = false
@@ -41,6 +49,15 @@ final class WorkspaceWebViewModel {
     var lastError: String?
     weak var controller: WorkspaceWebViewControlling?
     var browserRuntime: WorkspaceBrowserToolRuntime?
+    var contentBlocker: BrowserContentBlocker?
+    private(set) var automationUses = 0
+    private(set) var presentations = 0
+    var onPresentationChange: (@MainActor () -> Void)?
+
+    func beginAutomation() { automationUses += 1 }
+    func endAutomation() { automationUses = max(0, automationUses - 1) }
+    func beginPresentation() { presentations += 1; onPresentationChange?() }
+    func endPresentation() { presentations = max(0, presentations - 1); onPresentationChange?() }
 #if os(iOS)
     var prefersDarkBrowserChrome: Bool?
     var browserBackgroundColor: UIColor?
@@ -61,11 +78,12 @@ final class WorkspaceWebViewModel {
 
 #if os(macOS) || os(iOS)
     func ensureBrowserRuntime() -> WorkspaceBrowserToolRuntime {
-        if let browserRuntime { return browserRuntime }
+        if let browserRuntime { browserRuntime.noteAccess(); return browserRuntime }
 #if os(macOS)
-        let runtime = WorkspaceBrowserToolRuntime(extensionController: webExtensionController, textSelection: textSelection)
+        let runtime = WorkspaceBrowserToolRuntime(extensionController: webExtensionController, textSelection: textSelection,
+                                                  contentBlocker: contentBlocker, sitePermissions: sitePermissions)
 #else
-        let runtime = WorkspaceBrowserToolRuntime(textSelection: textSelection)
+        let runtime = WorkspaceBrowserToolRuntime(textSelection: textSelection, contentBlocker: contentBlocker, sitePermissions: sitePermissions)
 #endif
         runtime.onDownload = onDownload
         runtime.navigationBlock = { [weak self] url in self?.navigationBlock?(url) }
@@ -121,6 +139,24 @@ final class WorkspaceWebViewModel {
         controller?.open(addressText)
     }
 
+    func releaseDiscardedPage() {
+        textSelection.dismiss()
+        textSelection.onAsk = nil
+        textSelection.annotationTarget = nil
+#if os(macOS)
+        annotations.cancel()
+#endif
+#if os(macOS) || os(iOS)
+        browserRuntime?.detachForDiscard()
+#endif
+        nativeWebView?.stopLoading()
+        browserRuntime = nil
+        nativeWebView = nil
+        retainedController = nil
+        controller = nil
+        onPresentationChange = nil
+    }
+
     func applyTimeBlock(_ block: BrowserTimeBlock?) {
         if (timeBlock == nil) != (block == nil) {
             nativeWebView?.setAllMediaPlaybackSuspended(block != nil, completionHandler: nil)
@@ -131,6 +167,21 @@ final class WorkspaceWebViewModel {
     func reload() {
         controller?.reload()
     }
+
+    /// Cache deletion affects all tabs sharing this website data store, but keeps
+    /// cookies, localStorage, IndexedDB, history and saved site permissions.
+    func reloadWithoutCache() async {
+        guard !isReloadingWithoutCache, let webView = nativeWebView,
+              let url = webView.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
+        isReloadingWithoutCache = true
+        defer { isReloadingWithoutCache = false }
+        let revision = browserRuntime?.operationRevision
+        await webView.configuration.websiteDataStore.removeData(ofTypes: BrowserSiteData.cacheTypes, modifiedSince: .distantPast)
+        guard !Task.isCancelled, nativeWebView === webView, webView.url == url,
+              browserRuntime?.operationRevision == revision else { return }
+        webView.reloadFromOrigin()
+    }
+
 
     func goBack() {
         controller?.goBack()

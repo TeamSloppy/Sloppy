@@ -35,20 +35,23 @@ struct SloppyTUIApprovalModeTests {
         await fixture.service.stop()
     }
 
-    @Test func pickerReadsCoreAndSavesBothModes() async throws {
+    @Test func pickerReadsCoreAndSavesAllModes() async throws {
         let fixture = try await ApprovalFixture.make()
         defer { fixture.stop() }
         let screen = fixture.screen
         await screen.submit("/approvals")
         let picker = try #require(screen.activePicker)
         #expect(picker.kind == .approvalMode)
-        #expect(picker.items.map(\.label) == ["Ask for approval", "Approve for me"])
-        let option = try #require(picker.items.last)
+        #expect(picker.items.map(\.label) == ["Ask for approval", "Approve for me", "Full Access"])
+        let option = try #require(picker.items.first { $0.value == "approve_for_me" })
         await screen.applyPickerItem(option, kind: picker.kind)
         #expect(try await fixture.service.getSessionApprovalPolicy(agentID: screen.agent.id, sessionID: screen.session.id).mode == .approveForMe)
         #expect(screen.approvalModeStatus == "Approve for me")
         #expect(screen.render(width: 140).joined(separator: "\n").contains("Approve for me"))
 
+        await screen.selectApprovalMode(.fullAccess)
+        #expect(try await fixture.service.getSessionApprovalPolicy(agentID: screen.agent.id, sessionID: screen.session.id).mode == .fullAccess)
+        #expect(screen.approvalModeStatus == "Full Access")
         await screen.selectApprovalMode(.askForApproval)
         #expect(try await fixture.service.getSessionApprovalPolicy(agentID: screen.agent.id, sessionID: screen.session.id).mode == .askForApproval)
     }

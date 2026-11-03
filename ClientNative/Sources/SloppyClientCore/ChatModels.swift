@@ -703,6 +703,8 @@ public enum ChatReasoningEffort: String, CaseIterable, Codable, Sendable, Equata
     case low
     case medium
     case high
+    case xhigh
+    case max
 
     public var id: String { rawValue }
 
@@ -712,6 +714,8 @@ public enum ChatReasoningEffort: String, CaseIterable, Codable, Sendable, Equata
         case .low: "Light"
         case .medium: "Medium"
         case .high: "High"
+        case .xhigh: "Extra high"
+        case .max: "Max"
         }
     }
 

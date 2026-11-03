@@ -139,7 +139,9 @@ extension MainView {
     }
 
     var navigationView: some View {
-        Group {
+        @Bindable var viewModel = viewModel
+
+        return Group {
 #if os(iOS)
         // `PlatformMainSidebar` owns the phone TabView and its NavigationStack.
         // Wrapping it in a second NavigationSplitView makes UIKit suppress the

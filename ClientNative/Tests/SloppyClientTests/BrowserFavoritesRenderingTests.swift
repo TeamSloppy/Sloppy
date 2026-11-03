@@ -19,6 +19,7 @@ struct BrowserFavoritesRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         state.open(url, inNewTab: true)
         let first = try #require(state.selectedID)
         state.open(url.appendingPathComponent("other"), inNewTab: true)

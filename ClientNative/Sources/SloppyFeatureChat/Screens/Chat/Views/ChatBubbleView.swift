@@ -77,6 +77,7 @@ public struct ChatBubbleView: View {
     public let userBubbleTint: Color?
     public let onOpenProviderSettings: (@MainActor () -> Void)?
     public let onForkFromMessage: (@MainActor (ChatMessage) -> Void)?
+    private let segmentIndexOffset: Int
     private let userPresentation: ChatUserMessagePresentation
 
     public init(
@@ -84,13 +85,15 @@ public struct ChatBubbleView: View {
         isActivelyWorking: Bool = false,
         userBubbleTint: Color? = nil,
         onOpenProviderSettings: (@MainActor () -> Void)? = nil,
-        onForkFromMessage: (@MainActor (ChatMessage) -> Void)? = nil
+        onForkFromMessage: (@MainActor (ChatMessage) -> Void)? = nil,
+        segmentIndexOffset: Int = 0
     ) {
         self.message = message
         self.isActivelyWorking = isActivelyWorking
         self.userBubbleTint = userBubbleTint
         self.onOpenProviderSettings = onOpenProviderSettings
         self.onForkFromMessage = onForkFromMessage
+        self.segmentIndexOffset = segmentIndexOffset
         self.userPresentation = ChatUserMessagePresentation(message: message)
     }
 
@@ -281,7 +284,7 @@ public struct ChatBubbleView: View {
                         allowsTextSelection: !isStreamingAssistant && !isActivelyWorking,
                         renderImmediately: !isStreamingAssistant,
                         annotationMessageID: message.id,
-                        annotationSegmentIndex: index
+                        annotationSegmentIndex: index + segmentIndexOffset
                     )
                 }
             }

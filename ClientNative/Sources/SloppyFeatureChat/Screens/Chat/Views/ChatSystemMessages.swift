@@ -25,7 +25,12 @@ struct ChatSystemMessageGroupView: View {
 
             if isExpanded && !visibleItems.isEmpty {
                 ScrollView(.vertical) {
-                    LazyVStack(alignment: .leading, spacing: theme.spacing.xs) {
+                    // The enclosing transcript row measures its ideal height. A lazy
+                    // stack re-estimates expanded tool rows as they enter the viewport,
+                    // feeding scroll geometry back into the hosting view's layout.
+                    // Keep this bounded activity document stable; the transcript
+                    // collection already virtualizes the conversation's rows.
+                    VStack(alignment: .leading, spacing: theme.spacing.xs) {
                         ForEach(visibleItems) { item in
                             segmentRow(item, insideScroll: true)
                         }

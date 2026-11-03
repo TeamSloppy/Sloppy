@@ -602,7 +602,7 @@ enum ComposerEffortPalette {
             theme.colors.accentCyan
         case .medium:
             theme.colors.accent
-        case .high:
+        case .high, .xhigh, .max:
             theme.colors.statusWarning
         }
     }
@@ -622,6 +622,8 @@ extension ChatReasoningEffort {
         case .low: "Low"
         case .medium: "Med"
         case .high: "High"
+        case .xhigh: "XHigh"
+        case .max: "Max"
         }
     }
 }

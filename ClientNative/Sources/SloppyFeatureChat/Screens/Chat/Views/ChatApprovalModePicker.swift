@@ -18,7 +18,7 @@ struct ChatApprovalModePicker: View {
                     }
                 }
             } label: {
-                Label(labelTitle, systemImage: viewModel.selectedApprovalMode == .approveForMe ? "checkmark.shield" : "hand.raised")
+                Label(labelTitle, systemImage: viewModel.selectedApprovalMode.symbol)
                 .font(.caption)
                 .foregroundStyle(theme.colors.textMuted)
             }

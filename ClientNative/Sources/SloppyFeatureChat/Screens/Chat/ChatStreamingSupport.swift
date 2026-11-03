@@ -32,7 +32,6 @@ struct ChatStreamingTurnTracker {
     private struct Turn {
         let sessionId: String
         let messageId: String
-        var didReceiveFinalMessage = false
     }
 
     private var turns: [Turn] = []
@@ -46,12 +45,12 @@ struct ChatStreamingTurnTracker {
     }
 
     mutating func claimFinalMessageId(for sessionId: String) -> String? {
-        guard let index = turns.firstIndex(where: {
-            $0.sessionId == sessionId && !$0.didReceiveFinalMessage
-        }) else {
+        // One run may persist several commentary responses between tool batches.
+        // The next delta reuses the placeholder ID after the preceding block
+        // has been replaced; only a run-status event completes the turn.
+        guard let index = turns.firstIndex(where: { $0.sessionId == sessionId }) else {
             return nil
         }
-        turns[index].didReceiveFinalMessage = true
         return turns[index].messageId
     }
 

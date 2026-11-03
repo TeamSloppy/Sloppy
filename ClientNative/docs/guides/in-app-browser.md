@@ -9,14 +9,20 @@ iPhone and iPad use a bottom address panel and a full-screen tab overview.
 
 - **Command-T** opens the search/address launcher for a new tab in either mode.
 - **Command-L** edits the current tab's address.
+- On macOS, **Command-[** goes back and **Command-]** goes forward in the active
+  tab. **Command-+** (or **Command-=**) zooms in, **Command--** zooms out, and
+  **Command-0** restores the page to 100%. Zoom affects only the active tab.
 - **Command-Shift-S** hides or shows the sidebar in the active Work or Browse
   mode on macOS. The same command is available in the Workspace menu.
+- In Browse on macOS, hiding the sidebar lets the page fill the window. Hover
+  over the left edge to reveal the sidebar over the page; it hides when the
+  pointer leaves. Use the sidebar button or shortcut to keep it open.
 - Enter opens an HTTP(S) address or searches. Google is the default; the launcher
   also offers DuckDuckGo, Bing and Yandex. The choice is saved on the device.
 - **Ask agent** opens Assistant beside the page in Browse and adds the launcher
   text to its draft. It does not send a message or replace a Work draft.
 - The launcher finds open tabs, bookmarks and history by title or address. On Mac it floats over the current page as a compact glass panel, without sheet chrome. Arrow keys select a result, Enter opens it, Escape or an outside click closes the panel, and Command-Return starts an agent draft.
-- **Command-W** closes the selected browser tab in Browse; **Command-R** reloads it.
+- **Command-W** closes the selected browser tab in Browse; **Command-R** reloads it. **Command-Shift-R** clears browser-profile caches and reloads from origin, preserving cookies and sign-in data.
   The corresponding page controls are available without a hardware keyboard.
 - **Collect tabs on canvas** creates a personal research workspace containing
   source titles and URLs as editable text elements. It uses the existing canvas,
@@ -237,6 +243,10 @@ The toolbar uses a Gaussian backdrop filter attached to the retained WebKit laye
 without a tinted material or a fill. Its alpha mask fades the blur below the controls.
 The page background follows WebKit's document-derived color, including the area
 beneath the toolbar. The default flat toolbar fill is hidden.
+On macOS, the browser appends Safari 26 compatibility tokens to WebKit's native
+User-Agent. Without the Safari version, YouTube classifies embedded WebKit as a
+legacy browser and ignores the system color scheme. Pages retain their own
+appearance preferences and use WebKit's native `prefers-color-scheme` signal.
 The mode switch uses a capsule glass surface with exterior edge insets;
 the decorative blur does not intercept page input.
 Real-window tests cover resizing and opening search without moving the page frame.
@@ -362,6 +372,8 @@ An older Core returns an unavailable connection error; manual browsing still wor
    before retrying. Page scripts remain subject to the browser's origin rules.
    DOM/style changes are local and normally disappear on reload.
 7. `browser.close` clears the page. `browser.open` can reuse the connection.
+
+For actual Browse tab/group management, agent-created Notes/Todos, visible agent cursor feedback, HTTP consent and site data controls, see [Browser agent and site controls](browser-agent-and-site-controls.md).
 
 Page text is untrusted content, not agent instructions. Selectors should come
 from a fresh page read. Missing, ambiguous, hidden and disabled elements fail

@@ -99,10 +99,20 @@ final class BrowserWorkspaceState {
     let history: WorkspaceBrowserHistory
     let library: BrowserLibrary
     let time: BrowserTimeStore
+    var sitePermissions: BrowserSitePermissions {
+        didSet { for page in pages.values { page.sitePermissions = sitePermissions } }
+    }
     let organizer: BrowserOrganizerStore
     let favorites: BrowserFavoritesStore
+    let contentBlocker: BrowserContentBlocker
     @ObservationIgnored private var timeTrackingActive = false
     @ObservationIgnored private let timeTrackingID = UUID()
+    @ObservationIgnored private let retentionClock: @MainActor () -> Date
+    @ObservationIgnored private var hiddenSince: [UUID: Date] = [:]
+    @ObservationIgnored private var workspacePresented = true
+    @ObservationIgnored private var discardInProgress = false
+    @ObservationIgnored private var pressurePending = false
+    @ObservationIgnored private var pageMaintenance: BrowserPageMaintenance?
 #if os(macOS)
     let extensions: BrowserExtensions
     @ObservationIgnored private(set) var extensionBridge: BrowserExtensionBridge?
@@ -112,7 +122,12 @@ final class BrowserWorkspaceState {
     private(set) var selectedID: UUID?
     private(set) var selectedTabIDs: Set<UUID> = []
     private(set) var splits: [BrowserSplitGroup] = []
-    var isBrowsing = false { didSet { persist() } }
+    var isBrowsing = false {
+        didSet {
+            if isBrowsing { prepareVisiblePages() }
+            persist()
+        }
+    }
     var searchEngine = BrowserSearchEngine.google { didSet { persist() } }
     private(set) var pages: [UUID: WorkspaceWebViewModel] = [:]
     var isCollecting = false
@@ -123,8 +138,14 @@ final class BrowserWorkspaceState {
     var searchText = ""
     var searchInNewTab = true
 
-    init(defaults: UserDefaults = .standard, history: WorkspaceBrowserHistory? = nil) {
+    init(defaults: UserDefaults = .standard, history: WorkspaceBrowserHistory? = nil,
+         retentionClock: @escaping @MainActor () -> Date = { .now }, startsPageMaintenance: Bool = true,
+         contentBlocker: BrowserContentBlocker? = nil) {
+        sitePermissions = defaults === UserDefaults.standard ? .shared : BrowserSitePermissions(defaults: defaults)
         self.defaults = defaults
+        self.contentBlocker = contentBlocker ?? (defaults === UserDefaults.standard ? .shared : BrowserContentBlocker(defaults: defaults))
+        if contentBlocker == nil, defaults !== UserDefaults.standard { self.contentBlocker.setAutomaticUpdates(false) }
+        self.retentionClock = retentionClock
         self.history = history ?? .shared
         library = BrowserLibrary(defaults: defaults)
         time = defaults === UserDefaults.standard ? .shared : BrowserTimeStore(defaults: defaults)
@@ -165,6 +186,7 @@ final class BrowserWorkspaceState {
         extensionBridge = BrowserExtensionBridge(state: self)
 #endif
         prepareVisiblePages()
+        if startsPageMaintenance { pageMaintenance = BrowserPageMaintenance(state: self) }
     }
 
     var selectedTab: BrowserTabRecord? { tabs.first { $0.id == selectedID } }
@@ -355,8 +377,9 @@ final class BrowserWorkspaceState {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let splitNeighbor = activeSplit?.tabIDs.first { $0 != id }
         let previous = selectedID
-        pages[id]?.nativeWebView?.stopLoading()
+        pages[id]?.releaseDiscardedPage()
         pages.removeValue(forKey: id)
+        hiddenSince.removeValue(forKey: id)
         tabs.remove(at: index)
         removeFromSplits([id])
         selectedTabIDs.remove(id)
@@ -456,6 +479,9 @@ final class BrowserWorkspaceState {
     private func preparePage(_ id: UUID) {
         guard pages[id] == nil, let tab = tabs.first(where: { $0.id == id }) else { return }
         let page = WorkspaceWebViewModel(history: history)
+        page.sitePermissions = sitePermissions
+        page.contentBlocker = contentBlocker
+        page.onPresentationChange = { [weak self] in self?.updatePageVisibility() }
         page.navigationBlock = { [weak self, weak page] url in
             guard let self, let page else { return nil }
             time.updateClock()
@@ -483,12 +509,83 @@ final class BrowserWorkspaceState {
             persist()
         }
         pages[id] = page
+        updatePageVisibility()
     }
 
     private func persist() {
+        updatePageVisibility()
         updateTimeUsage()
         let snapshot = Snapshot(tabs: tabs, selectedID: selectedID, isBrowsing: isBrowsing, searchEngine: searchEngine, groups: groups, splits: splits)
         if let data = try? JSONEncoder().encode(snapshot) { defaults.set(data, forKey: Self.storageKey) }
+    }
+
+    func setWorkspacePresented(_ presented: Bool) {
+        workspacePresented = presented
+        if presented { prepareVisiblePages() }
+        updatePageVisibility()
+    }
+
+    private var protectedVisiblePages: Set<UUID> {
+        let selected = workspacePresented && isBrowsing ? Set(visibleTabs.map(\.id)) : []
+        return selected.union(pages.compactMap { $0.value.presentations > 0 ? $0.key : nil })
+    }
+
+    private func updatePageVisibility() {
+        let visible = protectedVisiblePages
+        let now = retentionClock()
+        for id in pages.keys {
+            if visible.contains(id) { hiddenSince.removeValue(forKey: id) }
+            else if hiddenSince[id] == nil { hiddenSince[id] = now }
+        }
+    }
+
+    var discardedPageIDs: Set<UUID> { Set(tabs.filter { $0.url != nil && pages[$0.id] == nil }.map(\.id)) }
+
+    /// Rechecks visibility and tool ownership after every asynchronous safety probe.
+    @discardableResult
+    func discardInactivePages(reason: BrowserPageDiscardReason = .idle) async -> Int {
+        if discardInProgress {
+            if reason == .memoryPressure { pressurePending = true }
+            return 0
+        }
+        discardInProgress = true
+        defer { discardInProgress = false; pressurePending = false }
+        updatePageVisibility()
+        let now = retentionClock()
+        let candidates = hiddenSince.sorted { $0.value < $1.value }.map(\.key)
+        var discarded = 0
+        for id in candidates {
+            let minimumAge: TimeInterval = reason == .memoryPressure || pressurePending ? 60 : 3600
+            guard let hidden = hiddenSince[id], now.timeIntervalSince(hidden) >= minimumAge,
+                  !protectedVisiblePages.contains(id), let page = pages[id], page.automationUses == 0, !page.isLoading else { continue }
+#if os(macOS)
+            guard !page.annotations.isSelecting, !page.annotations.isCapturing, page.annotations.draft == nil else { continue }
+#endif
+#if os(macOS) || os(iOS)
+            let runtime = page.browserRuntime
+            let operation = runtime?.operationRevision
+            let revision = runtime?.activity.revision
+            if let webView = page.nativeWebView, webView.url != nil {
+                guard let runtime, await runtime.safeToDiscard(at: now) else { continue }
+            }
+            guard pages[id] === page, !protectedVisiblePages.contains(id), page.automationUses == 0,
+                  !page.isLoading, page.nativeWebView?.isLoading != true, (runtime?.activeOperations ?? 0) == 0,
+                  runtime?.operationRevision == operation, runtime?.activity.revision == revision,
+                  let index = tabs.firstIndex(where: { $0.id == id }) else { continue }
+            if let webView = page.nativeWebView, webView.url != nil {
+                guard let url = BrowserSearchEngine.websiteURL(webView.url),
+                      let interaction = webView.interactionState as? Data else { continue }
+                tabs[index].url = url
+                tabs[index].interactionState = interaction
+            }
+            page.releaseDiscardedPage()
+            pages.removeValue(forKey: id)
+            hiddenSince.removeValue(forKey: id)
+            discarded += 1
+#endif
+        }
+        if discarded > 0 { persist() }
+        return discarded
     }
 
     func setTimeTrackingActive(_ active: Bool) {

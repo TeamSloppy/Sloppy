@@ -410,6 +410,10 @@ final class MainViewModel {
         let source = selectedTabID.flatMap { tabEndpoints[$0] } ?? endpoint
         switch kind {
         case .browser: break
+        case .devices:
+#if os(macOS)
+            if tab.devices == nil { tab.devices = WorkspaceDeviceSession() }
+#endif
         case .sideChat:
             if tab.chat == nil {
                 tab.chat = makeChatTabState(endpoint: source).viewModel
@@ -460,10 +464,18 @@ final class MainViewModel {
         }
         browserSessions.removeValue(forKey: tabID)?.stop()
         let browserDock = workspaceDockState
+        let devices = WorkspaceDeviceToolRuntime { [weak self] device in
+            guard let self, self.tabStates[tabID]?.chatState?.viewModel.selectedSessionId == sessionID else {
+                throw LocalDeviceBridge.failure("The owning chat was closed or changed. Reconnect the current chat before starting Devices.")
+            }
+            self.selectTab(tabID)
+            self.workspaceDockState.presentDevice(device)
+        }
         let browser = WorkspaceBrowserSession(
             apiClient: SloppyAPIClient(endpoint: tabEndpoints[tabID] ?? endpoint),
             agentID: agentID,
-            sessionID: sessionID
+            sessionID: sessionID,
+            devices: devices
         ) { [weak self] in
             guard let self, let browser = self.browserSessions[tabID], browser.binding.sessionId == sessionID else { return }
             guard self.tabStates[tabID]?.chatState?.viewModel.selectedSessionId == sessionID else {

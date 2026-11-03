@@ -13,11 +13,13 @@ public struct WorkspaceBrowserBinding: Codable, Sendable {
     public var bridgeId: String
     public var agentId: String
     public var sessionId: String
+    public var capabilities: [String]?
 
-    public init(bridgeId: String, agentId: String, sessionId: String) {
+    public init(bridgeId: String, agentId: String, sessionId: String, capabilities: [String]? = nil) {
         self.bridgeId = bridgeId
         self.agentId = agentId
         self.sessionId = sessionId
+        self.capabilities = capabilities
     }
 }
 
@@ -27,6 +29,16 @@ public struct WorkspaceBrowserCommand: Codable, Sendable {
     public var input: Input
 
     public struct Input: Codable, Sendable {
+        public var operation: String?
+        public var platform: String?
+        public var deviceId: String?
+        public var androidAddress: String?
+        public var dueAt: String?
+        public var priority: String?
+        public var groupId: String?
+        public var tabIds: [String]?
+        public var title: String?
+        public var tabId: String?
         public var url: String?
         public var pageId: String?
         public var selector: String?
@@ -56,6 +68,9 @@ public struct WorkspaceBrowserPage: Codable, Sendable {
     public var elements: [WorkspaceBrowserElement]
     public var running: Bool
     public var evaluation: WorkspaceBrowserEvaluation?
+    public var workspace: WorkspaceBrowserWorkspace?
+    public var createdEntry: WorkspaceBrowserCreatedEntry?
+    public var devicePreview: WorkspaceDevicePreview?
 
     public init(pageId: String, url: String, title: String, visibleText: String,
                 elements: [WorkspaceBrowserElement] = [], running: Bool = true) {
@@ -65,6 +80,22 @@ public struct WorkspaceBrowserPage: Codable, Sendable {
         self.visibleText = visibleText
         self.elements = elements
         self.running = running
+    }
+}
+
+public struct WorkspaceDevicePreview: Codable, Sendable {
+    public enum State: String, Codable, Sendable { case stopped, starting, ready, failed }
+    public struct Device: Codable, Sendable {
+        public var id: String
+        public var name: String
+        public init(id: String, name: String) { self.id = id; self.name = name }
+    }
+    public var state: State
+    public var platform: String
+    public var devices: [Device]
+    public var error: String?
+    public init(state: State, platform: String, devices: [Device], error: String? = nil) {
+        self.state = state; self.platform = platform; self.devices = devices; self.error = error
     }
 }
 
@@ -83,4 +114,33 @@ public struct WorkspaceBrowserCompletion: Codable, Sendable {
         self.imageBase64 = imageBase64
         self.error = error
     }
+}
+
+public struct WorkspaceBrowserWorkspace: Codable, Sendable {
+    public struct Tab: Codable, Sendable {
+        public var id: String
+        public var title: String
+        public var url: String?
+        public var groupId: String?
+        public var selected: Bool
+
+        public init(id: String, title: String, url: String?, selected: Bool, groupId: String? = nil) {
+            self.id = id; self.title = title; self.url = url; self.selected = selected; self.groupId = groupId
+        }
+    }
+    public struct Group: Codable, Sendable {
+        public var id: String
+        public var title: String
+        public init(id: String, title: String) { self.id = id; self.title = title }
+    }
+    public var groups: [Group]?
+    public var tabs: [Tab]
+    public init(tabs: [Tab]) { self.tabs = tabs }
+}
+
+public struct WorkspaceBrowserCreatedEntry: Codable, Sendable {
+    public var kind: String
+    public var id: String
+    public var title: String
+    public init(kind: String, id: String, title: String) { self.kind = kind; self.id = id; self.title = title }
 }

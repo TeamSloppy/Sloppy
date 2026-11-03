@@ -5,6 +5,7 @@ struct WorkspaceBrowserBinding: Codable, Sendable, Equatable {
     var bridgeId: String
     var agentId: String
     var sessionId: String
+    var capabilities: [String]? = nil
 }
 
 struct WorkspaceBrowserCommand: Codable, Sendable {
@@ -79,7 +80,8 @@ actor WorkspaceBrowserBridgeService {
     func status(sessionID: String) -> JSONValue {
         let connected = connections[sessionID].map { Date().timeIntervalSince($0.lastSeen) <= lease } ?? false
         return .object(["running": .bool(connected), "surface": .string("in_app"),
-                        "connected": .bool(connected), "hint": .string("Use browser.read to inspect the live page and its element selectors.")])
+                        "connected": .bool(connected),
+                        "capabilities": .array((connections[sessionID]?.binding.capabilities ?? []).map(JSONValue.string)), "hint": .string("Use browser.read to inspect the live page and its element selectors.")])
     }
 
     func poll(_ binding: WorkspaceBrowserBinding) throws -> WorkspaceBrowserCommands {
@@ -115,9 +117,12 @@ actor WorkspaceBrowserBridgeService {
         }
     }
 
-    func run(sessionID: String, name: String, input: JSONValue = .object([:])) async throws -> JSONValue {
+    func run(sessionID: String, name: String, input: JSONValue = .object([:]), requiredCapability: String? = nil) async throws -> JSONValue {
         guard let connection = connections[sessionID], Date().timeIntervalSince(connection.lastSeen) <= lease else {
             throw WorkspaceBrowserBridgeError.unavailable
+        }
+        if let requiredCapability, connection.binding.capabilities?.contains(requiredCapability) != true {
+            throw WorkspaceBrowserBridgeError.commandFailed("This browser does not support \(requiredCapability). Update the Sloppy client and reconnect Browse.")
         }
         // One action at a time per page; concurrent tasks have independent pages.
         guard !pending.values.contains(where: { $0.binding.sessionId == sessionID }) else {

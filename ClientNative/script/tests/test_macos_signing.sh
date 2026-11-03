@@ -51,7 +51,17 @@ bash "$SIGNING_SCRIPT_DIR/sign_macos_app.sh" "$APP" auto "$SIGNING_SCRIPT_DIR/..
 rg -q -- '--entitlements .*SloppyClient.entitlements --identifier team.sloppy.client' "$SIGNING_TEST_LOG"
 ! /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.ubiquity-kvstore-identifier' "$SIGNING_TEST_LOG.entitlements" >/dev/null 2>&1
 /usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' "$SIGNING_TEST_LOG.entitlements" | rg -q true
+! /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.web-browser.public-key-credential' "$SIGNING_TEST_LOG.entitlements" >/dev/null 2>&1
 [[ "$(tail -n 1 "$SIGNING_TEST_LOG")" == "--verify --deep --strict --verbose=2 $APP" ]]
+
+# Requiring passkeys must fail rather than produce a falsely enabled app.
+: > "$SIGNING_TEST_LOG"
+if MACOS_REQUIRE_PASSKEYS=1 bash "$SIGNING_SCRIPT_DIR/sign_macos_app.sh" "$APP" auto "$SIGNING_SCRIPT_DIR/../SupportingFiles/macOS/SloppyClient.entitlements" 2> "$SIGNING_TEST_ROOT/passkey-error"; then
+    echo "error: unprovisioned passkey support was accepted" >&2
+    exit 1
+fi
+rg -q 'Apple-approved' "$SIGNING_TEST_ROOT/passkey-error"
+! rg -q -- '--identifier team.sloppy.client' "$SIGNING_TEST_LOG"
 
 # Provisioned signatures use the profile's concrete identifier, never raw Xcode variables.
 export SIGNING_TEST_PROFILE="$SIGNING_TEST_ROOT/profile.plist"

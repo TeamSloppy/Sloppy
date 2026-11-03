@@ -233,6 +233,10 @@ public struct OpenAILanguageModel: LanguageModel {
             case medium
             /// High reasoning effort.
             case high
+            /// Extra-high reasoning effort on supported models.
+            case xhigh
+            /// Maximum reasoning effort on supported models.
+            case max
         }
 
         /// Configuration options for reasoning models (Responses API).

@@ -28,6 +28,10 @@ Options:
 Environment:
   DERIVED_DATA         Override the Xcode DerivedData directory.
   INSTALL_DIR          Override the installation directory.
+  MACOS_PASSKEY_PROVISIONING_PROFILE
+                      Apple-approved macOS browser passkey profile to embed.
+  MACOS_REQUIRE_PASSKEYS
+                      Set to 1 to fail signing if passkeys cannot be enabled.
 EOF
 }
 

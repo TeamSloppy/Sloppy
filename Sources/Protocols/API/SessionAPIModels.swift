@@ -954,6 +954,8 @@ public enum ReasoningEffort: String, Codable, Sendable, Equatable, CaseIterable 
     case low
     case medium
     case high
+    case xhigh
+    case max
 }
 
 public enum AgentChatMode: String, Codable, Sendable, Equatable, CaseIterable {

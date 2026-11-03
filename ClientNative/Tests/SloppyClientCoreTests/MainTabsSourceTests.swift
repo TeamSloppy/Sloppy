@@ -98,13 +98,15 @@ struct MainTabsSourceTests {
         #expect(strip.contains("private var trailingControlWidth: CGFloat {\n#if os(macOS)\n        0"))
     }
 
-    @Test("macOS toolbar searches chats and projects")
+    @Test("macOS toolbar searches messages, chats and projects")
     func macOSToolbarSearchesChatsAndProjects() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
 
         #expect(mainView.contains("@State var toolbarSearchText = \"\""))
         #expect(mainView.contains("ToolbarItem(placement: .principal)"))
-        #expect(mainView.contains("TextField(\"Search chats and projects\""))
+        #expect(mainView.contains("TextField(\"Search all messages and projects\""))
+        #expect(mainView.contains("await toolbarTextSearch.search(toolbarSearchQuery"))
+        #expect(mainView.contains("SessionTextSearchView(endpoints: viewModel.textSearchEndpoints"))
         #expect(mainView.contains("@FocusState var isToolbarSearchFocused: Bool"))
         #expect(mainView.contains(".overlay(alignment: .top)"))
         #expect(mainView.contains("toolbarSearchResultsPanel"))

@@ -42,6 +42,7 @@ struct ChatTranscriptPane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.chatTextSelectionActions) private var textSelectionActions
     @Environment(\.chatFileOpenHandler) private var fileOpenHandler
+    @Environment(\.workingTreeReviewHandler) private var reviewHandler
     @State private var uiPanelHeight: CGFloat = 0
     @State private var isAtBottom = true
     @State private var visibleTranscriptItemID: String?
@@ -175,13 +176,7 @@ struct ChatTranscriptPane: View {
                 bottomSpacing = 0
             }
 
-            let entryMessageIDs: Set<ChatMessage.ID>
-            switch entry {
-            case .message(let message):
-                entryMessageIDs = activeRunMessageIDs.contains(message.id) ? [message.id] : []
-            case .systemGroup(let messages):
-                entryMessageIDs = Set(messages.map(\.id)).intersection(activeRunMessageIDs)
-            }
+            let entryMessageIDs = entry.messageIDs.intersection(activeRunMessageIDs)
             items.append(ChatTranscriptNativeItem(
                 id: "entry:\(entry.id)",
                 content: .entry(
@@ -194,7 +189,7 @@ struct ChatTranscriptPane: View {
             previousEntryDate = entry.createdAt
         }
 
-        if let workingTreeSourceControl {
+        if let workingTreeSourceControl, workingTreeSourceControl.hasChanges {
             items.append(ChatTranscriptNativeItem(
                 id: "change-summary",
                 content: .changeSummary(workingTreeSourceControl)
@@ -284,7 +279,7 @@ struct ChatTranscriptPane: View {
             let activeRunMessageIDs,
             let recoveryMessageIDs
         ):
-            switch entry {
+            switch entry.presentation {
             case .message(let message):
                 rendered = AnyView(
                     HStack(alignment: .top, spacing: 8) {
@@ -306,7 +301,8 @@ struct ChatTranscriptPane: View {
                             onOpenProviderSettings: recoveryMessageIDs.contains(message.id)
                                 ? onOpenProviderSettings
                                 : nil,
-                            onForkFromMessage: onForkFromMessage
+                            onForkFromMessage: { onForkFromMessage(entry.sourceMessage ?? $0) },
+                            segmentIndexOffset: entry.segmentOffset
                         )
                     }
                     .frame(minWidth: 0, maxWidth: .infinity)
@@ -363,18 +359,14 @@ struct ChatTranscriptPane: View {
                 .environment(\.chatAttachmentPreviewContext, viewModel.attachmentPreviewContext)
                 .environment(\.chatFileOpenHandler, fileOpenHandler)
                 .environment(\.chatTextSelectionActions, textSelectionActions)
+                .environment(\.workingTreeReviewHandler, reviewHandler)
         )
     }
 
     private func entryProviderRecoveryMessageIDs(
         _ entry: ChatTranscriptEntry
     ) -> Set<ChatMessage.ID> {
-        switch entry {
-        case .message(let message):
-            return providerSettingsRecoveryMessageIDs.contains(message.id) ? [message.id] : []
-        case .systemGroup(let messages):
-            return Set(messages.map(\.id)).intersection(providerSettingsRecoveryMessageIDs)
-        }
+        entry.messageIDs.intersection(providerSettingsRecoveryMessageIDs)
     }
 
 }

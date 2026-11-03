@@ -41,6 +41,7 @@ struct BrowserExtensionRuntimeTests {
         """.utf8).write(to: folder.appendingPathComponent("popup.js"))
 
         let state = BrowserWorkspaceState(defaults: defaults)
+        try server.allowHTTP(in: state)
         state.open(url, inNewTab: true)
         let page = try #require(state.selectedPage)
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 1200, height: 800),

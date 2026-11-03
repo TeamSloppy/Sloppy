@@ -16,11 +16,11 @@ import {
 
 type AnyRecord = Record<string, unknown>;
 
-export type SessionApprovalMode = "ask_for_approval" | "approve_for_me";
+export type SessionApprovalMode = "ask_for_approval" | "approve_for_me" | "full_access";
 export interface SessionApprovalPolicy { mode: SessionApprovalMode; }
 
 function validatedSessionApprovalPolicy(policy: SessionApprovalPolicy): SessionApprovalPolicy {
-  if (policy.mode !== "ask_for_approval" && policy.mode !== "approve_for_me") {
+  if (policy.mode !== "ask_for_approval" && policy.mode !== "approve_for_me" && policy.mode !== "full_access") {
     throw new Error("Sloppy Core returned an unsupported chat approval mode.");
   }
   return policy;

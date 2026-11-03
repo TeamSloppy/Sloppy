@@ -454,7 +454,7 @@ export const EMPTY_CONFIG = {
   workspace: { name: ".sloppy", basePath: "~" },
   auth: { token: "dev-token" },
   onboarding: { completed: false },
-  defaultChatApprovalMode: null as "ask_for_approval" | "approve_for_me" | null,
+  defaultChatApprovalMode: null as "ask_for_approval" | "approve_for_me" | "full_access" | null,
   sessionRetention: { enabled: true, days: 30 },
   models: [emptyModel()],
   semanticDecisions: {
@@ -1042,7 +1042,7 @@ export function normalizeConfig(config) {
   normalized.workspace.basePath = config?.workspace?.basePath || normalized.workspace.basePath;
   normalized.auth.token = config?.auth?.token || normalized.auth.token;
   normalized.onboarding.completed = Boolean(config?.onboarding?.completed);
-  normalized.defaultChatApprovalMode = config?.defaultChatApprovalMode === "approve_for_me" ? "approve_for_me" : config?.defaultChatApprovalMode === "ask_for_approval" ? "ask_for_approval" : null;
+  normalized.defaultChatApprovalMode = config?.defaultChatApprovalMode === "full_access" ? "full_access" : config?.defaultChatApprovalMode === "approve_for_me" ? "approve_for_me" : config?.defaultChatApprovalMode === "ask_for_approval" ? "ask_for_approval" : null;
   normalized.sessionRetention.enabled = config?.sessionRetention?.enabled !== false;
   normalized.sessionRetention.days = Math.min(
     90,

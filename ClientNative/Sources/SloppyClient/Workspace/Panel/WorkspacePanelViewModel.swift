@@ -32,6 +32,7 @@ final class WorkspacePanelViewModel {
         var path: String
         var sourceControl: ProjectWorkingTreeSourceControlResponse?
         var id: String { path }
+        var name: String { URL(fileURLWithPath: path).lastPathComponent }
     }
 
     struct Node: Identifiable, Equatable {
@@ -65,7 +66,7 @@ final class WorkspacePanelViewModel {
     private(set) var project: APIProjectRecord?
     private(set) var sourceControl: ProjectWorkingTreeSourceControlResponse?
     private(set) var directoryChanges: [DirectoryChanges] = []
-    var areChangesExpanded = true
+    var areChangesExpanded = false
     private(set) var codeReview: CodeReviewItem?
     private(set) var codeReviewLoadError: String?
     private(set) var isLoadingEnvironment = false

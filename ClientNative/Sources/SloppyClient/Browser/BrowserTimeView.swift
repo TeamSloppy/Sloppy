@@ -63,6 +63,7 @@ struct BrowserTimeView: View {
                 do { try await Task.sleep(for: .seconds(1)) } catch { break }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser-time-screen")
     }
 
@@ -70,12 +71,7 @@ struct BrowserTimeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if isSidebar { Text("Time & Focus").font(.headline) }
-                Picker("Period", selection: Binding(get: { week }, set: { week = $0 })) {
-                    Text("Today").tag(false)
-                    Text("This week").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                periodPicker
                 usageSummary
                 focusPanel
                 limits
@@ -98,6 +94,22 @@ struct BrowserTimeView: View {
         .confirmationDialog("Clear time statistics on this device?", isPresented: $clearsUsage) {
             Button("Clear statistics", role: .destructive) { time.clearUsage(); state.updateTimeUsage() }
         } message: { Text("Your browsing history, timer and limits will be kept.") }
+    }
+
+    private var periodPicker: some View {
+        Group {
+#if os(macOS)
+            BrowserTimePeriodPicker(week: Binding(get: { week }, set: { week = $0 }))
+#else
+            Picker("Period", selection: Binding(get: { week }, set: { week = $0 })) {
+                Text("Today").tag(false)
+                Text("This week").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden()
+#endif
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("browser-time-period")
     }
 
     private var usageSummary: some View {
@@ -131,7 +143,7 @@ struct BrowserTimeView: View {
 
     private var focusPanel: some View {
         let layout = isSidebar
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            ? AnyLayout(VStackLayout(alignment: .center, spacing: 16))
             : AnyLayout(HStackLayout(spacing: 24))
         return layout {
             ZStack {
@@ -144,27 +156,35 @@ struct BrowserTimeView: View {
             .frame(width: 116, height: 116)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(time.phase == .rest ? "Break" : "Focus"), \(Int(time.remaining.rounded(.up))) seconds remaining")
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: isSidebar ? .center : .leading, spacing: 10) {
                 Text(time.phase == .rest ? "Take a break" : "Pomodoro").font(.title2.weight(.semibold))
                 Text(time.isPaused ? "Paused" : "\(time.focusSites.count) \(time.focusSites.count == 1 ? "site" : "sites") paused during focus")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     if time.phase == .ready {
                         Button("Start focus") { time.startFocus(); state.updateTimeUsage() }
-                            .buttonStyle(.borderedProminent)
                             .accessibilityIdentifier("browser-focus-start")
                     } else {
                         Button(time.isPaused ? "Resume" : "Pause") { time.togglePause(); state.updateTimeUsage() }
-                            .buttonStyle(.borderedProminent)
                         Button("End") { time.stopFocus(); state.updateTimeUsage() }
+#if os(macOS)
+                            .buttonStyle(.glass)
+#else
+                            .buttonStyle(.bordered)
+#endif
                     }
                 }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
                 Text("\(time.completedSessions) completed sessions").font(.caption).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
+            if !isSidebar { Spacer(minLength: 0) }
         }
+        .frame(maxWidth: .infinity, alignment: isSidebar ? .center : .leading)
         .padding(isSidebar ? 12 : 20)
         .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(theme.colors.border) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("browser-focus-panel")
     }
 
     private var timerText: String {
@@ -174,35 +194,100 @@ struct BrowserTimeView: View {
 
     private var limits: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Timer & daily limits").font(.headline)
-            Stepper("Focus: \(time.focusMinutes) min", value: Binding(get: { time.focusMinutes }, set: {
-                time.configureFocus(minutes: $0, breakMinutes: time.breakMinutes)
-            }), in: 1...120, step: 5).disabled(time.phase != .ready)
-            Stepper("Break: \(time.breakMinutes) min", value: Binding(get: { time.breakMinutes }, set: {
-                time.configureFocus(minutes: time.focusMinutes, breakMinutes: $0)
-            }), in: 1...30).disabled(time.phase != .ready)
-            Divider()
-            Stepper(time.dailyLimitMinutes == 0 ? "Browser limit: Off" : "Browser limit: \(time.dailyLimitMinutes) min / day",
-                    value: Binding(get: { time.dailyLimitMinutes }, set: { time.setDailyLimit($0); state.updateTimeUsage() }),
-                    in: 0...1440, step: 15)
-            Text("Daily limits reset at midnight. Domain rules include subdomains.").font(.caption).foregroundStyle(.secondary)
-            Text("Website domain").font(.callout)
-            HStack {
-                TextField("Website domain", text: Binding(get: { siteDraft }, set: { siteDraft = $0 }), prompt: Text("example.com"))
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isDomainFocused)
-                    .autocorrectionDisabled()
-#if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    .submitLabel(.done)
-#endif
-                    .onSubmit(addSite)
-                    .accessibilityLabel("Website domain")
-                    .accessibilityIdentifier("browser-time-domain")
-                Button("Add site", action: addSite).disabled(siteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            GroupBox("Timer") {
+                VStack(spacing: 12) {
+                    Stepper(value: Binding(get: { time.focusMinutes }, set: {
+                        time.configureFocus(minutes: $0, breakMinutes: time.breakMinutes)
+                    }), in: 1...120, step: 5) {
+                        settingLabel("Focus", value: "\(time.focusMinutes) min")
+                    }
+                    Divider()
+                    Stepper(value: Binding(get: { time.breakMinutes }, set: {
+                        time.configureFocus(minutes: time.focusMinutes, breakMinutes: $0)
+                    }), in: 1...30) {
+                        settingLabel("Break", value: "\(time.breakMinutes) min")
+                    }
+                }
+                .disabled(time.phase != .ready)
+                .padding(4)
             }
+            GroupBox("Daily limit") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Stepper(value: Binding(get: { time.dailyLimitMinutes }, set: {
+                        time.setDailyLimit($0); state.updateTimeUsage()
+                    }), in: 0...1440, step: 15) {
+                        settingLabel("Browser", value: time.dailyLimitMinutes == 0 ? "Off" : "\(time.dailyLimitMinutes) min")
+                    }
+                    Text("Resets at midnight.").font(.caption).foregroundStyle(.secondary)
+                }.padding(4)
+            }
+            Text("Websites").font(.headline)
+            Text("Pause sites during focus or set a daily limit. Rules include subdomains.")
+                .font(.caption).foregroundStyle(.secondary)
+            domainEntry
             if let siteError { Text(siteError).font(.caption).foregroundStyle(.red) }
+            configuredSiteRules
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func settingLabel(_ title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer(minLength: 8)
+            Text(value).foregroundStyle(.secondary).monospacedDigit()
+        }
+        .font(.callout)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var domainField: some View {
+        TextField("Website domain", text: Binding(get: { siteDraft }, set: { siteDraft = $0 }), prompt: Text("example.com"))
+            .textFieldStyle(.plain)
+            .focused($isDomainFocused)
+            .autocorrectionDisabled()
+#if os(macOS)
+            .textInputSuggestions {
+                ForEach(BrowserDomainSuggestions.hosts(query: siteDraft, history: state.history.sites,
+                    excluding: Set(configuredHosts)), id: \.self) { host in
+                    Text(host).textInputCompletion(host)
+                }
+            }
+#elseif os(iOS)
+            .textInputAutocapitalization(.never)
+            .keyboardType(.URL)
+            .submitLabel(.done)
+#endif
+            .onSubmit(addSite)
+            .accessibilityLabel("Website domain")
+            .accessibilityIdentifier("browser-time-domain")
+    }
+
+    private var domainEntry: some View {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "globe").foregroundStyle(.secondary)
+                    domainField
+                }
+                .font(.callout)
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .glassEffect(.regular.interactive(), in: Capsule())
+                Button("Add site", systemImage: "plus", action: addSite)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.large)
+                    .disabled(siteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .help("Add site")
+                    .accessibilityIdentifier("browser-time-add-site")
+            }
+        }
+    }
+
+    private var configuredSiteRules: some View {
+        VStack(alignment: .leading, spacing: 12) {
             ForEach(configuredHosts, id: \.self) { host in
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {

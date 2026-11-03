@@ -9,7 +9,7 @@ import AppKit
 import UIKit
 #endif
 
-struct ChatImageAnnotationEditor: View {
+public struct ChatImageAnnotationEditor: View {
     let attachment: ChatComposerAttachment
     private let save: (@MainActor (ChatComposerAttachment) -> Void)?
     private let decodedImage: CGImage?
@@ -70,7 +70,7 @@ struct ChatImageAnnotationEditor: View {
         _tool = State(initialValue: .comment)
     }
 
-    init(attachment: ChatComposerAttachment, onSave: (@MainActor (ChatComposerAttachment) -> Void)? = nil) {
+    public init(attachment: ChatComposerAttachment, onSave: (@MainActor (ChatComposerAttachment) -> Void)? = nil) {
         self.attachment = attachment
         save = onSave
         decodedImage = ChatImageExport.decode(attachment.data)
@@ -90,7 +90,7 @@ struct ChatImageAnnotationEditor: View {
         return "\(Int((scale * 100).rounded()))%"
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             header
             if let decodedImage {

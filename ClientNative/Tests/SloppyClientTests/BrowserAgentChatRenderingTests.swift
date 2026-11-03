@@ -11,6 +11,72 @@ import Testing
 @Suite("Browser assistant rendering", .serialized, .appKitUI, .appKitIsolation)
 @MainActor
 struct BrowserAgentChatRenderingTests {
+    @Test func toolbarSummaryReadsTheSelectedPageAndKeepsDraft() async throws {
+        AppKitTestAccessibility.enable()
+        let fixture = try BrowserAgentChatTestFixture()
+        defer { fixture.close() }
+        let name = "BrowserSummaryRendering.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let site = try BrowserHTTPFixture(html: """
+        <!doctype html><html><head><title>Loaded through HTTP</title><style>
+        body{margin:0;background:#242429;color:#e8e6e3;font:16px system-ui}
+        header{position:fixed;top:0;left:0;right:0;height:44px;padding:0 24px;display:flex;align-items:center;background:#303036;border-bottom:1px solid #444}
+        main{padding:64px 28px}h1{font-size:30px}p{color:#b5b5ba}input{padding:10px;background:#303036;color:#eee;border:1px solid #555;border-radius:6px}
+        </style></head><body><header>Example article</header><main><h1>Sloppy browser smoke test</h1>
+        <p>Swift actors isolate mutable state. Async functions suspend without blocking the current thread.</p>
+        <input id="name" aria-label="Notes" placeholder="Your notes"></main></body></html>
+        """)
+        let url = try await site.start()
+        let browser = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try site.allowHTTP(in: browser)
+        browser.open(url, inNewTab: true)
+        let page = try #require(browser.selectedPage)
+        let controller = NSHostingController(rootView:
+            BrowserWorkspaceView(state: browser, onAskAgent: { _ in }, onCollect: { _ in }, agentChat: fixture.state)
+                .theme(.sloppyDark).preferredColorScheme(.dark))
+        controller.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 1360, height: 880),
+            styleMask: [.titled, .resizable, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.toolbar = NSToolbar(identifier: "browser-summary-test")
+        window.toolbarStyle = .unified
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentViewController = controller
+        window.setContentSize(NSSize(width: 1360, height: 880))
+        window.makeKeyAndOrderFront(nil)
+        defer { window.contentViewController = nil; window.close() }
+        try await waitForPage(page)
+        await fixture.chat.waitForInitialData()
+        fixture.chat.useStarterPrompt("Keep my unfinished draft")
+        try await Task.sleep(for: .milliseconds(250))
+        let webView = try #require(page.nativeWebView)
+        _ = try await webView.evaluateJavaScript("document.querySelector('#name').value='Keep my form input'")
+        try await screenshot(window, view: controller.view, name: "browser-toolbar-compact.png")
+        let frameView = try #require(window.contentView?.superview)
+        let summarize = try #require(AppKitTestAccessibility.element(in: frameView, identifier: "browser-summarize-page"))
+        // NSToolbarItemViewer can dispatch the action while returning false from AXPress.
+        _ = AppKitTestAccessibility.press(summarize)
+        for _ in 0..<200 {
+            if fixture.chat.messages.contains(where: { $0.role == .assistant }) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(fixture.state.panel.isPresented)
+        #expect(fixture.probe.posts.count == 1)
+        #expect(fixture.probe.posts.first?.contains("Sloppy browser smoke test") == true)
+        #expect(fixture.probe.posts.first?.contains(url.absoluteString) == true)
+        #expect(fixture.chat.messages.contains { $0.role == .assistant })
+        #expect(fixture.chat.composerDraft.text == "Keep my unfinished draft")
+        #expect(browser.selectedPage === page)
+        #expect(try await webView.evaluateJavaScript("document.querySelector('#name').value") as? String == "Keep my form input")
+        let inset = page.ensureBrowserRuntime().documentInset.inset
+        #expect(inset > 0 && inset < 95)
+        try await Task.sleep(for: .milliseconds(300))
+        try await screenshot(window, view: controller.view, name: "browser-page-summary.png")
+    }
+
     @Test func sidebarSharesThePageKeepsDraftsAndSendsThroughTheNativeComposer() async throws {
         AppKitTestAccessibility.enable()
         let fixture = try BrowserAgentChatTestFixture()
@@ -21,6 +87,7 @@ struct BrowserAgentChatRenderingTests {
         let site = try BrowserHTTPFixture()
         let url = try await site.start()
         let browser = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try site.allowHTTP(in: browser)
         browser.open(url, inNewTab: true)
         let firstID = try #require(browser.selectedID)
         let firstPage = try #require(browser.selectedPage)

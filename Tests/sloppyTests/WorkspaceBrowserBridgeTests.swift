@@ -140,3 +140,25 @@ extension WorkspaceBrowserBridgeTests {
         #expect(rejected.status == 400)
     }
 }
+
+
+extension WorkspaceBrowserBridgeTests {
+    @Test func workspaceCommandsRequireAdvertisedCapability() async throws {
+        let bridge = WorkspaceBrowserBridgeService()
+        let legacy = binding("legacy")
+        try await bridge.register(legacy)
+        await #expect(throws: (any Error).self) {
+            try await bridge.run(sessionID: "legacy", name: "tabs", requiredCapability: "tabs_v1")
+        }
+        #expect(try await bridge.poll(legacy).commands.isEmpty)
+        let modern = WorkspaceBrowserBinding(bridgeId: UUID().uuidString, agentId: "agent", sessionId: "modern", capabilities: ["tabs_v1"])
+        try await bridge.register(modern)
+        let task = Task { try await bridge.run(sessionID: "modern", name: "tabs", input: .object(["operation": .string("list")]), requiredCapability: "tabs_v1") }
+        let command = try await next(bridge, modern)
+        #expect(command.name == "tabs")
+        try await bridge.complete(.init(binding: modern, commandId: command.id, data: .object(["workspace": .object(["tabs": .array([])])]), imageBase64: nil, error: nil))
+        #expect(try await task.value.asObject?["workspace"] != nil)
+        let data = Data("{\"bridgeId\":\"x\",\"agentId\":\"a\",\"sessionId\":\"s\"}".utf8)
+        #expect(try JSONDecoder().decode(WorkspaceBrowserBinding.self, from: data).capabilities == nil)
+    }
+}

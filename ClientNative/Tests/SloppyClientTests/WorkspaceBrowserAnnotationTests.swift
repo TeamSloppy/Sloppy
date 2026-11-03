@@ -32,6 +32,7 @@ struct WorkspaceBrowserAnnotationTests {
         defer { browser.annotations.cancel(); window.orderOut(nil) }
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
+        try server.allowHTTP(in: browser)
         let runtime = browser.ensureBrowserRuntime()
         _ = try await runtime.open(url: url.absoluteString)
         try await Task.sleep(for: .milliseconds(200))
@@ -110,6 +111,7 @@ struct WorkspaceBrowserAnnotationTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let browser = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: browser)
         browser.open(url, inNewTab: true)
         let page = try #require(browser.selectedPage)
         let host = NSHostingView(rootView:

@@ -6,6 +6,32 @@ import Testing
 @Suite("Chat delivery reliability", .serialized)
 @MainActor
 struct ChatDeliveryReliabilityTests {
+    @Test("streamed response blocks alternate with tool batches in arrival order")
+    func chronologicalResponseBlocks() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        func event(_ message: ChatMessage) {
+            fixture.model.handleStreamUpdate(.init(kind: .sessionEvent, cursor: 0, message: message), agentId: "agent", sessionId: "one")
+        }
+        func delta(_ text: String) {
+            fixture.model.handleStreamUpdate(.init(kind: .sessionDelta, cursor: 0, messageText: text), agentId: "agent", sessionId: "one")
+        }
+        event(.init(id: "tool-1", role: .system, segments: [.init(kind: .toolCall, title: "read")]))
+        delta("First response")
+        event(.init(id: "response-1", role: .assistant, segments: [.init(kind: .text, text: "First response")]))
+        event(.init(id: "tool-2", role: .system, segments: [.init(kind: .toolCall, title: "write")]))
+        delta("Second response")
+        // A repeated persisted message must not consume the next response's placeholder.
+        event(.init(id: "response-1", role: .assistant, segments: [.init(kind: .text, text: "First response")]))
+        event(.init(id: "response-2", role: .assistant, segments: [.init(kind: .text, text: "Second response")]))
+        event(.init(id: "tool-3", role: .system, segments: [.init(kind: .toolCall, title: "test")]))
+        #expect(fixture.model.transcript.messages.map(\.id) == ["tool-1", "response-1", "tool-2", "response-2", "tool-3"])
+        #expect(fixture.model.transcript.entries.map(\.id) == [
+            "system-group:tool-1", "message:response-1", "system-group:tool-2", "message:response-2", "system-group:tool-3",
+        ])
+        #expect(fixture.model.isAwaitingAgentResponse)
+    }
+
     @Test("history loads while the live connection is still pending")
     func historyDoesNotWaitForTheLiveStream() async throws {
         let gate = DeliveryStreamGate()
@@ -24,33 +50,33 @@ struct ChatDeliveryReliabilityTests {
         await gate.release()
     }
 
-    @Test("new drafts load the server default without changing existing chats")
-    func newDraftUsesServerApprovalDefault() async throws {
+    @Test("new drafts load the server default without changing existing chats", arguments: [ChatApprovalMode.approveForMe, .fullAccess])
+    func newDraftUsesServerApprovalDefault(mode: ChatApprovalMode) async throws {
         let fixture = try await DeliveryFixture.make()
         defer { fixture.finish() }
-        fixture.server.defaultApprovalMode = "approve_for_me"
+        fixture.server.defaultApprovalMode = mode.rawValue
         fixture.model.startNewMessage(agentID: "agent")
         try await fixture.wait { !fixture.model.isLoadingApprovalMode }
         #expect(fixture.model.selectedSessionId == nil)
-        #expect(fixture.model.selectedApprovalMode == .approveForMe)
+        #expect(fixture.model.selectedApprovalMode == mode)
         #expect(!fixture.model.hasDraftApprovalModeOverride)
         #expect(fixture.server.approvalMode(sessionId: "one") == "ask_for_approval")
     }
 
-    @Test("a draft can override the server default before its first turn")
-    func draftOverridesServerApprovalDefault() async throws {
+    @Test("a draft can override the server default before its first turn", arguments: [ChatApprovalMode.askForApproval, .fullAccess])
+    func draftOverridesServerApprovalDefault(mode: ChatApprovalMode) async throws {
         let fixture = try await DeliveryFixture.make()
         defer { fixture.finish() }
         fixture.server.defaultApprovalMode = "approve_for_me"
         fixture.model.startNewMessage(agentID: "agent")
         try await fixture.wait { !fixture.model.isLoadingApprovalMode }
-        fixture.model.selectApprovalMode(.askForApproval)
+        fixture.model.selectApprovalMode(mode)
         #expect(fixture.model.hasDraftApprovalModeOverride)
         #expect(fixture.model.sendMessage(content: "Read the project"))
         try await fixture.wait { fixture.server.creationCount == 1 }
         fixture.server.releaseCreation()
         try await fixture.wait { !fixture.server.posts.isEmpty }
-        #expect(fixture.server.approvalMode(sessionId: "created") == "ask_for_approval")
+        #expect(fixture.server.approvalMode(sessionId: "created") == mode.rawValue)
         #expect(fixture.server.defaultApprovalMode == "approve_for_me")
     }
 

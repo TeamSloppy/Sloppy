@@ -3,11 +3,12 @@ import Testing
 @testable import SloppyClientCore
 
 struct ChatApprovalDefaultConfigTests {
-    @Test func configDefaultIsBackwardCompatibleAndRoundTrips() throws {
+    @Test(arguments: ChatApprovalMode.allCases)
+    func configDefaultIsBackwardCompatibleAndRoundTrips(mode: ChatApprovalMode) throws {
         var config = SloppyConfig()
-        config.defaultChatApprovalMode = .approveForMe
+        config.defaultChatApprovalMode = mode
         let encoded = try JSONEncoder().encode(config)
-        #expect(try JSONDecoder().decode(SloppyConfig.self, from: encoded).defaultChatApprovalMode == .approveForMe)
+        #expect(try JSONDecoder().decode(SloppyConfig.self, from: encoded).defaultChatApprovalMode == mode)
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object["defaultChatApprovalMode"] = nil
         let legacy = try JSONSerialization.data(withJSONObject: object)

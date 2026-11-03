@@ -112,6 +112,7 @@ extension CoreService: ToolApprovalBridge {
         forcePerInvocation: Bool = false,
         timeoutSeconds: TimeInterval = ToolApprovalService.defaultTimeoutSeconds
     ) async -> ToolApprovalWaitResult? {
+        guard sessionApprovalMode(agentID: agentID, sessionID: sessionID) != .fullAccess else { return nil }
         guard requireApproval, requiresHumanApproval(toolID: request.tool, arguments: request.arguments) else {
             return nil
         }
@@ -271,6 +272,17 @@ extension CoreService: ToolApprovalBridge {
             argumentDiagnostics: request.argumentDiagnostics
         )
         let chatMode = sessionApprovalMode(agentID: agentID, sessionID: sessionID)
+        if chatMode == .fullAccess {
+            let now = Date()
+            return .approved(ToolApprovalRecord(
+                status: .approved, approvalKind: .missingAccess,
+                agentId: agentID, sessionId: sessionID, channelId: channelID, topicId: topicID,
+                tool: request.tool, arguments: request.arguments, grants: grants, reason: reason,
+                decidedBy: SessionApprovalMode.fullAccess.rawValue,
+                decisionReason: "Full Access is enabled for this chat.",
+                createdAt: now, updatedAt: now, expiresAt: now
+            ))
+        }
         let displaySessionID = toolApprovalDisplaySessionID(agentID: agentID, sessionID: sessionID)
         let record = await toolApprovalService.createPending(
             agentId: agentID,

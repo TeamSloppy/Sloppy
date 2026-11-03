@@ -31,7 +31,7 @@ struct ChatInitialLoadSourceTests {
         let source = try source
 
         #expect(source.contains("for agent in agents"))
-        #expect(source.contains("apiClient.fetchAgentSessions(agentId: agent.id)"))
+        #expect(source.contains("apiClient.fetchAgentSessions(agentId: agent.id, includeWorkers: true)"))
         #expect(source.contains("cacheStore.loadSessions(agentId: result.agentId)"))
         #expect(source.contains("ChatSessionCatalog.merge(batches)"))
     }
@@ -69,7 +69,7 @@ struct ChatInitialLoadSourceTests {
             of: "let cached = await cacheStore.loadSessions(agentId: agent.id, projectId: projectId)"
         ))
         let remoteSessions = try #require(source.range(
-            of: "let fetched = try await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId)"
+            of: "let fetched = try await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId, includeWorkers: true)"
         ))
         let cachedDetail = try #require(source.range(
             of: "if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId)"

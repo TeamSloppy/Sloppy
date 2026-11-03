@@ -6,6 +6,18 @@ import Testing
 @Suite("Chat session mutations", .serialized)
 @MainActor
 struct ChatSessionMutationTests {
+    @Test("closing a chat cancels an approval read before its URLSession is invalidated")
+    func closeCancelsQueuedApprovalRead() async throws {
+        let fixture = try MutationFixture.make()
+        fixture.model.restoreApprovalMode(agentId: "agent", sessionId: "source")
+        let read = try #require(fixture.model.approvalModeLoadTask)
+        fixture.finish()
+        #expect(!fixture.model.isLoadingApprovalMode)
+        await read.value
+        #expect(fixture.model.approvalModeErrorMessage == nil)
+        #expect(fixture.model.approvalModeLoadTask == nil)
+    }
+
     @Test("forking a response sends an immutable history boundary and preserves its scope")
     func forkUsesSelectedResponse() async throws {
         let fixture = try MutationFixture.make()

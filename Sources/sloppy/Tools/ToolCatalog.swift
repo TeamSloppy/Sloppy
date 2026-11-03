@@ -54,6 +54,10 @@ enum ToolCatalog {
     static let knownToolIDs: Set<String> = builtInRegistry.knownToolIDs
 
     private static func parameterSchema(for toolID: String) -> JSONValue {
+        if ["browser.tabs", "browser.groups", "browser.create_note", "browser.create_todo", "devices.preview"].contains(toolID),
+           let tool = builtInRegistry.tool(for: toolID), let data = try? JSONEncoder().encode(tool.parameters),
+           let schema = try? JSONDecoder().decode(JSONValue.self, from: data) { return schema }
+
         if toolID == "system.search_tools", let data = try? JSONEncoder().encode(SystemSearchToolsTool().parameters),
            let schema = try? JSONDecoder().decode(JSONValue.self, from: data) { return schema }
         if toolID == "long_chat.delegate", let data = try? JSONEncoder().encode(LongChatTool(action: "delegate").parameters),

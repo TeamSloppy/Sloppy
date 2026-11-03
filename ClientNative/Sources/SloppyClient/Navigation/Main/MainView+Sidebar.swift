@@ -73,6 +73,15 @@ extension MainView {
     @ViewBuilder
     func workspaceScreen(_ tab: WorkspaceDockTab) -> some View {
         switch tab.kind {
+        case .devices:
+#if os(macOS)
+            if let devices = tab.devices {
+                WorkspaceDevicePanelView(session: devices, onAnnotate: deviceAnnotationReceiver)
+            }
+#else
+            ContentUnavailableView("Devices require a Mac", systemImage: "iphone.gen3",
+                                   description: Text("Open Devices in Sloppy on your Mac to use local simulators and emulators."))
+#endif
         case .browser:
             if let browser = tab.browser {
                 WorkspaceBrowserPanelView(
@@ -121,6 +130,11 @@ extension MainView {
     var browserAnnotationReceiver: (@MainActor () -> (@MainActor (ChatComposerAttachment) -> Bool))? {
         guard let chat = activeChatViewModel else { return nil }
         return { chat.makeBrowserAnnotationReceiver() }
+    }
+
+    var deviceAnnotationReceiver: (@MainActor () -> (@MainActor (ChatComposerAttachment) -> Bool))? {
+        guard let chat = activeChatViewModel else { return nil }
+        return { chat.makeImageAnnotationReceiver() }
     }
 
     @ViewBuilder

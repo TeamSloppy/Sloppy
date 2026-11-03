@@ -3,6 +3,7 @@ import SloppyClientCore
 
 struct DesktopResponseView: View {
     @Bindable var model: DesktopCompanionModel
+    @State private var approvalContentHeight: CGFloat = 44
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -39,6 +40,24 @@ struct DesktopResponseView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Tool approval required").font(.caption.weight(.semibold))
                     Text(approval.tool ?? "Tool").font(.caption)
+                    let details = ToolApprovalPresentation(approval: approval)
+                    if approvalContentHeight > 160 {
+                        Label("Scroll for full details", systemImage: "arrow.up.and.down")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    ScrollView(.vertical) {
+                        approvalDetails(details)
+                            .onGeometryChange(for: CGFloat.self) { ceil($0.size.height) } action: { height in
+                                guard height.isFinite else { return }
+                                approvalContentHeight = max(24, height)
+                            }
+                    }
+                    .id(approval.id)
+                    .frame(height: min(160, approvalContentHeight))
+                    if let cwd = details.workingDirectory {
+                        Text(verbatim: "Working directory: \(cwd)").font(.caption).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     HStack {
                         Button("Allow") { Task { await model.approve(true) } }
                         Button("Deny") { Task { await model.approve(false) } }
@@ -94,6 +113,20 @@ struct DesktopResponseView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("pointer.response")
+    }
+
+    private func approvalDetails(_ details: ToolApprovalPresentation) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: details.content)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("pointer.approval.command")
+            ForEach(Array(details.accessDetails.enumerated()), id: \.offset) { _, access in
+                Text(verbatim: access).font(.caption).textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var history: some View {

@@ -1,0 +1,20 @@
+EasyList content blocking rules
+Copyright: The EasyList authors (https://easylist.to/).
+
+Source: https://easylist-downloads.adblockplus.org/easylist_content_blocker.json
+Retrieved: 2026-11-01
+Bundled rules: 45,962
+Changes: JSON whitespace removed; rules and their order are unchanged.
+
+This copy of the filter data is distributed under Creative Commons
+Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0).
+https://creativecommons.org/licenses/by-sa/3.0/
+https://creativecommons.org/licenses/by-sa/3.0/legalcode
+
+Upstream licensing information: https://easylist.to/pages/licence.html
+Upstream list repository: https://github.com/easylist/easylist
+WebKit-format conversion and distribution: https://gitlab.com/eyeo/filterlists/contentblockerlists
+
+The filter data is separate from Sloppy's source code. Sloppy downloads only
+declarative filter rules from the fixed HTTPS source above. The latest list
+is validated and compiled by WebKit before it replaces the cached snapshot.

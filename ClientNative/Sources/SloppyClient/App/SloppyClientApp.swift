@@ -65,9 +65,15 @@ private struct WorkspaceCommands: Commands {
     @FocusedValue(\.toggleMainSidebar) private var toggleMainSidebar
     @FocusedValue(\.toggleWorkspaceTerminal) private var toggleWorkspaceTerminal
     @FocusedValue(\.projectModeCommands) private var projectModeCommands
+    @FocusedValue(\.workBrowseWorkspace) private var workBrowseWorkspace
 
     var body: some Commands {
         CommandMenu("Workspace") {
+            WorkBrowseToggleButton(workspace: workBrowseWorkspace)
+            BrowserReloadWithoutCacheButton(workspace: workBrowseWorkspace)
+            Divider()
+            BrowserPageCommandButtons(workspace: workBrowseWorkspace)
+            Divider()
             SidebarToggleButton(action: toggleMainSidebar)
             Button("Toggle Terminal") {
                 toggleWorkspaceTerminal?()

@@ -6,6 +6,19 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension ChatScreenViewModel {
+    @discardableResult
+    public func summarizeBrowserPage(_ page: ChatComposerQuote) -> Bool {
+        guard let agent = selectedAgent, page.browserSource != nil,
+              !isSending, !isAwaitingAgentResponse, activeInputRequest == nil,
+              approvalModeAllowsSending else { return false }
+        sendMessageImmediately(
+            content: "Summarize this page in my language, highlighting the main points and useful conclusions.",
+            attachments: [], quotes: [page], agent: agent, clearsComposer: false, references: [],
+            restoresComposerOnFailure: false
+        )
+        return true
+    }
+
     public func prepareLaunch() {
         guard let agent = selectedAgent, selectedSessionId != nil,
               !isSending, !isAwaitingAgentResponse, activeInputRequest == nil,
@@ -65,7 +78,8 @@ extension ChatScreenViewModel {
         quotes: [ChatComposerQuote],
         agent: APIAgentRecord,
         clearsComposer: Bool = true,
-        references: [ChatComposerReference]? = nil
+        references: [ChatComposerReference]? = nil,
+        restoresComposerOnFailure: Bool = true
     ) {
         let references = references ?? composerDraft.references
         let messageContent = ChatComposerQuote.messageContent(content, quotes: quotes, attachments: attachments)
@@ -129,7 +143,8 @@ extension ChatScreenViewModel {
                         await postMessage(
                             content: messageContent, draftContent: content, attachments: attachments,
                             quotes: quotes, agentId: agent.id, sessionId: summary.id, optimistic: optimistic,
-                            selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references
+                            selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references,
+                            restoresComposerOnFailure: restoresComposerOnFailure
                         )
                         return
                     }
@@ -137,6 +152,12 @@ extension ChatScreenViewModel {
                     rememberCurrentModelSelection(agentId: agent.id, sessionId: summary.id)
                     beginStreamingAssistantTurn(for: summary.id)
                     settings.lastSessionId = summary.id
+                    if !clearsComposer {
+                        composerDraftsByKey["session:\(summary.id)"] = StoredComposerDraft(
+                            text: composerDraft.text, attachments: composerAttachments,
+                            quotes: composerQuotes, references: composerDraft.references
+                        )
+                    }
                     syncComposerDraft(
                         toSessionId: summary.id,
                         projectId: activeProjectId,
@@ -151,13 +172,16 @@ extension ChatScreenViewModel {
                         quotes: quotes,
                         agentId: agent.id,
                         sessionId: summary.id,
-                        optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references
+                        optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references,
+                        restoresComposerOnFailure: restoresComposerOnFailure
                     )
                 } catch {
                     guard selectedAgent?.id == agent.id, selectedSessionId == nil,
                           activeComposerDraftKey == originDraftKey else {
                         if let originDraftKey {
-                            composerDraftsByKey[originDraftKey] = StoredComposerDraft(text: content, attachments: attachments, quotes: quotes, references: references)
+                            if restoresComposerOnFailure {
+                                composerDraftsByKey[originDraftKey] = StoredComposerDraft(text: content, attachments: attachments, quotes: quotes, references: references)
+                            }
                             let key = deliveryKey(agentId: agent.id, sessionId: originDraftKey)
                             suspendedDeliveries[key]?.isSending = false
                             suspendedDeliveries[key]?.isAwaitingResponse = false
@@ -169,7 +193,9 @@ extension ChatScreenViewModel {
                     isAwaitingAgentResponse = false
                     activeRunStatus = nil
                     transcript.removeAll { $0.id == optimistic.id }
-                    restoreComposerDraft(content: content, attachments: attachments, quotes: quotes, references: references)
+                    if restoresComposerOnFailure {
+                        restoreComposerDraft(content: content, attachments: attachments, quotes: quotes, references: references)
+                    }
                     sendErrorMessage = "Could not create session: \(error.localizedDescription)"
                 }
             }
@@ -185,7 +211,8 @@ extension ChatScreenViewModel {
                 quotes: quotes,
                 agentId: agent.id,
                 sessionId: sessionId,
-                optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references
+                optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references,
+                restoresComposerOnFailure: restoresComposerOnFailure
             )
         }
     }
@@ -261,7 +288,8 @@ extension ChatScreenViewModel {
         optimistic: ChatMessage,
         selectedModel: String?,
         reasoningEffort: String?,
-        references: [ChatComposerReference] = []
+        references: [ChatComposerReference] = [],
+        restoresComposerOnFailure: Bool = true
     ) async {
         let key = deliveryKey(agentId: agentId, sessionId: sessionId)
         defer {
@@ -319,15 +347,19 @@ extension ChatScreenViewModel {
                 transcript.removeAll { $0.id == optimistic.id }
                 isAwaitingAgentResponse = false
                 activeRunStatus = nil
-                restoreComposerDraft(content: draftContent, attachments: attachments, quotes: quotes, references: references)
+                if restoresComposerOnFailure {
+                    restoreComposerDraft(content: draftContent, attachments: attachments, quotes: quotes, references: references)
+                }
                 sendErrorMessage = errorMessage
             } else {
                 suspendedDeliveries[key]?.optimisticMessages.removeAll { $0.id == optimistic.id }
                 suspendedDeliveries[key]?.isAwaitingResponse = false
                 suspendedDeliveries[key]?.errorMessage = errorMessage
-                composerDraftsByKey["session:\(sessionId)"] = StoredComposerDraft(
-                    text: draftContent, attachments: attachments, quotes: quotes, references: references
-                )
+                if restoresComposerOnFailure {
+                    composerDraftsByKey["session:\(sessionId)"] = StoredComposerDraft(
+                        text: draftContent, attachments: attachments, quotes: quotes, references: references
+                    )
+                }
             }
         }
     }

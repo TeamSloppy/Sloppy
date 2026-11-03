@@ -666,9 +666,9 @@ func reasoningEffortSliderRendersSelectionAndFitsWidth() {
 func reasoningEffortSelectorDefaultsToMediumAndClampsMovement() {
     #expect(SloppyTUIReasoningEffortSelector.index(for: nil) == SloppyTUIReasoningEffortSelector.index(for: .medium))
     #expect(SloppyTUIReasoningEffortSelector.effort(at: -10) == .low)
-    #expect(SloppyTUIReasoningEffortSelector.effort(at: 10) == .high)
+    #expect(SloppyTUIReasoningEffortSelector.effort(at: 10) == .max)
     #expect(SloppyTUIReasoningEffortSelector.movedIndex(from: 0, delta: -1) == 0)
-    #expect(SloppyTUIReasoningEffortSelector.movedIndex(from: 2, delta: 1) == 2)
+    #expect(SloppyTUIReasoningEffortSelector.movedIndex(from: 4, delta: 1) == 4)
 }
 
 @Test

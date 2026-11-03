@@ -9,6 +9,7 @@ struct MobileBrowserMenu: View {
     let onWork: () -> Void
     let onCollect: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var showsSiteSettings = false
     @State private var showsNewGroup = false
     @State private var groupName = ""
 
@@ -17,6 +18,8 @@ struct MobileBrowserMenu: View {
             List {
                 if let tab = state.selectedTab, let url = tab.url {
                     Section {
+                        Button("Site Settings", systemImage: "slider.horizontal.3") { showsSiteSettings = true }
+                            .accessibilityIdentifier("browser-site-settings")
                         ShareLink(item: url)
                         Button {
                             state.library.toggleBookmark(url: url, title: tab.title)
@@ -26,6 +29,8 @@ struct MobileBrowserMenu: View {
                     } header: { Text(url.host ?? tab.title).textCase(nil) }
                 }
                 Section {
+                    Button { onLibrary(.adBlocking) } label: { Label("Ad Blocking", systemImage: "shield.lefthalf.filled") }
+                        .accessibilityIdentifier("browser-ad-blocking")
                     Button { onLibrary(.time) } label: { Label("Time & Focus", systemImage: "timer") }
                         .accessibilityIdentifier("browser-time-button")
                     Button { onLibrary(.notes) } label: { Label("Notes", systemImage: "note.text") }
@@ -62,6 +67,9 @@ struct MobileBrowserMenu: View {
                 }
                 .disabled(groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+        }
+        .sheet(isPresented: $showsSiteSettings) {
+            if let url = state.selectedTab?.url { BrowserSiteSettingsView(url: url, permissions: state.sitePermissions, page: state.selectedPage) }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)

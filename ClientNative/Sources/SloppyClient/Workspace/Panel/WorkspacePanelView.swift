@@ -355,6 +355,7 @@ enum WorkspaceSidePanelItem: String, CaseIterable, Identifiable {
     case browser
     case files
     case sideChat
+    case devices
 
     var id: Self { self }
 
@@ -365,6 +366,7 @@ enum WorkspaceSidePanelItem: String, CaseIterable, Identifiable {
         case .browser: "Browser"
         case .files: "Files"
         case .sideChat: "Side chat"
+        case .devices: "Devices"
         }
     }
 
@@ -375,6 +377,7 @@ enum WorkspaceSidePanelItem: String, CaseIterable, Identifiable {
         case .browser: "globe"
         case .files: "folder"
         case .sideChat: "bubble.left.and.bubble.right"
+        case .devices: "iphone.gen3"
         }
     }
 
@@ -388,7 +391,7 @@ enum WorkspaceSidePanelItem: String, CaseIterable, Identifiable {
     var requiresProject: Bool {
         switch self {
         case .review, .files: true
-        case .terminal, .browser, .sideChat: false
+        case .terminal, .browser, .sideChat, .devices: false
         }
     }
 }

@@ -5,106 +5,66 @@ import SloppyClientUI
 struct ChatChangeSummaryView: View {
     let sourceControl: ProjectWorkingTreeSourceControlResponse
 
-    @State private var isExpanded = true
     @Environment(\.theme) private var theme
-
-    private var fileChanges: [ProjectSourceControlFileChange] {
-        sourceControl.fileChanges
-    }
+    @Environment(\.workingTreeReviewHandler) private var reviewHandler
 
     var body: some View {
-        let c = theme.colors
-        let sp = theme.spacing
+        if sourceControl.hasChanges {
+            Button {
+                reviewHandler?(sourceControl, nil, nil)
+            } label: {
+                HStack(spacing: theme.spacing.m) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: theme.typography.heading, weight: .medium))
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .background(theme.colors.surfaceGlass, in: RoundedRectangle(cornerRadius: 12))
 
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: sp.m) {
-                Image(systemName: "doc.badge.plus")
-                    .font(.system(size: theme.typography.heading, weight: .medium))
-                    .foregroundColor(c.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .background(c.surfaceGlass, in: RoundedRectangle(cornerRadius: 12))
-
-                VStack(alignment: .leading, spacing: sp.xs) {
-                    Text(title)
-                        .font(.system(size: theme.typography.body, weight: .semibold))
-                        .foregroundColor(c.textPrimary)
-
-                    changeCounts(added: sourceControl.linesAdded, deleted: sourceControl.linesDeleted)
-                }
-
-                Spacer(minLength: sp.s)
-
-                if !fileChanges.isEmpty {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            isExpanded.toggle()
+                    VStack(alignment: .leading, spacing: theme.spacing.xs) {
+                        Text(title)
+                            .font(.system(size: theme.typography.body, weight: .semibold))
+                            .foregroundStyle(theme.colors.textPrimary)
+                        HStack(spacing: theme.spacing.xs) {
+                            if sourceControl.linesAdded > 0 {
+                                Text("+\(sourceControl.linesAdded)")
+                                    .foregroundStyle(theme.colors.statusDone)
+                            }
+                            if sourceControl.linesDeleted > 0 {
+                                Text("-\(sourceControl.linesDeleted)")
+                                    .foregroundStyle(theme.colors.statusBlocked)
+                            }
                         }
-                    } label: {
-                        HStack(spacing: sp.xs) {
-                            Text("Review")
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: theme.typography.micro, weight: .semibold))
-                        }
+                        .font(.system(size: theme.typography.caption, weight: .medium, design: .monospaced))
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityLabel(isExpanded ? "Hide changed files" : "Review changed files")
+                    Spacer(minLength: theme.spacing.s)
+                    Text("Review")
+                        .font(.callout)
+                        .foregroundStyle(theme.colors.textSecondary)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(theme.colors.textMuted)
                 }
+                .padding(theme.spacing.m)
+                .contentShape(Rectangle())
             }
-            .padding(sp.m)
-
-            if isExpanded, !fileChanges.isEmpty {
-                Divider()
-                    .overlay(c.border)
-
-                VStack(alignment: .leading, spacing: sp.m) {
-                    ForEach(fileChanges) { change in
-                        fileRow(change)
-                    }
-                }
-                .padding(sp.m)
+            .buttonStyle(.plain)
+            .disabled(reviewHandler == nil)
+            .background(theme.colors.surfaceRaised.opacity(0.72 as CGFloat))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(theme.colors.borderBold.opacity(0.8 as CGFloat), lineWidth: theme.borders.thin)
+                    .allowsHitTesting(false)
             }
+            .accessibilityLabel("\(title), review changes")
+            .accessibilityIdentifier("chat.change-summary")
         }
-        .background(c.surfaceRaised.opacity(0.72 as CGFloat))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(c.borderBold.opacity(0.8 as CGFloat), lineWidth: theme.borders.thin)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("chat.change-summary")
     }
 
     private var title: String {
-        guard !fileChanges.isEmpty else { return "Edited files" }
-        return "Edited \(fileChanges.count) \(fileChanges.count == 1 ? "file" : "files")"
-    }
-
-    private func fileRow(_ change: ProjectSourceControlFileChange) -> some View {
-        HStack(spacing: theme.spacing.s) {
-            Text(change.path)
-                .font(.system(size: theme.typography.caption, design: .monospaced))
-                .foregroundColor(theme.colors.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            Spacer(minLength: theme.spacing.s)
-
-            changeCounts(added: change.linesAdded, deleted: change.linesDeleted)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(change.path), \(change.linesAdded) additions, \(change.linesDeleted) deletions")
-    }
-
-    private func changeCounts(added: Int, deleted: Int) -> some View {
-        HStack(spacing: theme.spacing.xs) {
-            Text("+\(added)")
-                .foregroundColor(theme.colors.statusDone)
-            Text("-\(deleted)")
-                .foregroundColor(theme.colors.statusBlocked)
-        }
-        .font(.system(size: theme.typography.caption, weight: .medium, design: .monospaced))
-        .fixedSize()
+        let count = sourceControl.fileChanges.count
+        guard count > 0 else { return "Edited files" }
+        return "Edited \(count) \(count == 1 ? "file" : "files")"
     }
 }
 
@@ -116,15 +76,26 @@ struct ChatComposerChangeSummaryView: View {
     var body: some View {
         let title = Self.title(fileCount: sourceControl.fileChanges.count)
 
-        return HStack(spacing: theme.spacing.xs) {
+        return Group {
+            if sourceControl.hasChanges {
+                summary(title: title)
+            }
+        }
+    }
+
+    private func summary(title: String) -> some View {
+        HStack(spacing: theme.spacing.xs) {
             Text(title)
                 .foregroundColor(theme.colors.textSecondary)
 
-            Text("+\(sourceControl.linesAdded)")
-                .foregroundColor(theme.colors.statusDone)
-
-            Text("-\(sourceControl.linesDeleted)")
-                .foregroundColor(theme.colors.statusBlocked)
+            if sourceControl.linesAdded > 0 {
+                Text("+\(sourceControl.linesAdded)")
+                    .foregroundColor(theme.colors.statusDone)
+            }
+            if sourceControl.linesDeleted > 0 {
+                Text("-\(sourceControl.linesDeleted)")
+                    .foregroundColor(theme.colors.statusBlocked)
+            }
         }
         .font(.system(size: theme.typography.body, weight: .medium))
         .padding(.horizontal, theme.spacing.m)

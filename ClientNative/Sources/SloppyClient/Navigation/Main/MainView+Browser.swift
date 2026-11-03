@@ -27,6 +27,7 @@ extension MainView {
         }
 #if os(macOS)
         .focusedSceneValue(\.toggleMainSidebar, ToggleMainSidebarAction(perform: toggleMainSidebar))
+        .focusedSceneValue(\.workBrowseWorkspace, embedsBrowser ? browserWorkspace : nil)
 #endif
     }
 
@@ -39,17 +40,19 @@ extension MainView {
     }
 
     var workBrowsePicker: some View {
-        Picker("Mode", selection: $browserWorkspace.isBrowsing) {
+        @Bindable var browserWorkspace = browserWorkspace
+
+        return Picker("Mode", selection: $browserWorkspace.isBrowsing) {
             Label("Work", systemImage: "briefcase").tag(false)
             Label("Browse", systemImage: "globe").tag(true)
         }
         .pickerStyle(.segmented)
         .frame(maxWidth: 220)
 #if os(macOS)
-        .glassEffect(.regular, in: Capsule())
+        .help("Switch between Work and Browse (⇧⌘B)")
+        .modifier(BrowserToolbarSurface())
         .padding(.horizontal, 16)
         .padding(.top, 0)
-        .padding(.bottom, 8)
 #endif
         .accessibilityIdentifier("workspace-mode-picker")
         .onChange(of: browserWorkspace.isBrowsing) { _, _ in browserWorkspace.checkpoint() }

@@ -6,6 +6,40 @@ import SloppyClientCore
 @Suite("ChatTranscriptState")
 @MainActor
 struct ChatTranscriptStateTests {
+    @Test("recovered replies retain their history position between tools with equal timestamps")
+    func equalTimestampHistoryBoundaries() {
+        let transcript = ChatTranscriptState()
+        let date = Date(timeIntervalSince1970: 10)
+        func tool(_ id: String) -> ChatMessage {
+            .init(id: id, role: .system, segments: [.init(kind: .toolCall, title: id)], createdAt: date)
+        }
+        func reply(_ id: String) -> ChatMessage {
+            .init(id: id, role: .assistant, segments: [.init(kind: .text, text: id)], createdAt: date)
+        }
+        transcript.replaceAll([tool("one"), tool("two")])
+        let history = [tool("one"), reply("first"), tool("two"), reply("second"), tool("three")]
+        transcript.reconcile(with: history)
+        #expect(transcript.messages == history)
+        #expect(transcript.entries.count == 5)
+        transcript.reconcile(with: history)
+        #expect(transcript.messages == history)
+    }
+
+    @Test("text after an activity segment starts a new response without moving earlier text")
+    func streamingAfterActivityPreservesSegmentOrder() {
+        let transcript = ChatTranscriptState()
+        transcript.append(.init(id: "mixed", role: .assistant, segments: [
+            .init(kind: .text, text: "First"), .init(kind: .toolCall, title: "read"),
+        ]))
+        transcript.appendStreamingAssistantText("Second", messageId: "mixed")
+        let precedingEntries = Array(transcript.entries.prefix(2))
+        transcript.appendStreamingAssistantText("!", messageId: "mixed")
+        #expect(transcript.messages.first?.segments.map(\.text) == ["First", nil, "Second!"])
+        #expect(transcript.entries.count == 3)
+        #expect(Set(transcript.entries.map(\.id)).count == 3)
+        #expect(Array(transcript.entries.prefix(2)) == precedingEntries)
+    }
+
     @Test("streamed text keeps thinking inside activity without duplicating it in the reply")
     func streamingMixedMessagePreservesActivityGroup() {
         let transcript = ChatTranscriptState()

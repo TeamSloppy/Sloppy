@@ -5,16 +5,17 @@ import Testing
 
 @Suite("Chat approval defaults")
 struct SessionApprovalDefaultsTests {
-    @Test func configurationRemainsBackwardCompatible() throws {
+    @Test(arguments: [SessionApprovalMode.approveForMe, .fullAccess])
+    func configurationRemainsBackwardCompatible(mode: SessionApprovalMode) throws {
         let encoded = try JSONEncoder().encode(CoreConfig.test)
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object["defaultChatApprovalMode"] = nil
         let legacy = try JSONSerialization.data(withJSONObject: object)
         #expect(try JSONDecoder().decode(CoreConfig.self, from: legacy).defaultChatApprovalMode == nil)
-        object["defaultChatApprovalMode"] = "approve_for_me"
+        object["defaultChatApprovalMode"] = mode.rawValue
         let chosen = try JSONDecoder().decode(CoreConfig.self, from: JSONSerialization.data(withJSONObject: object))
-        #expect(chosen.defaultChatApprovalMode == .approveForMe)
-        #expect(try JSONDecoder().decode(CoreConfig.self, from: JSONEncoder().encode(chosen)).defaultChatApprovalMode == .approveForMe)
+        #expect(chosen.defaultChatApprovalMode == mode)
+        #expect(try JSONDecoder().decode(CoreConfig.self, from: JSONEncoder().encode(chosen)).defaultChatApprovalMode == mode)
         object["defaultChatApprovalMode"] = "unsupported"
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(CoreConfig.self, from: JSONSerialization.data(withJSONObject: object))

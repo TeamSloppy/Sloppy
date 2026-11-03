@@ -19,6 +19,7 @@ struct BrowserSidebarModeRenderingTests {
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         state.open(url, inNewTab: true)
         let tab = try #require(state.selectedID)
         let page = try #require(state.selectedPage)
@@ -74,6 +75,7 @@ struct BrowserSidebarModeRenderingTests {
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
+        try server.allowHTTP(in: state)
         state.open(url, inNewTab: true)
         let noteID = state.organizer.createNote()
         state.sidebarDrafts.noteSelection = noteID

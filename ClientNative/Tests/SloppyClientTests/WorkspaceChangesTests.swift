@@ -9,6 +9,8 @@ struct WorkspaceChangesTests {
     @Test func loadsEveryDirectoryInWorkspaceOrderAndTotalsTheirChanges() async throws {
         let model = try await workspaceChangesModel(projectID: "workspace")
         #expect(model.directoryChanges.map(\.path) == ["/work/first", "/work/second & third"])
+        #expect(model.directoryChanges.map(\.name) == ["first", "second & third"])
+        #expect(!model.areChangesExpanded)
         #expect(model.directoryChanges.map { $0.sourceControl?.fileChanges.first?.path } == ["shared.swift", "shared.swift"])
         #expect(model.directoryChanges.map { $0.sourceControl?.branch } == ["first", "second"])
         #expect(model.changesLinesAdded == 7)
@@ -120,17 +122,20 @@ private final class WorkspaceChangesURLProtocol: URLProtocol, @unchecked Sendabl
 import AppKit
 import SwiftUI
 import SloppyClientUI
+import SloppyFeatureChat
 import SloppyUITestSupport
 
 @Suite("Workspace changes interaction", .serialized, .appKitUI, .appKitIsolation)
 @MainActor
 struct WorkspaceChangesInteractionTests {
-    @Test func extractedDesktopCardCollapsesAndExpandsAfterRefresh() async throws {
+    @Test func extractedDesktopCardStartsCollapsedAndPreservesExpansionAfterRefresh() async throws {
         AppKitTestAccessibility.enable()
         let model = try await workspaceChangesModel(projectID: "workspace")
+        var opened: ProjectWorkingTreeSourceControlResponse?
         // The inspector renders this property without mounting the environment view's body.
         let host = NSHostingView(rootView: AnyView(WorkspaceChangesCardFixture(model: model)
-            .theme(.sloppyDark).preferredColorScheme(.dark)))
+            .theme(.sloppyDark).preferredColorScheme(.dark)
+            .environment(\.workingTreeReviewHandler, { sourceControl, _, _ in opened = sourceControl })))
         let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 304, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -143,20 +148,65 @@ struct WorkspaceChangesInteractionTests {
         }
         try capture(host, name: "workspace-changes-initial.png")
         let directoryID = "workspace.changes.directory./work/second & third"
-        #expect(AppKitTestAccessibility.element(in: host, identifier: directoryID) != nil)
-        let toggle = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace.changes.toggle"))
-        #expect(AppKitTestAccessibility.press(toggle))
-        try await Task.sleep(for: .milliseconds(200))
         #expect(!model.areChangesExpanded)
         #expect(AppKitTestAccessibility.element(in: host, identifier: directoryID) == nil)
-        try capture(host, name: "workspace-changes-collapsed.png")
-        await model.refreshEnvironment()
-        #expect(!model.areChangesExpanded)
+        let toggle = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace.changes.toggle"))
         #expect(AppKitTestAccessibility.press(toggle))
         try await Task.sleep(for: .milliseconds(200))
         #expect(model.areChangesExpanded)
         #expect(AppKitTestAccessibility.element(in: host, identifier: directoryID) != nil)
         try capture(host, name: "workspace-changes-expanded.png")
+        let directoryButton = try #require(AppKitTestAccessibility.element(in: host,
+            identifier: "workspace.changes.open./work/second & third"))
+        #expect(AppKitTestAccessibility.press(directoryButton))
+        #expect(opened == model.directoryChanges.last?.sourceControl)
+        await model.refreshEnvironment()
+        #expect(model.areChangesExpanded)
+        #expect(AppKitTestAccessibility.press(toggle))
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!model.areChangesExpanded)
+        #expect(AppKitTestAccessibility.element(in: host, identifier: directoryID) == nil)
+        try capture(host, name: "workspace-changes-collapsed.png")
+    }
+
+    @Test func directoryOpensDiffReviewAndDoneClosesIt() async throws {
+        AppKitTestAccessibility.enable()
+        let model = try await workspaceChangesModel(projectID: "workspace")
+        model.areChangesExpanded = true
+        let host = NSHostingView(rootView: WorkspaceChangesCardFixture(model: model)
+            .modifier(WorkspaceChangesReviewPresenter())
+            .theme(.sloppyDark).preferredColorScheme(.dark))
+        let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 304, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            if let sheet = window.sheets.first { window.endSheet(sheet) }
+            window.contentView = nil
+            window.close()
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        let button = try #require(AppKitTestAccessibility.element(in: host,
+            identifier: "workspace.changes.open./work/second & third"))
+        #expect(AppKitTestAccessibility.press(button))
+        for _ in 0..<30 {
+            if window.sheets.first != nil { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        let sheet = try #require(window.sheets.first)
+        let content = try #require(sheet.contentView)
+        for _ in 0..<30 {
+            if AppKitTestAccessibility.element(in: content, identifier: "code-review-diff") != nil { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        #expect(AppKitTestAccessibility.element(in: content, identifier: "code-review-diff") != nil)
+        try capture(content, name: "workspace-changes-review.png")
+        let done = try #require(AppKitTestAccessibility.element(in: content,
+            identifier: "workspace.changes.review.done"))
+        #expect(AppKitTestAccessibility.press(done))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(window.sheets.isEmpty)
     }
 
     private func capture(_ host: NSView, name: String) throws {

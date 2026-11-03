@@ -11,6 +11,58 @@ import SloppyUITestSupport
 @Suite("Desktop notch rendering", .serialized, .appKitUI, .appKitIsolation)
 @MainActor
 struct DesktopNotchRenderingTests {
+    @Test func subagentGroupsExpandAndOpenTheExactChildChat() async throws {
+        AppKitTestAccessibility.enable()
+        let state = SloppyDesktopOverlayState()
+        state.notchGeometry = SloppyDesktopNotchGeometry(hardwareWidth: 200, hardwareHeight: 32)
+        state.agentPalettes = ["yadev": "mint"]
+        state.setRecentChats([
+            .init(id: "yadev/review", agentID: "yadev", sessionID: "review",
+                title: "Review mobile presentation changes", agentName: "Yadev", updatedAt: Date(timeIntervalSince1970: 1),
+                projectName: "Promozavr"),
+            .init(id: "yadev/ios", agentID: "yadev", sessionID: "ios",
+                title: "Check iOS lifecycle coverage", agentName: "Yadev", updatedAt: Date(timeIntervalSince1970: 10),
+                parentSessionID: "review", kind: "worker"),
+            .init(id: "yadev/android", agentID: "yadev", sessionID: "android",
+                title: "Verify Android regressions", agentName: "Yadev", updatedAt: Date(timeIntervalSince1970: 8),
+                parentSessionID: "review", kind: "worker"),
+            .init(id: "yadev/logs", agentID: "yadev", sessionID: "logs",
+                title: "Inspect emulator logs", agentName: "Yadev", updatedAt: Date(timeIntervalSince1970: 9),
+                parentSessionID: "android", kind: "worker"),
+            .init(id: "yadev/metrics", agentID: "yadev", sessionID: "metrics",
+                title: "Update development metrics", agentName: "Yadev", updatedAt: Date(timeIntervalSince1970: 5)),
+        ])
+        state.selectSection(.chats)
+        let size = SloppyDesktopNotchView.size(for: state)
+        let host = NSHostingView(rootView: SloppyDesktopNotchView(state: state, isPointerInsidePanel: { true }))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        try await capture(host, name: "notch-subagents-collapsed")
+        #expect(state.recentChatGroups.count == 2)
+        #expect(AppKitTestAccessibility.element(in: host, identifier: "notch.session.yadev/ios") == nil)
+        let disclosure = try #require(AppKitTestAccessibility.element(in: host, identifier: "notch.session.yadev/review.subagents"))
+        #expect(AppKitTestAccessibility.press(disclosure))
+        try await capture(host, name: "notch-subagents-expanded")
+        #expect(state.selectedChat == nil)
+        #expect(AppKitTestAccessibility.element(in: host, identifier: "notch.session.yadev/ios") != nil)
+        #expect(AppKitTestAccessibility.element(in: host, identifier: "notch.session.yadev/logs") == nil)
+        let nested = try #require(AppKitTestAccessibility.element(in: host, identifier: "notch.session.yadev/android.subagents"))
+        #expect(AppKitTestAccessibility.press(nested))
+        try await capture(host, name: "notch-subagents-nested")
+        let child = try #require(AppKitTestAccessibility.element(in: host, identifier: "notch.session.yadev/logs"))
+        #expect(AppKitTestAccessibility.press(child))
+        #expect(state.selectedChat?.sessionSummary.id == "logs")
+        #expect(state.selectedChat?.sessionSummary.parentSessionId == "android")
+        state.backToChats()
+        try await capture(host, name: "notch-subagents-return")
+        #expect(state.expandedRecentChatIDs == ["yadev/review", "yadev/android"])
+    }
+
     @Test func collapsedNotchHasVisibleWingsBesideCameraHousing() async throws {
         let state = SloppyDesktopOverlayState()
         state.notchGeometry = SloppyDesktopNotchGeometry(hardwareWidth: 200, hardwareHeight: 32)

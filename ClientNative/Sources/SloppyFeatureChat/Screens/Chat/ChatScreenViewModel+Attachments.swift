@@ -8,6 +8,12 @@ import UniformTypeIdentifiers
 extension ChatScreenViewModel {
     /// Binds a browser annotation to the chat/draft that was visible when annotation began.
     public func makeBrowserAnnotationReceiver() -> @MainActor (ChatComposerAttachment) -> Bool {
+        let receive = makeImageAnnotationReceiver()
+        return { !$0.annotations.isEmpty && receive($0) }
+    }
+
+    /// Captures the destination before asynchronous screenshot capture or image editing starts.
+    public func makeImageAnnotationReceiver() -> @MainActor (ChatComposerAttachment) -> Bool {
         let draftKey = activeComposerDraftKey
         let sessionID = selectedSessionId
         let agentID = selectedAgent?.id
@@ -15,8 +21,8 @@ extension ChatScreenViewModel {
         return { [weak self] attachment in
             guard let self, activeComposerDraftKey == draftKey, selectedSessionId == sessionID,
                   selectedAgent?.id == agentID, sessionEndpoint == endpoint,
-                  attachment.mimeType == "image/png", !attachment.annotations.isEmpty,
-                  attachment.data.count <= Self.maximumAttachmentSize,
+                  attachment.mimeType == "image/png",
+                  attachment.sizeBytes <= Self.maximumAttachmentSize,
                   composerAttachments.count < Self.maximumAttachmentCount else { return false }
             composerAttachments.append(attachment)
             saveActiveComposerDraft()

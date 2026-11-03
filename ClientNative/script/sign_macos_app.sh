@@ -60,25 +60,40 @@ done
 APP_SIGNING_OPTIONS=(--preserve-metadata=entitlements)
 if [[ -n "$ENTITLEMENTS" ]]; then
     APP_SIGNING_OPTIONS=(--entitlements "$ENTITLEMENTS")
-    # Raw source plists contain Xcode variables. Only a provisioned signature can
-    # use iCloud; keep ordinary Developer ID/ad hoc builds launchable without it.
+    # Raw source plists contain Xcode variables and managed capabilities. Resolve
+    # them against the actual profile before sealing a launchable application.
     KVS_KEY="com.apple.developer.ubiquity-kvstore-identifier"
-    if /usr/libexec/PlistBuddy -c "Print :$KVS_KEY" "$ENTITLEMENTS" >/dev/null 2>&1; then
+    PASSKEY_KEY="com.apple.developer.web-browser.public-key-credential"
+    if /usr/libexec/PlistBuddy -c "Print :$KVS_KEY" "$ENTITLEMENTS" >/dev/null 2>&1 || \
+       /usr/libexec/PlistBuddy -c "Print :$PASSKEY_KEY" "$ENTITLEMENTS" >/dev/null 2>&1; then
         SIGNING_ENTITLEMENTS_DIR="$(mktemp -d)"
         trap 'rm -rf "$SIGNING_ENTITLEMENTS_DIR"' EXIT
         FILTERED_ENTITLEMENTS="$SIGNING_ENTITLEMENTS_DIR/SloppyClient.entitlements"
-        cp "$ENTITLEMENTS" "$FILTERED_ENTITLEMENTS"
-        KVS_IDENTIFIER=""
         PROFILE="$APP_PATH/Contents/embedded.provisionprofile"
-        if [[ "$IDENTITY" != "-" && -f "$PROFILE" ]]; then
-            security cms -D -i "$PROFILE" > "$SIGNING_ENTITLEMENTS_DIR/profile.plist"
-            KVS_IDENTIFIER="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:$KVS_KEY" "$SIGNING_ENTITLEMENTS_DIR/profile.plist" 2>/dev/null || true)"
+        # This profile belongs to the browser, never to Sparkle or the companion.
+        SUPPLIED_PROFILE="${MACOS_PASSKEY_PROVISIONING_PROFILE:-}"
+        if [[ -n "$SUPPLIED_PROFILE" ]]; then
+            PROFILE="$SUPPLIED_PROFILE"
         fi
-        if [[ -n "$KVS_IDENTIFIER" && "$KVS_IDENTIFIER" != *'*'* ]]; then
-            /usr/libexec/PlistBuddy -c "Set :$KVS_KEY $KVS_IDENTIFIER" "$FILTERED_ENTITLEMENTS"
-        else
-            /usr/libexec/PlistBuddy -c "Delete :$KVS_KEY" "$FILTERED_ENTITLEMENTS"
-            echo "warning: no iCloud key-value provisioning profile; browser history will stay local in this build." >&2
+        PROFILE_PLIST=""
+        if [[ "$IDENTITY" != "-" && -f "$PROFILE" ]]; then
+            PROFILE_PLIST="$SIGNING_ENTITLEMENTS_DIR/profile.plist"
+            security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
+        elif [[ -n "$SUPPLIED_PROFILE" ]]; then
+            echo "error: supplied passkey profile is missing or the signing identity is ad hoc" >&2
+            exit 1
+        fi
+        TEAM_ID="${MACOS_SIGNING_TEAM_ID:-$(awk '/DEVELOPMENT_TEAM:/ { print $2; exit }' "$SCRIPT_DIR/../project.yml")}"
+        python3 "$SCRIPT_DIR/prepare_macos_entitlements.py" "$ENTITLEMENTS" "$FILTERED_ENTITLEMENTS" \
+            "$BUNDLE_IDENTIFIER" "$TEAM_ID" "$IDENTITY" "$PROFILE_PLIST"
+        if [[ -n "$SUPPLIED_PROFILE" ]]; then
+            if [[ "$(/usr/libexec/PlistBuddy -c "Print :$PASSKEY_KEY" "$FILTERED_ENTITLEMENTS" 2>/dev/null || true)" != "true" ]]; then
+                echo "error: supplied profile does not authorize browser passkeys" >&2
+                exit 1
+            fi
+            if [[ "$PROFILE" != "$APP_PATH/Contents/embedded.provisionprofile" ]]; then
+                cp "$PROFILE" "$APP_PATH/Contents/embedded.provisionprofile"
+            fi
         fi
         APP_SIGNING_OPTIONS=(--entitlements "$FILTERED_ENTITLEMENTS")
     fi

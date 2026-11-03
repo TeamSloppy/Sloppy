@@ -1,10 +1,44 @@
 import Foundation
 import Testing
+#if canImport(Darwin)
+import Darwin
+#endif
 @testable import SloppyClientCore
 
 @Suite("Client cache store")
 @MainActor
 struct ClientCacheStoreTests {
+#if canImport(Darwin)
+    @Test("releasing a cache store closes its database file")
+    func releasingStoreClosesDatabaseFile() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .appendingPathComponent("cache-lifetime-\(UUID()).sqlite3")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        func openDatabaseFiles() throws -> Int {
+            try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").filter { entry in
+                guard let fd = Int32(entry) else { return false }
+                var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+                guard fcntl(fd, F_GETPATH, &path) == 0 else { return false }
+                let decodedPath = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                return URL(fileURLWithPath: decodedPath).resolvingSymlinksInPath().path == url.path
+            }.count
+        }
+
+        var store: ClientCacheStore? = ClientCacheStore(path: url.path)
+        await store?.cacheAgents([APIAgentRecord(id: "lifetime", displayName: "Lifetime", role: "builder")])
+        #expect(try withExtendedLifetime(store) { try openDatabaseFiles() } > 0)
+
+        store = nil
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while try openDatabaseFiles() > 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try openDatabaseFiles() == 0)
+    }
+#endif
+
     @Test("cache dates accept ISO 8601 values with and without fractional seconds")
     func cacheDateFormats() throws {
         let wholeSeconds = try #require(ClientCacheStore.cachedDate(from: "2026-09-18T08:00:00Z"))

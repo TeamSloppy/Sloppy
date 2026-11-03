@@ -717,6 +717,10 @@ public actor CoreService {
                 return await self.projectBootstrapMarkdownForAgentSession(projectID: projectID, taskID: taskID, agentID: agentID)
             }
             await self.provisionBuiltInSkillsForAllAgents()
+            await self.acpSessionManager.updateSessionFullAccessProvider { [weak self] agentID, sessionID in
+                guard let self else { return false }
+                return await self.sessionApprovalMode(agentID: agentID, sessionID: sessionID) == .fullAccess
+            }
             await self.acpSessionManager.updatePermissionNotificationSink { [weak self] agentID, sessionID, summary in
                 guard let self else { return }
                 await self.notificationService.pushToolApprovalRequired(

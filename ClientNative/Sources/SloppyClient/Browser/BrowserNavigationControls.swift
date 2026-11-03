@@ -53,6 +53,7 @@ struct BrowserNavigationControls: View {
 #if os(macOS)
         HStack(spacing: 6) {
             BrowserConnectionSecurityButton(page: state.selectedPage, requestedURL: state.selectedTab?.url)
+            BrowserContentBlockerButton(state: state)
             Button { state.presentSearch(newTab: false) } label: {
                 Text(state.selectedTab?.url?.host ?? "Search or enter an address")
                     .lineLimit(1)
@@ -183,7 +184,11 @@ struct BrowserNavigationButtons: View {
             Image(systemName: symbol).font(.system(size: 13)).frame(width: controlSize, height: controlSize).contentShape(Rectangle())
         }
         .disabled(!enabled)
+#if os(macOS)
+        .foregroundStyle(enabled ? Color.primary : Color.secondary.opacity(0.4))
+#else
         .foregroundStyle(enabled ? theme.colors.textSecondary : theme.colors.textMuted.opacity(0.4))
+#endif
         .accessibilityLabel(title)
         .help(title)
     }
