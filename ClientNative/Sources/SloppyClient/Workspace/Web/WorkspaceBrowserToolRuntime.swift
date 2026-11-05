@@ -55,6 +55,13 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     var onOpenLinkInNewTab: (@MainActor (URL) -> Void)?
     var onNavigationStarted: (@MainActor () -> Void)?
     var navigationBlock: (@MainActor (URL) -> String?)?
+    var openExternalURL: @MainActor (URL) -> Void = { url in
+#if os(macOS)
+        NSWorkspace.shared.open(url)
+#else
+        UIApplication.shared.open(url)
+#endif
+    }
     private var navigationError: Error?
     private var navigationPending = false
     private var titleObservation: NSKeyValueObservation?
@@ -536,6 +543,17 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
                     return .cancel
                 }
             }
+        }
+
+        if navigationAction.targetFrame?.isMainFrame != false,
+           let url = navigationAction.request.url,
+           let scheme = url.scheme?.lowercased(),
+           !["http", "https", "about", "javascript", "data", "blob", "file"].contains(scheme) {
+            navigationPending = false
+            navigationError = nil
+            onStateChange?(webView, nil)
+            openExternalURL(url)
+            return .cancel
         }
 
         if onDownload != nil, navigationAction.shouldPerformDownload,

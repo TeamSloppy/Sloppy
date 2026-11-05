@@ -62,6 +62,24 @@ struct BrowserLinkNavigationTests {
         #expect(opened.isEmpty)
     }
 
+    @Test func externalAppLinksAreHandedOffWithoutReplacingThePage() async throws {
+        let runtime = WorkspaceBrowserToolRuntime()
+        var opened: [URL] = []
+        var errors: [String] = []
+        runtime.openExternalURL = { opened.append($0) }
+        runtime.onStateChange = { _, error in if let error { errors.append(error) } }
+        let url = try #require(URL(string: "telemost://join/meeting"))
+        for type in [WKNavigationType.linkActivated, .other] {
+            let action = LinkNavigationAction(url: url, modifiers: [], type: type)
+            #expect(await runtime.webView(runtime.webView, decidePolicyFor: action) == .cancel)
+        }
+        #expect(opened == [url, url])
+        #expect(errors.isEmpty)
+        let unsafe = LinkNavigationAction(url: try #require(URL(string: "javascript:alert(1)")), modifiers: [])
+        #expect(await runtime.webView(runtime.webView, decidePolicyFor: unsafe) == .cancel)
+        #expect(opened == [url, url])
+    }
+
     @Test(.appKitUI, arguments: ["_self"])
     func ordinaryLinksStillNavigateTheCurrentPage(target: String) async throws {
         let server = try BrowserHTTPFixture(responseDelay: 0, html: """
