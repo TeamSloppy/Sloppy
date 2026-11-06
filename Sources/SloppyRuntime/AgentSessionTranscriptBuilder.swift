@@ -12,7 +12,7 @@ public enum AgentSessionTranscriptBuilder {
         var images: [String: Transcript.ImageSegment] = [:]
         var imageBytes = 0
         if let imageLoader {
-            let events = (sourceDetail?.events ?? []) + detail.events
+            let events = SessionInputLifecycle.contextEvents(sourceDetail?.events ?? []) + SessionInputLifecycle.contextEvents(detail.events)
             let attachments = events.compactMap(\.message).filter { $0.role == .user }
                 .flatMap { $0.segments.compactMap(\.attachment) }.filter { $0.mimeType.lowercased().hasPrefix("image/") }
             for attachment in attachments.suffix(64).reversed() where images[attachment.id] == nil {
@@ -49,14 +49,14 @@ public enum AgentSessionTranscriptBuilder {
         var pendingToolCallIDsByTool: [String: [String]] = [:]
         var pendingToolCallEntryIndicesByID: [String: Int] = [:]
 
-        let recoveredEvents = detail.events + SessionToolRecovery.interruptionEvents(for: detail)
+        let recoveredEvents = SessionInputLifecycle.modelContextEvents(detail.events) + SessionToolRecovery.interruptionEvents(for: detail)
         var lastResultIndex: [String: Int] = [:]
         for (index, event) in recoveredEvents.enumerated() {
             if let id = event.toolResult?.callEventId { lastResultIndex[id] = index }
         }
         for (index, event) in recoveredEvents.enumerated() {
             if let id = event.toolResult?.callEventId, lastResultIndex[id] != index { continue }
-            if event.importOrigin != nil, event.type == .toolCall || event.type == .toolResult {
+            if event.isHistorical, event.type == .toolCall || event.type == .toolResult {
                 let text: String
                 if let call = event.toolCall {
                     text = "[Historical tool call: \(call.tool)]\n" + compactJSONString(.object(call.arguments))

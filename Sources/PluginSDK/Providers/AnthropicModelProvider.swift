@@ -5,7 +5,7 @@ import FoundationNetworking
 #endif
 import Protocols
 
-public struct AnthropicModelProvider: ModelProvider {
+public struct AnthropicModelProvider: ModelProvider, ModelStepProviderFactory {
     public let id: String
     public let supportedModels: [String]
     public let systemInstructions: String?
@@ -54,8 +54,27 @@ public struct AnthropicModelProvider: ModelProvider {
     }
 
     public func supportsUsageObservation(for modelName: String) -> Bool { supports(modelName: modelName) }
+    public func supportsModelSteps(for modelName: String) -> Bool { supports(modelName: modelName) }
+
+    public func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        guard supportsModelSteps(for: modelName) else { return nil }
+        let resolved = modelName.hasPrefix("anthropic:") ? String(modelName.dropFirst(10)) : modelName
+        var baseSession = session ?? .shared
+        let configuration = try UsageObservedURLSession.copyConfiguration(of: baseSession)
+        if configuration.protocolClasses?.contains(where: { $0 == OAuthAnthropicURLProtocol.self }) == true {
+            // Native requests already carry correct auth headers. Keep the configured proxy
+            // and trust handling without routing through the legacy rewriting session.
+            configuration.protocolClasses = configuration.protocolClasses?.filter { $0 != OAuthAnthropicURLProtocol.self }
+            baseSession = URLSession(configuration: configuration, delegate: baseSession.delegate, delegateQueue: baseSession.delegateQueue)
+        }
+        let observed = try usageContext.map { try UsageObservedURLSession.make(wrapping: baseSession, context: $0) } ?? baseSession
+        return NativeHTTPModelStepProvider(providerID: id + "/messages/" + ModelStepHTTPTransport.cacheKeyDigest(baseURL.absoluteString),
+            model: resolved, baseURL: baseURL, token: tokenProvider, refresh: refreshTokenIfNeeded,
+            session: observed, instructions: systemInstructions ?? "", format: .anthropic)
+    }
+
     public func createLanguageModel(for modelName: String, usageContext: ModelUsageContext) async throws -> any LanguageModel {
-        let observed = UsageObservedURLSession.make(wrapping: session ?? OAuthAnthropicURLSession.makeSessionRewritingAnthropicAuth(), context: usageContext)
+        let observed = try UsageObservedURLSession.make(wrapping: session ?? OAuthAnthropicURLSession.makeSessionRewritingAnthropicAuth(), context: usageContext)
         let scoped = AnthropicModelProvider(id: id, supportedModels: supportedModels, apiKey: tokenProvider, baseURL: baseURL, tools: tools, systemInstructions: systemInstructions,
             session: observed, refreshTokenIfNeeded: refreshTokenIfNeeded)
         return try await scoped.createLanguageModel(for: modelName)

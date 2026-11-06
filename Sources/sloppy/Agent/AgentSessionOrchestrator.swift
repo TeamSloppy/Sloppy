@@ -3,6 +3,7 @@ import Foundation
 import AgentRuntime
 import ACPModel
 import Logging
+import PluginSDK
 import Protocols
 import SloppyRuntime
 
@@ -104,19 +105,10 @@ private actor ACPRunPerformanceTracker {
     }
 }
 
-private enum SessionCompletionDisposition: String, Sendable {
-    case completed
-    case blocked
-    case waitingInput = "waiting_input"
-}
-
-enum SessionVerificationEvidenceKind: String, Sendable {
-    case build
-    case test
-    case lint
-    case run
-    case screenshot
-}
+private typealias SessionCompletionDisposition = RunCompletionDisposition
+typealias SessionVerificationEvidenceKind = VerificationEvidenceKind
+private typealias SessionVerificationEvidence = VerificationEvidence
+private typealias SessionCompletionRecord = RunCompletion
 
 /// Per-turn bookkeeping that keeps the model from giving up early or repeating itself.
 struct SessionTurnGuardState: Sendable, Equatable {
@@ -179,48 +171,10 @@ struct SessionTurnGuardState: Sendable, Equatable {
     }
 }
 
-private struct SessionVerificationEvidence: Sendable {
-    var id: String
-    var kind: SessionVerificationEvidenceKind
-    var tool: String
-    var command: String?
-    var arguments: [String]
-    var cwd: String?
-    var exitCode: Int?
-    var observedAt: Date
-
-    var jsonValue: JSONValue {
-        var payload: [String: JSONValue] = [
-            "id": .string(id),
-            "kind": .string(kind.rawValue),
-            "tool": .string(tool),
-            "arguments": .array(arguments.map(JSONValue.string)),
-            "observedAt": .string(ISO8601DateFormatter().string(from: observedAt)),
-        ]
-        if let command {
-            payload["command"] = .string(command)
-        }
-        if let cwd {
-            payload["cwd"] = .string(cwd)
-        }
-        if let exitCode {
-            payload["exitCode"] = .number(Double(exitCode))
-        }
-        return .object(payload)
-    }
-}
-
-private struct SessionCompletionRecord: Sendable {
-    var disposition: SessionCompletionDisposition
-    var summary: String
-    var verification: [String]
-    var verificationEvidence: [SessionVerificationEvidence]
-    var limitations: [String]
-}
-
 actor AgentSessionOrchestrator {
     private static let sessionContextBootstrapMarker = "[agent_session_context_bootstrap_v1]"
     typealias ToolInvoker = @Sendable (String, String, ToolInvocationRequest, AgentChatMode?) async -> ToolInvocationResult
+    typealias NativeToolInvoker = @Sendable (String, String, ToolInvocationRequest, AgentChatMode?, NativeToolExecutionContext) async -> AgentLoopToolOutcome
     typealias ResponseChunkObserver = @Sendable (String, String, String) async -> Void
     typealias EventAppendObserver = @Sendable (String, String, AgentSessionSummary, [AgentSessionEvent]) async -> Void
     typealias TokenUsageObserver = @Sendable (String, String, TokenUsage) async -> Void
@@ -252,6 +206,8 @@ actor AgentSessionOrchestrator {
     private var persistedModelContext: (config: CoreConfig, hasOAuthCredentials: Bool)
     private let logger: Logger
     private var toolInvoker: ToolInvoker?
+    private var nativeToolInvoker: NativeToolInvoker?
+    private var nativeWorkerAuthorityProvider: (@Sendable (String, String) async throws -> (toolScope: [String], authority: RunRequestSettings.ToolAuthority)?)?
     private var toolInvokerRecordsEvents: Bool
     private var responseChunkObserver: ResponseChunkObserver?
     private var eventAppendObserver: EventAppendObserver?
@@ -259,6 +215,16 @@ actor AgentSessionOrchestrator {
     private var planArtifactRecorder: PlanArtifactRecorder?
     /// Loads `[project_context_bootstrap_v1]` markdown for a project id (agent session dashboard).
     private var projectBootstrapProvider: (@Sendable (String, String?, String) async -> String?)?
+
+    private var nativeWorkIsStopping = false
+
+    func stopNativeWork() async {
+        nativeWorkIsStopping = true
+        for (channel, state) in nativeRunStateByChannel {
+            await state.cancel()
+            _ = await runtime.abortChannel(channelId: channel, reason: "core_shutdown")
+        }
+    }
 
     private var activeSessionRunChannels: Set<String> = []
     private var activeSessionRunIDsByChannel: [String: UUID] = [:]
@@ -270,11 +236,8 @@ actor AgentSessionOrchestrator {
     private var pausedInputRequestByChannel: [String: String] = [:]
     private var selectedAutoRouteModeByChannel: [String: AgentChatMode] = [:]
     private var toolDrivenSessionRunChannels: Set<String> = []
-    private var completedSessionRunChannels: Set<String> = []
-    private var sessionCompletionSummaryByChannel: [String: String] = [:]
-    private var sessionCompletionRecordByChannel: [String: SessionCompletionRecord] = [:]
-    private var sessionVerificationEvidenceByChannel: [String: [SessionVerificationEvidence]] = [:]
     private var turnGuardByChannel: [String: SessionTurnGuardState] = [:]
+    private var nativeRunStateByChannel: [String: RunState] = [:]
     private var delegatedSubagentSessionIDs: Set<String> = []
     private var syncedSessionStoreFingerprintsByChannel: [String: SessionStoreFingerprint] = [:]
     private var channelsRequiringBootstrapRefresh: Set<String> = []
@@ -293,6 +256,7 @@ actor AgentSessionOrchestrator {
         availableModels: [ProviderModelOption],
         persistedModelContext: (config: CoreConfig, hasOAuthCredentials: Bool) = (CoreConfig.default, false),
         toolInvoker: ToolInvoker? = nil,
+        nativeToolInvoker: NativeToolInvoker? = nil,
         toolInvokerRecordsEvents: Bool = false,
         responseChunkObserver: ResponseChunkObserver? = nil,
         eventAppendObserver: EventAppendObserver? = nil,
@@ -310,6 +274,7 @@ actor AgentSessionOrchestrator {
         self.availableModels = availableModels
         self.persistedModelContext = persistedModelContext
         self.toolInvoker = toolInvoker
+        self.nativeToolInvoker = nativeToolInvoker
         self.toolInvokerRecordsEvents = toolInvokerRecordsEvents
         self.responseChunkObserver = responseChunkObserver
         self.eventAppendObserver = eventAppendObserver
@@ -390,6 +355,14 @@ actor AgentSessionOrchestrator {
         self.toolInvoker = toolInvoker
     }
 
+    func updateNativeWorkerAuthorityProvider(_ provider: @escaping @Sendable (String, String) async throws -> (toolScope: [String], authority: RunRequestSettings.ToolAuthority)?) {
+        nativeWorkerAuthorityProvider = provider
+    }
+
+    func updateNativeToolInvoker(_ invoker: NativeToolInvoker?) {
+        nativeToolInvoker = invoker
+    }
+
     func markDelegatedSubagentSession(sessionID: String) {
         delegatedSubagentSessionIDs.insert(sessionID)
     }
@@ -441,7 +414,8 @@ actor AgentSessionOrchestrator {
                     "Session context bootstrap failed",
                     metadata: [
                         "agent_id": .string(agentID),
-                        "session_id": .string(summary.id)
+                    "session_id": .string(summary.id),
+                    "error": .string(String(describing: error))
                     ]
                 )
                 try? sessionStore.deleteSession(agentID: agentID, sessionID: summary.id)
@@ -475,13 +449,35 @@ actor AgentSessionOrchestrator {
         additionalContext: String? = nil,
         responseMessageID: String? = nil,
         peerOrigin: AgentSessionPeerOrigin? = nil,
-        isWorkerNotification: Bool = false
+        isWorkerNotification: Bool = false,
+        peerConversation: Bool = false,
+        sourceMessageID: String? = nil
     ) async throws -> AgentSessionMessageResponse {
+        try Task.checkCancellation()
         let effectiveRequest = Self.requestByApplyingOneShotModeCommand(request)
+        var unfinishedInput: (metadata: AgentRunMetadata, message: AgentSessionMessage)?
+        if effectiveRequest.clientMessageId != nil {
+            let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+            switch try NativeSessionDelivery.resolve(effectiveRequest, peerOrigin: peerOrigin, detail: detail) {
+            case .fresh: break
+            case .delivered(let response): return response
+            case .unfinished(let metadata, let message):
+                let queuedInputIDs = await pendingMessageIDsProvider?(agentID, sessionID) ?? []
+                guard !NativeSessionDelivery.hasLaterUserInput(after: message.id, in: detail,
+                    queuedInputIDs: queuedInputIDs) else {
+                    throw OrchestratorError.invalidPayload
+                }
+                unfinishedInput = (metadata, message)
+            }
+        }
+        let notificationSourceID = isWorkerNotification ? sourceMessageID : nil
+        if isWorkerNotification, notificationSourceID?.isEmpty != false { throw OrchestratorError.invalidPayload }
         let preResponseStartedAt = Date()
         do {
             try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId)
         } catch {
+            logger.error("Session context load failed", metadata: ["agent_id": .string(agentID),
+                "session_id": .string(sessionID), "error": .string(String(describing: error))])
             throw OrchestratorError.storageFailure
         }
 
@@ -494,6 +490,28 @@ actor AgentSessionOrchestrator {
             )
         } catch {
             throw OrchestratorError.storageFailure
+        }
+        let usesUnifiedLoop = agentConfig.runtime.type == .native && agentConfig.runtime.effectiveNativeEngine == .unified
+        guard unfinishedInput == nil || usesUnifiedLoop else { throw OrchestratorError.invalidPayload }
+        var notificationState: RunState?
+        if usesUnifiedLoop, let notificationSourceID {
+            let journal = SessionLoopJournal(store: sessionStore, agentID: agentID, sessionID: sessionID, authorizeWriter: {})
+            if let restored = try await journal.restoreRunState(userTurnID: notificationSourceID) {
+                let snapshot = await restored.snapshot()
+                guard snapshot.requestSettings?.coordinatorNotification == true,
+                      snapshot.requestSettings?.notificationSourceEventID == notificationSourceID,
+                      snapshot.requestSettings?.notificationFingerprint == (try NativeInputCapture.fingerprint(effectiveRequest, peerOrigin: peerOrigin))
+                else { throw OrchestratorError.invalidPayload }
+                notificationState = restored
+                let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+                let delivered = detail.events.contains { !$0.isHistorical && $0.runtimeMetadata?.runId == restored.runID &&
+                    $0.runtimeMetadata?.userTurnId == notificationSourceID && $0.runStatus?.stage == .done }
+                if snapshot.phase == .settled, delivered {
+                    return .init(summary: detail.summary, appendedEvents: detail.events.filter {
+                        !$0.isHistorical && $0.runtimeMetadata?.runId == restored.runID && $0.runtimeMetadata?.presentationOnly == true
+                    }, routeDecision: nil, replayed: true)
+                }
+            }
         }
         let runtimeDocuments: AgentDocumentBundle
         do {
@@ -514,12 +532,23 @@ actor AgentSessionOrchestrator {
         let routingStartedAt = Date()
         let catalogModel = agentConfig.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let availableModelIDs = Set(agentConfig.availableModels.map(\.id))
+        // Routing is a typed, tool-free pre-admission decision. Only a model with
+        // the selected engine's capability can become the durable run's model.
+        var routingModelIDs = availableModelIDs
+        if usesUnifiedLoop, agentConfig.automaticModelRouting {
+            routingModelIDs = []
+            for model in availableModelIDs.sorted() {
+                if await runtime.supportsAgentLoop(channelID: sessionChannelID(agentID: agentID, sessionID: sessionID), model: model) {
+                    routingModelIDs.insert(model)
+                }
+            }
+        }
         let overrideRaw = effectiveRequest.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModel: String?
         if let raw = overrideRaw, !raw.isEmpty,
            Self.acceptsModelOverride(raw, availableModelIDs: availableModelIDs, isRoutable: persistedModelAllowed()) {
             selectedModel = raw
-        } else if overrideRaw?.isEmpty != false,
+        } else if unfinishedInput == nil, overrideRaw?.isEmpty != false,
                   agentConfig.automaticModelRouting,
                   (try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID).summary.kind) != .longChat,
                   let semanticModelRouter,
@@ -528,7 +557,7 @@ actor AgentSessionOrchestrator {
                     userRequest: content,
                     chatMode: effectiveRequest.mode,
                     attachmentTypes: effectiveRequest.attachments.map(\.mimeType),
-                    availableModelIDs: availableModelIDs
+                    availableModelIDs: routingModelIDs
                   ) {
             selectedModel = route.shouldApply
                 ? route.model
@@ -553,6 +582,17 @@ actor AgentSessionOrchestrator {
                 "used_model": .string(optionalString(selectedModel)),
             ])
         }
+        let sessionKind = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID).summary.kind
+        let savedContract = try unfinishedInput?.metadata.runState.map { try JSONValueCoder.decode(RunStateSnapshot.self, from: $0).loopConfig?.completionContract }
+        let nativeWorker = !peerConversation && (delegatedSubagentSessionIDs.contains(sessionID) ||
+            sessionKind == .longChatWorker || savedContract == .worker)
+        let nativeCoordinator = sessionKind == .longChat
+        if usesUnifiedLoop {
+            guard sessionKind == .chat || sessionKind == .heartbeat || nativeCoordinator || nativeWorker || (peerConversation && sessionKind == .longChatWorker)
+            else { throw OrchestratorError.invalidPayload }
+            try agentCatalogStore.protectUnifiedJournalStorage(agentID: agentID, availableModels: availableModels,
+                minimumJournalVersion: agentConfig.runtime.evidencePolicyVersion == 2 ? 6 : (nativeWorker || nativeCoordinator ? 4 : 3))
+        }
         let routingDurationMs = Self.elapsedMs(since: routingStartedAt)
         let configuredPlannerModel = agentConfig.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasExplicitPlannerModel = configuredPlannerModel?.isEmpty == false
@@ -563,18 +603,119 @@ actor AgentSessionOrchestrator {
                 .capabilities
                 .map { $0.lowercased() } ?? []
         )
-        let reasoningEffort = agentConfig.runtime.type == .native && selectedModelCapabilities.contains("reasoning")
+        var reasoningEffort = agentConfig.runtime.type == .native && selectedModelCapabilities.contains("reasoning")
             ? (effectiveRequest.reasoningEffort ?? agentConfig.reasoningEffort)
             : nil
 
         let verificationChannelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         responseTimelineByChannel[verificationChannelID] = AgentSessionResponseTimeline()
         defer { responseTimelineByChannel.removeValue(forKey: verificationChannelID) }
-        sessionVerificationEvidenceByChannel[verificationChannelID] = []
         turnGuardByChannel[verificationChannelID] = SessionTurnGuardState()
         defer {
+            nativeRunStateByChannel.removeValue(forKey: verificationChannelID)
             turnGuardByChannel.removeValue(forKey: verificationChannelID)
-            sessionVerificationEvidenceByChannel.removeValue(forKey: verificationChannelID)
+        }
+        let userTurnID = unfinishedInput?.metadata.userTurnId ?? notificationSourceID ?? effectiveRequest.clientMessageId ?? UUID().uuidString
+        let resolvedNativeModel = usesUnifiedLoop
+            ? await runtime.resolvedAgentLoopModel(channelID: verificationChannelID, model: selectedModel) : nil
+        try Task.checkCancellation()
+        var recoveredTerminal: (response: ModelStepResponse, snapshot: RunStateSnapshot)?
+        if unfinishedInput != nil || notificationState != nil {
+            let writer = NativeJournalWriterGuard(directory: try agentCatalogStore.directoryURL(agentID: agentID))
+            let journal = SessionLoopJournal(store: sessionStore, agentID: agentID, sessionID: sessionID,
+                authorizeWriter: { try writer.authorize() })
+            let restored: RunState
+            if let notificationState { restored = notificationState }
+            else {
+                guard let saved = try await journal.restoreRunState(userTurnID: unfinishedInput?.metadata.userTurnId), saved.runID == unfinishedInput?.metadata.runId,
+                      saved.userTurnID == userTurnID else { throw OrchestratorError.invalidPayload }
+                restored = saved
+            }
+            try Task.checkCancellation()
+            var snapshot = await restored.snapshot()
+            try Task.checkCancellation()
+            guard snapshot.loopConfig?.engine == .unified, let pinnedModel = snapshot.model else {
+                throw OrchestratorError.invalidPayload
+            }
+            if snapshot.phase == .finalizing, snapshot.completion != nil {
+                snapshot = try await restored.settleRestoredCompletion(generation: snapshot.generation)
+                let frame = ModelStepRequest(runId: snapshot.runID, userTurnId: snapshot.userTurnID,
+                    stepId: UUID().uuidString, attemptId: UUID().uuidString, model: pinnedModel,
+                    projectionRevision: "", cacheScope: verificationChannelID, messages: [], generation: snapshot.generation)
+                try await journal.appendRunState(snapshot, request: frame)
+            }
+            if snapshot.phase == .stopping {
+                let frame = ModelStepRequest(runId: snapshot.runID, userTurnId: snapshot.userTurnID,
+                    stepId: UUID().uuidString, attemptId: UUID().uuidString, model: pinnedModel,
+                    projectionRevision: "", cacheScope: verificationChannelID, messages: [], generation: snapshot.generation)
+                try await journal.appendRunState(snapshot, request: frame)
+                recoveredTerminal = (.init(text: snapshot.toolStop.map { "Agent stopped: \($0.message)" } ?? "",
+                    stopReason: .endTurn), snapshot)
+            } else if snapshot.phase == .settled {
+                if let completion = snapshot.completion {
+                    recoveredTerminal = (.init(text: completion.summary, stopReason: .endTurn), snapshot)
+                } else {
+                    let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+                    recoveredTerminal = (try NativeSessionDelivery.settledResponse(in: detail,
+                        metadata: unfinishedInput?.metadata ?? .init(runId: snapshot.runID, userTurnId: userTurnID),
+                        generation: snapshot.generation), snapshot)
+                }
+            } else if snapshot.model != resolvedNativeModel {
+                throw OrchestratorError.invalidPayload
+            }
+            nativeRunStateByChannel[verificationChannelID] = restored
+        } else if usesUnifiedLoop {
+            guard let resolvedNativeModel else { throw OrchestratorError.invalidPayload }
+            var settings = await runtime.resolvedAgentLoopRequestSettings(reasoningEffort: reasoningEffort,
+                planningPolicy: agentConfig.runtime.effectivePlanningPolicy, plannerModel: plannerModel)
+            settings.planningPolicyVersion = agentConfig.runtime.planningPolicyVersion ?? 1
+            settings.evidencePolicyVersion = agentConfig.runtime.evidencePolicyVersion ?? 1
+            var config = nativeLoopConfiguration(userID: effectiveRequest.userId, sessionID: sessionID,
+                engine: .unified, mode: effectiveRequest.mode ?? .defaultMode)
+            // Peer discussion is a separate Ask contract, even for a previously delegated session.
+            config.completionContract = nativeWorker ? .worker : (nativeCoordinator ? .coordinator : .session)
+            if nativeWorker || nativeCoordinator {
+                guard let authority = try await nativeWorkerAuthorityProvider?(agentID, sessionID) else {
+                    throw OrchestratorError.invalidPayload
+                }
+                settings.toolScope = authority.toolScope
+                settings.delegatedAuthority = authority.authority
+                config.requiresExplicitCompletion = nativeWorker
+                config.finalizerToolNames = nativeWorker
+                    ? ["agent_delegate.finish", "agents.delegate_finish", "planning.request_input"] : ["planning.request_input"]
+                settings.coordinatorNotification = nativeCoordinator ? isWorkerNotification : nil
+                if isWorkerNotification {
+                    guard nativeCoordinator, let notificationSourceID else { throw OrchestratorError.invalidPayload }
+                    settings.notificationSourceEventID = notificationSourceID
+                    settings.notificationFingerprint = try NativeInputCapture.fingerprint(effectiveRequest, peerOrigin: peerOrigin)
+                    settings.toolScope = []
+                    config.activeMode = .ask
+                    config.finalizerToolNames = []
+                }
+            } else if peerConversation {
+                config.requiresExplicitCompletion = false
+                config.finalizerToolNames = []
+            }
+            nativeRunStateByChannel[verificationChannelID] = try RunState(snapshot: .init(schemaVersion: 2,
+                runID: UUID().uuidString, userTurnID: userTurnID, loopConfig: config,
+                model: resolvedNativeModel, requestSettings: settings))
+        } else {
+            nativeRunStateByChannel[verificationChannelID] = RunState(userTurnID: userTurnID)
+        }
+        if usesUnifiedLoop, let state = nativeRunStateByChannel[verificationChannelID] {
+            if let settings = await state.requestSettings {
+                reasoningEffort = settings.reasoningEffort
+            } else if recoveredTerminal == nil {
+                // Pin inherited options and the runtime retry policy in the first admission,
+                // including a known absence of an effort override.
+                reasoningEffort = try await runtime.pinAgentLoopRequestSettings(state, reasoningEffort: reasoningEffort,
+                    planningPolicy: agentConfig.runtime.effectivePlanningPolicy, plannerModel: plannerModel).reasoningEffort
+            }
+        }
+        if usesUnifiedLoop, recoveredTerminal == nil {
+            guard nativeToolInvoker != nil,
+                  await runtime.supportsAgentLoop(channelID: verificationChannelID, model: selectedModel)
+            else { throw OrchestratorError.invalidPayload }
         }
 
         let turnStartedAt = Date()
@@ -594,9 +735,25 @@ actor AgentSessionOrchestrator {
             ]
         )
 
+        let admissionDetail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        let canonicalInput = try SessionInputLifecycle.states(in: admissionDetail.events)[userTurnID]
+        let persistedInput = userMessageAlreadyPersisted ? admissionDetail.events.first(where: {
+            !$0.isHistorical && $0.message?.id == userTurnID && ($0.message?.role == .user || (isWorkerNotification && $0.message?.role == .system))
+        })?.message : nil
+        if userMessageAlreadyPersisted, persistedInput == nil { throw OrchestratorError.invalidPayload }
+        if let canonicalInput {
+            let saved = try NativeInputCapture.materialize(canonicalInput.context, store: sessionStore, agentID: agentID, sessionID: sessionID)
+            guard try NativeInputCapture.fingerprint(saved, peerOrigin: canonicalInput.context.peerOrigin,
+                uiSubmission: canonicalInput.context.uiSubmission, uiSnapshot: canonicalInput.context.uiSnapshot,
+                sourceRequest: canonicalInput.context.sourceRequest) == canonicalInput.latest.fingerprint else {
+                throw OrchestratorError.invalidPayload
+            }
+        }
         let attachments: [AgentAttachment]
         do {
-            attachments = try sessionStore.persistAttachments(
+            attachments = try canonicalInput?.context.attachments.map(\.attachment)
+                ?? unfinishedInput?.message.segments.compactMap(\.attachment)
+                ?? persistedInput?.segments.compactMap(\.attachment) ?? sessionStore.persistAttachments(
                 agentID: agentID,
                 sessionID: sessionID,
                 uploads: effectiveRequest.attachments
@@ -613,14 +770,18 @@ actor AgentSessionOrchestrator {
             .init(kind: .attachment, attachment: attachment)
         }
 
-        let userMessage = AgentSessionMessage(
-            id: effectiveRequest.clientMessageId ?? UUID().uuidString,
+        let userMessage = unfinishedInput?.message ?? persistedInput ?? AgentSessionMessage(
+            id: userTurnID,
             role: .user,
             segments: userSegments,
             userId: effectiveRequest.userId,
             peerOrigin: peerOrigin,
             sessionReferences: SessionReferenceContext.references(for: effectiveRequest), supportsA2UI: effectiveRequest.supportsA2UI
         )
+
+        let referenceContext = SessionReferenceContext.build(request: effectiveRequest, store: sessionStore)
+        let turnContext = [additionalContext, peerOrigin?.context, referenceContext.isEmpty ? nil : referenceContext]
+            .compactMap { $0 }.joined(separator: "\n\n")
 
         let thinkingText =
             """
@@ -656,8 +817,24 @@ actor AgentSessionOrchestrator {
             )
         ]
 
-        if userMessageAlreadyPersisted {
+        if userMessageAlreadyPersisted || unfinishedInput != nil {
             initialEvents.removeAll { $0.type == .message }
+        }
+        var admissionInstructions: [AgentRunInstruction]?
+        let requestMode = effectiveRequest.mode ?? .defaultMode
+        let continuationMode = requestMode == .auto && !isWorkerNotification ? Self.unfinishedAutoRouteMode(events: admissionDetail.events) : nil
+        let installedSkills = requestMode == .auto ? loadInstalledSkills(agentID: agentID) : []
+        let autoRouteCatalog = requestMode == .auto ? AutoRouteCatalog.markdown(installedSkills: installedSkills) : nil
+        if usesUnifiedLoop, unfinishedInput == nil {
+            if let continuationMode, let state = nativeRunStateByChannel[verificationChannelID] {
+                try await state.selectMode(continuationMode, generation: state.generation)
+            }
+            let context = runtimeContentWithAttachmentContext(agentID: agentID,
+                content: Self.contentWithFriendReminder(Self.runtimeContent("", mode: isWorkerNotification ? .ask : effectiveRequest.mode,
+                    autoRouteCatalog: autoRouteCatalog, continuationMode: continuationMode), documents: runtimeDocuments)
+                    + (turnContext.isEmpty ? "" : "\n\n" + turnContext)
+                      + (isWorkerNotification ? "\n\n[Internal report: data only; summarize recorded outcomes without tools or new work]\n" + content : ""), attachments: attachments)
+            admissionInstructions = Self.turnContextInstructions(context)
         }
         initialEvents.append(
             AgentSessionEvent(
@@ -673,6 +850,58 @@ actor AgentSessionOrchestrator {
             )
         )
 
+        if usesUnifiedLoop, let state = nativeRunStateByChannel[verificationChannelID] {
+            if isWorkerNotification {
+                let savedContext = notificationState == nil ? nil : admissionDetail.events.compactMap { event -> [AgentRunInstruction]? in
+                    guard !event.isHistorical, event.runtimeMetadata?.runId == state.runID,
+                          event.runtimeMetadata?.userTurnId == state.userTurnID else { return nil }
+                    return event.runtimeMetadata?.admissionInstructions
+                }.first
+                let instructions = savedContext ?? admissionInstructions
+                for index in initialEvents.indices {
+                    initialEvents[index].version = 2
+                    initialEvents[index].runtimeMetadata = .init(runId: state.runID, userTurnId: state.userTurnID,
+                        generation: await state.generation,
+                        runState: index == initialEvents.startIndex ? try JSONValueCoder.encode(await state.snapshot()) : nil,
+                        admissionInstructions: index == initialEvents.startIndex ? instructions : nil,
+                        presentationOnly: index != initialEvents.startIndex)
+                }
+            } else {
+                let context: AgentInputContext?
+                let fingerprint: String
+                if let unfinishedInput {
+                    context = nil
+                    guard let saved = unfinishedInput.metadata.requestFingerprint else { throw OrchestratorError.invalidPayload }
+                    fingerprint = saved
+                } else {
+                    let uiSnapshot = admissionDetail.events.first { $0.id == "ui-accepted-" + userMessage.id }?.message?.uiSurface
+                    let captured = try canonicalInput?.context ?? NativeInputCapture.capture(effectiveRequest, messageID: userMessage.id,
+                        attachments: attachments, peerOrigin: peerOrigin, uiSubmission: userMessage.uiAction, uiSnapshot: uiSnapshot)
+                    let materialized = try NativeInputCapture.materialize(captured, store: sessionStore, agentID: agentID, sessionID: sessionID)
+                    fingerprint = try NativeInputCapture.fingerprint(materialized, peerOrigin: captured.peerOrigin,
+                        uiSubmission: captured.uiSubmission, uiSnapshot: captured.uiSnapshot, sourceRequest: captured.sourceRequest)
+                    context = canonicalInput == nil ? captured : nil
+                }
+                let generation = await state.generation
+                let snapshot = try JSONValueCoder.encode(await state.snapshot())
+                for index in initialEvents.indices {
+                    let acceptedContext = index == initialEvents.startIndex ? admissionInstructions : nil
+                    initialEvents[index].version = 2
+                    initialEvents[index].runtimeMetadata = .init(runId: state.runID, userTurnId: state.userTurnID,
+                        generation: generation,
+                        runState: index == initialEvents.startIndex || initialEvents[index].runStatus?.stage == .responding ? snapshot : nil,
+                        admissionInstructions: acceptedContext,
+                        presentationOnly: acceptedContext == nil && initialEvents[index].message?.role != .user,
+                        inputMessageId: userMessage.id, requestFingerprint: fingerprint)
+                    if index == initialEvents.startIndex, unfinishedInput == nil {
+                        initialEvents[index].version = 3
+                        initialEvents[index].inputTransitions = [.init(messageId: userMessage.id, fingerprint: fingerprint,
+                            disposition: .admitted, owner: .init(runId: state.runID, userTurnId: state.userTurnID, generation: generation),
+                            context: context)]
+                    }
+                }
+            }
+        }
         var summary: AgentSessionSummary
         do {
             summary = try appendEventsAndNotify(
@@ -684,22 +913,11 @@ actor AgentSessionOrchestrator {
             throw mapSessionStoreError(error)
         }
 
-        let requestMode = effectiveRequest.mode ?? .defaultMode
-        let continuationMode = requestMode == .auto
-            ? Self.unfinishedAutoRouteMode(events: (try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID).events) ?? [])
-            : nil
-        let installedSkills = requestMode == .auto ? loadInstalledSkills(agentID: agentID) : []
-        let autoRouteCatalog = requestMode == .auto
-            ? AutoRouteCatalog.markdown(installedSkills: installedSkills)
-            : nil
         let runtimeContent = Self.contentWithFriendReminder(
             Self.runtimeContent(content, mode: effectiveRequest.mode, autoRouteCatalog: autoRouteCatalog, continuationMode: continuationMode),
             documents: runtimeDocuments
         )
 
-        let referenceContext = SessionReferenceContext.build(request: effectiveRequest, store: sessionStore)
-        let turnContext = [additionalContext, peerOrigin?.context, referenceContext.isEmpty ? nil : referenceContext]
-            .compactMap { $0 }.joined(separator: "\n\n")
         let runtimeContentWithAttachments = runtimeContentWithAttachmentContext(
             agentID: agentID,
             content: runtimeContent + (turnContext.isEmpty ? "" : "\n\n" + turnContext),
@@ -712,15 +930,19 @@ actor AgentSessionOrchestrator {
         switch agentConfig.runtime.type {
         case .native:
             let plannedRuntimeContent: String
-            let runPlanner = !isCoordinator && Self.shouldRunPlanner(mode: requestMode, hasExplicitPlannerModel: hasExplicitPlannerModel)
+            let planningPolicy = await nativeRunStateByChannel[verificationChannelID]?.requestSettings?.planningPolicy
+                ?? agentConfig.runtime.effectivePlanningPolicy
+            let runPlanner = recoveredTerminal == nil && !isCoordinator && planningPolicy != .executor &&
+                Self.shouldRunPlanner(mode: requestMode, hasExplicitPlannerModel: hasExplicitPlannerModel)
             let plannerStartedAt = Date()
             if runPlanner {
-                plannedRuntimeContent = await runtimeContentWithPlannerOutput(
+                plannedRuntimeContent = try await runtimeContentWithPlannerOutput(
                     agentID: agentID,
                     sessionID: sessionID,
                     content: runtimeContentWithAttachments,
                     plannerModel: plannerModel,
-                    executorModel: selectedModel
+                    executorModel: selectedModel,
+                    unified: usesUnifiedLoop
                 )
             } else {
                 plannedRuntimeContent = runtimeContentWithAttachments
@@ -737,46 +959,67 @@ actor AgentSessionOrchestrator {
                     "pre_runtime_total_ms": .stringConvertible(Self.elapsedMs(since: preResponseStartedAt)),
                 ]
             )
-            runtimeOutcome = await postNativeMessage(
-                agentID: agentID,
-                sessionID: sessionID,
-                userID: effectiveRequest.userId,
-                content: plannedRuntimeContent,
-                selectedModel: selectedModel,
-                reasoningEffort: reasoningEffort,
-                mode: requestMode,
-                continuationMode: continuationMode,
-                images: nativeImages(agentID: agentID, attachments: attachments),
-                publishResponseChunks: !isCoordinator,
-                memoryQuery: Self.memoryRecallQuery(
-                    content: content,
-                    turnContext: turnContext,
-                    attachmentNames: attachments.map(\.name)
+            if let recoveredTerminal {
+                try Task.checkCancellation()
+                let snapshot = recoveredTerminal.snapshot
+                let stopping = snapshot.phase == .stopping
+                let cancelled = stopping && snapshot.toolStop == nil
+                runtimeOutcome = .init(assistantText: recoveredTerminal.response.text, routeDecision: nil,
+                    selectedAutoRouteMode: nil, wasInterrupted: cancelled, didResetContext: false,
+                    pausedInputRequestID: stopping ? nil : snapshot.completion?.inputRequestId,
+                    usedTools: snapshot.toolRoundsUsed > 0 || snapshot.completion != nil,
+                    didExplicitlyComplete: !stopping && snapshot.completion != nil,
+                    completionRecord: stopping ? nil : snapshot.completion,
+                    toolRoundsUsed: snapshot.toolRoundsUsed,
+                    maxToolRounds: snapshot.loopConfig?.maxToolRounds ?? 0, finishedNaturally: !stopping,
+                    hitTurnLimit: snapshot.hitToolRoundLimit, toolErrors: snapshot.toolErrors,
+                    lastAssistantText: recoveredTerminal.response.text, tokenUsage: nil,
+                    turnExitReason: stopping ? (cancelled ? .consumerCancelled : .modelProviderError) : .completed)
+            } else {
+                runtimeOutcome = try await postNativeMessage(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    userID: effectiveRequest.userId,
+                    content: usesUnifiedLoop ? content : plannedRuntimeContent,
+                    engine: agentConfig.runtime.effectiveNativeEngine,
+                    selectedModel: selectedModel,
+                    reasoningEffort: reasoningEffort,
+                    mode: requestMode,
+                    continuationMode: continuationMode,
+                    images: nativeImages(agentID: agentID, attachments: attachments),
+                    publishResponseChunks: !isCoordinator,
+                    memoryQuery: Self.memoryRecallQuery(
+                        content: content,
+                        turnContext: turnContext,
+                        attachmentNames: attachments.map(\.name)
+                    )
                 )
-            )
+            }
             if isCoordinator {
-                for _ in 0..<2 {
-                    guard !runtimeOutcome.wasInterrupted, runtimeOutcome.pausedInputRequestID == nil,
-                          !runtimeOutcome.hitTurnLimit, runtimeOutcome.turnExitReason != .toolLoopDetected,
-                          let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else { break }
-                    let ledger = SessionActionLedger(events: Array(detail.events.dropFirst(coordinatorEventStart)))
-                    let handoffRequired = (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .build || (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .debug
-                    guard !ledger.actions.contains(where: { $0.tool == "long_chat.delegate" && $0.ok == true }) else { break }
-                    let failure = ledger.repairableFailure
-                    guard failure != nil || (handoffRequired && !ledger.actions.contains(where: { $0.ok == false })) else { break }
-                    let recovered = await postNativeMessage(
-                        agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId,
-                        content: """
-                        [Coordinator tool recovery]
-                        An accepted operation failed with correctable arguments or a transient error. Continue the authorized work. Read the recorded error and hint, correct the invalid fields and retry the tool; reuse the same requestKey for delegation. Do not repeat the same malformed arguments, broaden scope, bypass authorization, or poll workers. A successful delegation completes this coordinator handoff. If correction is impossible, explain the concrete blocker in plain language. Keep internal IDs in diagnostics. This recovery is bounded to two passes.
-                        Continue in the selected route; do not call planning.select_route again.
-                        Recovery reason: \(failure.map { "Correct failed call " + $0.callEventId } ?? "Build/Debug execution was accepted but no assignment was created. Delegate the authorized work now or request necessary user input.")
-                        \(ledger.context)
-                        """,
-                        selectedModel: selectedModel, reasoningEffort: reasoningEffort,
-                        mode: runtimeOutcome.selectedAutoRouteMode ?? requestMode,
-                        publishResponseChunks: false)
-                    runtimeOutcome = Self.mergingCompletionRecovery(initial: runtimeOutcome, recovery: recovered, selectedMode: runtimeOutcome.selectedAutoRouteMode ?? requestMode)
+                if !usesUnifiedLoop {
+                    for _ in 0..<2 {
+                        guard !runtimeOutcome.wasInterrupted, runtimeOutcome.pausedInputRequestID == nil,
+                              !runtimeOutcome.hitTurnLimit, runtimeOutcome.turnExitReason != .toolLoopDetected,
+                              let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else { break }
+                        let ledger = SessionActionLedger(events: Array(detail.events.dropFirst(coordinatorEventStart)))
+                        let handoffRequired = (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .build || (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .debug
+                        guard !ledger.actions.contains(where: { $0.tool == "long_chat.delegate" && $0.ok == true }) else { break }
+                        let failure = ledger.repairableFailure
+                        guard failure != nil || (handoffRequired && !ledger.actions.contains(where: { $0.ok == false })) else { break }
+                        let recovered = try await postNativeMessage(
+                            agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId,
+                            content: """
+                            [Coordinator tool recovery]
+                            An accepted operation failed with correctable arguments or a transient error. Continue the authorized work. Read the recorded error and hint, correct the invalid fields and retry the tool; reuse the same requestKey for delegation. Do not repeat the same malformed arguments, broaden scope, bypass authorization, or poll workers. A successful delegation completes this coordinator handoff. If correction is impossible, explain the concrete blocker in plain language. Keep internal IDs in diagnostics. This recovery is bounded to two passes.
+                            Continue in the selected route; do not call planning.select_route again.
+                            Recovery reason: \(failure.map { "Correct failed call " + $0.callEventId } ?? "Build/Debug execution was accepted but no assignment was created. Delegate the authorized work now or request necessary user input.")
+                            \(ledger.context)
+                            """,
+                            selectedModel: selectedModel, reasoningEffort: reasoningEffort,
+                            mode: runtimeOutcome.selectedAutoRouteMode ?? requestMode,
+                            publishResponseChunks: false)
+                        runtimeOutcome = Self.mergingCompletionRecovery(initial: runtimeOutcome, recovery: recovered, selectedMode: runtimeOutcome.selectedAutoRouteMode ?? requestMode)
+                    }
                 }
                 if !runtimeOutcome.wasInterrupted, runtimeOutcome.pausedInputRequestID == nil,
                    let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) {
@@ -788,12 +1031,14 @@ actor AgentSessionOrchestrator {
                         taskEvents: detail.events.compactMap(\.longChatTask))
                     let reviewChannelID = self.sessionChannelID(agentID: agentID, sessionID: sessionID)
                     let candidate = runtimeOutcome.assistantText
-                    runtimeOutcome.assistantText = await CoordinatorResponseReview.verifiedResponse(
-                        candidate: candidate, userRequest: content, ledger: ledger, isWorkerNotification: isWorkerNotification,
-                        review: { [runtime] prompt in
-                            await runtime.generateText(prompt: prompt, model: selectedModel, maxTokens: 2048,
-                                channelId: reviewChannelID)
-                        })
+                    if !usesUnifiedLoop {
+                        runtimeOutcome.assistantText = await CoordinatorResponseReview.verifiedResponse(
+                            candidate: candidate, userRequest: content, ledger: ledger, isWorkerNotification: isWorkerNotification,
+                            review: { [runtime] prompt in
+                                await runtime.generateText(prompt: prompt, model: selectedModel, maxTokens: 2048,
+                                    channelId: reviewChannelID)
+                            })
+                    }
                     if Task.isCancelled || interruptedSessionRunChannels.contains(reviewChannelID) {
                         runtimeOutcome.wasInterrupted = true
                         runtimeOutcome.assistantText = ""
@@ -806,7 +1051,7 @@ actor AgentSessionOrchestrator {
                 }
             }
             let completionMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
-            if !isCoordinator, !delegatedSubagentSessionIDs.contains(sessionID) {
+            if !usesUnifiedLoop, !isCoordinator, !delegatedSubagentSessionIDs.contains(sessionID) {
                 // Weaker models often end a turn by narrating intent. Retry a bounded number of times, and say
                 // plainly (from recorded tool rounds, not from their prose) when the last attempt did no work.
                 var attempt = 0
@@ -816,14 +1061,14 @@ actor AgentSessionOrchestrator {
                 {
                     attempt += 1
                     let initialOutcome = runtimeOutcome
-                    let recoveryOutcome = await postNativeMessage(
+                    let recoveryOutcome = try await postNativeMessage(
                         agentID: agentID,
                         sessionID: sessionID,
                         userID: effectiveRequest.userId,
                         content: Self.completionRecoveryPrompt(
                             mode: completionMode,
                             toolRoundsUsed: initialOutcome.toolRoundsUsed,
-                            verificationEvidenceCount: sessionVerificationEvidenceByChannel[verificationChannelID]?.count ?? 0,
+                            verificationEvidenceCount: await nativeRunStateByChannel[verificationChannelID]?.verificationEvidence.count ?? 0,
                             attempt: attempt,
                             lastAttemptToolRounds: lastAttemptToolRounds
                         ),
@@ -831,7 +1076,7 @@ actor AgentSessionOrchestrator {
                         reasoningEffort: reasoningEffort,
                         mode: completionMode
                     )
-                    lastAttemptToolRounds = recoveryOutcome.toolRoundsUsed
+                    lastAttemptToolRounds = max(0, recoveryOutcome.toolRoundsUsed - initialOutcome.toolRoundsUsed)
                     runtimeOutcome = Self.mergingCompletionRecovery(
                         initial: initialOutcome,
                         recovery: recoveryOutcome,
@@ -909,6 +1154,18 @@ actor AgentSessionOrchestrator {
 
         var finalEvents: [AgentSessionEvent] = []
         if runtimeOutcome.pausedInputRequestID != nil {
+            var pausedEvents = initialEvents
+            if usesUnifiedLoop, let state = nativeRunStateByChannel[verificationChannelID] {
+                var terminal = AgentSessionEvent(version: 2, agentId: agentID, sessionId: sessionID,
+                    type: .runStatus, runtimeMetadata: .init(runId: state.runID, userTurnId: state.userTurnID,
+                        generation: await state.generation, presentationOnly: true),
+                    runStatus: .init(stage: .paused, label: "Waiting for input",
+                        details: runtimeOutcome.completionRecord?.summary,
+                        executionOutcome: .init(state: .waitingInput)))
+                try attachInputDelivery(to: &terminal, agentID: agentID, sessionID: sessionID)
+                summary = try appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: [terminal])
+                pausedEvents.append(terminal)
+            }
             logSessionRunCompletion(
                 agentID: agentID,
                 sessionID: sessionID,
@@ -924,11 +1181,11 @@ actor AgentSessionOrchestrator {
                 ),
                 outcome: runtimeOutcome,
                 startedAt: turnStartedAt,
-                finalEventsCount: 0
+                finalEventsCount: pausedEvents.count - initialEvents.count
             )
             return AgentSessionMessageResponse(
                 summary: summary,
-                appendedEvents: initialEvents,
+                appendedEvents: pausedEvents,
                 routeDecision: runtimeOutcome.routeDecision
             )
         }
@@ -998,7 +1255,7 @@ actor AgentSessionOrchestrator {
         let finalResponseText = responseTimelineByChannel[verificationChannelID]?.remainingText(from: runtimeOutcome.assistantText)
             ?? runtimeOutcome.assistantText
         if !finalResponseText.isEmpty {
-            let assistantEvent = AgentSessionEvent(
+            var assistantEvent = AgentSessionEvent(
                 agentId: agentID,
                 sessionId: sessionID,
                 type: .message,
@@ -1011,6 +1268,11 @@ actor AgentSessionOrchestrator {
                     userId: "agent"
                 )
             )
+            if usesUnifiedLoop, let state = nativeRunStateByChannel[verificationChannelID] {
+                assistantEvent.version = 2
+                assistantEvent.runtimeMetadata = .init(runId: state.runID, userTurnId: state.userTurnID,
+                    generation: await state.generation, presentationOnly: true)
+            }
             finalEvents.append(assistantEvent)
 
             let effectiveMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
@@ -1066,7 +1328,7 @@ actor AgentSessionOrchestrator {
 
         var completionStatus: AgentRunStatusEvent
         let effectiveMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
-        if runtimeOutcome.wasInterrupted {
+        if runtimeOutcome.wasInterrupted || runtimeOutcome.turnExitReason == .consumerCancelled || runtimeOutcome.turnExitReason == .modelCancelled {
             completionStatus = AgentRunStatusEvent(
                 stage: .interrupted,
                 label: "Interrupted",
@@ -1157,14 +1419,15 @@ actor AgentSessionOrchestrator {
             didResetContext: runtimeOutcome.didResetContext,
             explicitSessionCompletion: runtimeOutcome.didExplicitlyComplete
         )
-        finalEvents.append(
-            AgentSessionEvent(
-                agentId: agentID,
-                sessionId: sessionID,
-                type: .runStatus,
-                runStatus: completionStatus
-            )
-        )
+        var terminalEvent = AgentSessionEvent(agentId: agentID, sessionId: sessionID,
+            type: .runStatus, runStatus: completionStatus)
+        if usesUnifiedLoop, let state = nativeRunStateByChannel[verificationChannelID] {
+            terminalEvent.version = 2
+            terminalEvent.runtimeMetadata = .init(runId: state.runID, userTurnId: state.userTurnID,
+                generation: await state.generation, presentationOnly: true)
+            try attachInputDelivery(to: &terminalEvent, agentID: agentID, sessionID: sessionID)
+        }
+        finalEvents.append(terminalEvent)
 
         if !finalEvents.isEmpty {
             do {
@@ -1199,10 +1462,37 @@ actor AgentSessionOrchestrator {
         )
     }
 
+    static func controlTargetSessionIDs(sessionID: String, action: AgentRunControlAction,
+        sessions: [AgentSessionSummary]) -> [String] {
+        guard action == .interruptTree else { return [sessionID] }
+        var children: [String: [String]] = [:]
+        for session in sessions {
+            guard let parent = session.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !parent.isEmpty else { continue }
+            children[parent, default: []].append(session.id)
+        }
+        var targets: [String] = []
+        var queue = [sessionID]
+        var head = 0
+        var visited: Set<String> = []
+        while head < queue.count {
+            let current = queue[head]
+            head += 1
+            guard visited.insert(current).inserted else { continue }
+            targets.append(current)
+            queue += children[current] ?? []
+        }
+        return targets
+    }
+
     func controlSession(
         agentID: String,
         sessionID: String,
-        request: AgentSessionControlRequest
+        request: AgentSessionControlRequest,
+        targetSessionIDs fixedTargetIDs: [String]? = nil,
+        controlEventIDs: [String: String] = [:],
+        queuedInputCancellations: [String: [AgentInputTransition]] = [:],
+        onInterruptAccepted: (@Sendable (String) -> Void)? = nil
     ) async throws -> AgentSessionMessageResponse {
         let usesACP = (try? agentCatalogStore.getAgentConfig(
             agentID: agentID,
@@ -1231,41 +1521,11 @@ actor AgentSessionOrchestrator {
 
         let targetSessionIDs: [String]
         do {
-            if request.action == .interruptTree {
-                let sessions = try sessionStore.listSessions(agentID: agentID, includeHeartbeat: true)
-                if sessions.isEmpty {
-                    targetSessionIDs = [sessionID]
-                } else {
-                    var childrenByParentID: [String: [String]] = [:]
-                    for summary in sessions {
-                        guard let parentID = summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
-                              !parentID.isEmpty
-                        else {
-                            continue
-                        }
-                        childrenByParentID[parentID, default: []].append(summary.id)
-                    }
-
-                    var orderedIDs: [String] = []
-                    var queue: [String] = [sessionID]
-                    var visited = Set<String>()
-                    while !queue.isEmpty {
-                        let currentID = queue.removeFirst()
-                        if visited.contains(currentID) {
-                            continue
-                        }
-                        visited.insert(currentID)
-                        orderedIDs.append(currentID)
-                        let children = childrenByParentID[currentID] ?? []
-                        if !children.isEmpty {
-                            queue.append(contentsOf: children)
-                        }
-                    }
-
-                    targetSessionIDs = orderedIDs
-                }
-            } else {
-                targetSessionIDs = [sessionID]
+            if let fixedTargetIDs { targetSessionIDs = fixedTargetIDs }
+            else {
+                let sessions = request.action == .interruptTree
+                    ? try sessionStore.listSessions(agentID: agentID, includeHeartbeat: true) : []
+                targetSessionIDs = Self.controlTargetSessionIDs(sessionID: sessionID, action: request.action, sessions: sessions)
             }
         } catch {
             throw mapSessionStoreError(error)
@@ -1284,6 +1544,7 @@ actor AgentSessionOrchestrator {
                 continue
             }
 
+            var nativeCancellation: (metadata: AgentRunMetadata, writer: NativeJournalWriterGuard)?
             if request.action == .interrupt || request.action == .interruptTree {
                 if usesACP, let acpSessionManager {
                     do {
@@ -1298,11 +1559,17 @@ actor AgentSessionOrchestrator {
                 }
                 let channelID = sessionChannelID(agentID: agentID, sessionID: targetSessionID)
                 interruptedSessionRunChannels.insert(channelID)
+                onInterruptAccepted?(targetSessionID)
+                if !usesACP {
+                    nativeCancellation = try await cancelNativeRun(agentID: agentID,
+                        sessionID: targetSessionID, channelID: channelID)
+                }
                 _ = await runtime.abortChannel(channelId: channelID, reason: request.reason ?? "Interrupted by user")
             }
 
-            let events = [
+            var events = [
                 AgentSessionEvent(
+                    id: controlEventIDs[targetSessionID] ?? UUID().uuidString,
                     agentId: agentID,
                     sessionId: targetSessionID,
                     type: .runControl,
@@ -1326,6 +1593,33 @@ actor AgentSessionOrchestrator {
 
             let summary: AgentSessionSummary
             do {
+                if let nativeCancellation {
+                    try nativeCancellation.writer.authorize()
+                    events[0].version = 2
+                    events[0].runtimeMetadata = nativeCancellation.metadata
+                    var presentation = nativeCancellation.metadata
+                    presentation.runState = nil
+                    events[1].version = 2
+                    events[1].runtimeMetadata = presentation
+                    try attachInputDelivery(to: &events[1], agentID: agentID, sessionID: targetSessionID)
+                }
+                if request.action == .interrupt || request.action == .interruptTree,
+                   let captured = queuedInputCancellations[targetSessionID], !captured.isEmpty {
+                    let current = try SessionInputLifecycle.states(in: sessionStore.loadSession(agentID: agentID, sessionID: targetSessionID).events)
+                    var cancellations: [AgentInputTransition] = []
+                    for transition in captured {
+                        guard let input = current[transition.messageId], input.latest.fingerprint == transition.fingerprint else {
+                            throw OrchestratorError.invalidPayload
+                        }
+                        // A previously claimed preparation may have settled while control dispatch
+                        // was awaiting. Its admitted run is covered by the native stop checkpoint.
+                        if input.latest.disposition == .queued, input.owner == nil { cancellations.append(transition) }
+                    }
+                    if !cancellations.isEmpty {
+                        events[0].version = 3
+                        events[0].inputTransitions = cancellations
+                    }
+                }
                 summary = try appendEventsAndNotify(
                     agentID: agentID,
                     sessionID: targetSessionID,
@@ -1349,6 +1643,29 @@ actor AgentSessionOrchestrator {
         }
 
         return AgentSessionMessageResponse(summary: summary, appendedEvents: appendedEvents, routeDecision: nil)
+    }
+
+    private func cancelNativeRun(agentID: String, sessionID: String, channelID: String) async throws
+        -> (metadata: AgentRunMetadata, writer: NativeJournalWriterGuard)? {
+        var state = nativeRunStateByChannel[channelID]
+        let writer = NativeJournalWriterGuard(directory: try agentCatalogStore.directoryURL(agentID: agentID))
+        if state == nil {
+            let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+            guard let accepted = NativeSessionDelivery.firstUnfinishedInput(in: detail) else { return nil }
+            let journal = SessionLoopJournal(store: sessionStore, agentID: agentID, sessionID: sessionID,
+                authorizeWriter: { try writer.authorize() })
+            guard let restored = try await journal.restoreRunState(userTurnID: accepted.userTurnId),
+                  restored.runID == accepted.runId, restored.userTurnID == accepted.userTurnId else {
+                throw OrchestratorError.invalidPayload
+            }
+            state = restored
+        }
+        guard let state, await state.snapshot().loopConfig?.engine == .unified else { return nil }
+        try writer.authorize()
+        await state.cancel()
+        let snapshot = await state.snapshot()
+        return (.init(runId: snapshot.runID, userTurnId: snapshot.userTurnID, generation: snapshot.generation,
+            runState: try JSONValueCoder.encode(snapshot), presentationOnly: true, inputMessageId: snapshot.userTurnID), writer)
     }
 
     func hasLiveRuntimeSession(agentID: String, sessionID: String) async -> Bool {
@@ -1578,8 +1895,47 @@ actor AgentSessionOrchestrator {
         sessionID: String,
         content: String,
         plannerModel: String?,
-        executorModel: String?
-    ) async -> String {
+        executorModel: String?,
+        unified: Bool = false
+    ) async throws -> String {
+        if unified {
+            let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+            guard let state = nativeRunStateByChannel[channelID] else { throw OrchestratorError.storageFailure }
+            let writer = NativeJournalWriterGuard(directory: try agentCatalogStore.directoryURL(agentID: agentID))
+            let journal = SessionLoopJournal(store: sessionStore, agentID: agentID, sessionID: sessionID,
+                authorizeWriter: { try writer.authorize() }, includeResponseMessages: false,
+                onPersisted: { [weak self] summary, events in
+                    await self?.unifiedJournalDidAppend(agentID: agentID, sessionID: sessionID, summary: summary, events: events)
+                })
+            let generation = await state.generation
+            let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+            let saved = detail.events.filter { !$0.isHistorical && $0.runtimeMetadata?.runId == state.runID &&
+                $0.runtimeMetadata?.userTurnId == state.userTurnID && $0.runtimeMetadata?.generation == generation }
+            if let instruction = saved.compactMap({ $0.runtimeMetadata?.instruction }).first(where: { $0.id == "planner-output-" + state.runID }) {
+                return content + "\n\n" + instruction.text
+            }
+            if let raw = saved.first(where: { $0.id == "model-response-planner-" + state.runID })?.runtimeMetadata?.modelResponse {
+                let response = try JSONValueCoder.decode(ModelStepResponse.self, from: raw)
+                guard response.stopReason == .endTurn, response.toolCalls.isEmpty,
+                      !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw OrchestratorError.invalidPayload }
+                let instruction = SessionLoopJournal.plannerInstruction(response.text, runID: state.runID)
+                let frame = ModelStepRequest(runId: state.runID, userTurnId: state.userTurnID,
+                    stepId: "planner-" + state.runID, attemptId: UUID().uuidString, model: "planner-recovery",
+                    projectionRevision: "", cacheScope: channelID, messages: [], generation: generation)
+                try Task.checkCancellation()
+                try await journal.appendInstruction(instruction, request: frame)
+                return content + "\n\n" + instruction.text
+            }
+            let pinnedPlanner = await state.requestSettings?.plannerModel ?? plannerModel
+            await appendUnifiedPresentation(agentID: agentID, sessionID: sessionID,
+                event: .init(agentId: agentID, sessionId: sessionID, type: .runStatus,
+                    runStatus: .init(stage: .thinking, label: "Planning", details: "Generating execution plan...", selectedModel: pinnedPlanner)))
+            let response = try await runtime.generateAgentLoopPlan(prompt: plannerPrompt(agentID: agentID,
+                sessionID: sessionID, executorModel: executorModel, content: content), model: pinnedPlanner,
+                channelID: channelID, state: state, journal: journal)
+            try Task.checkCancellation()
+            return content + "\n\n" + SessionLoopJournal.plannerInstruction(response.text, runID: state.runID).text
+        }
         appendEventsSafely(
             agentID: agentID,
             sessionID: sessionID,
@@ -1662,11 +2018,31 @@ actor AgentSessionOrchestrator {
         return String(trimmed[..<end]) + "\n\n[Planner output truncated]"
     }
 
+    private func nativeLoopConfiguration(userID: String, sessionID: String,
+        engine: AgentNativeEngine, mode: AgentChatMode) -> NativeAgentLoopConfig {
+        var nativeLoopConfig = Self.nativeLoopConfig(
+            coreConfig: persistedModelContext.config,
+            userID: userID,
+            isDelegatedSubagent: delegatedSubagentSessionIDs.contains(sessionID)
+        )
+        nativeLoopConfig.engine = engine
+        if engine == .unified {
+            nativeLoopConfig.activeMode = mode
+            nativeLoopConfig.requiresExplicitCompletion = Self.requiresExplicitCodingCompletion(mode: mode)
+            if mode == .debug || mode == .plan || mode == .auto {
+                nativeLoopConfig.finalizerToolNames.insert("planning.request_input")
+            }
+        }
+        return nativeLoopConfig
+    }
+
     private func postNativeMessage(
         agentID: String,
         sessionID: String,
         userID: String,
         content: String,
+        engine: AgentNativeEngine = .legacy,
+        turnContext: String? = nil,
         selectedModel: String?,
         reasoningEffort: ReasoningEffort?,
         mode: AgentChatMode,
@@ -1674,9 +2050,9 @@ actor AgentSessionOrchestrator {
         images: [Transcript.ImageSegment] = [],
         publishResponseChunks: Bool = true,
         memoryQuery: String? = nil
-    ) async -> SessionRuntimeOutcome {
+    ) async throws -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
-        if mode == .auto, let continuationMode {
+        if engine != .unified, mode == .auto, let continuationMode {
             selectedAutoRouteModeByChannel[channelID] = continuationMode
         }
         if let toolExclusionProvider {
@@ -1695,20 +2071,17 @@ actor AgentSessionOrchestrator {
         streamedAssistantLastPersistedByChannel[channelID] = ""
         streamedAssistantLastPersistedAtByChannel[channelID] = .distantPast
         toolDrivenSessionRunChannels.remove(channelID)
-        completedSessionRunChannels.remove(channelID)
-        sessionCompletionSummaryByChannel.removeValue(forKey: channelID)
-        sessionCompletionRecordByChannel.removeValue(forKey: channelID)
         defer {
             cleanupSessionRunTracking(channelID: channelID)
         }
 
         let messageContent = content.isEmpty ? "User attached files." : content
         let toolInvokerRecordsEvents = self.toolInvokerRecordsEvents
-        let nativeLoopConfig = Self.nativeLoopConfig(
-            coreConfig: persistedModelContext.config,
-            userID: userID,
-            isDelegatedSubagent: delegatedSubagentSessionIDs.contains(sessionID)
-        )
+        let nativeLoopConfig = nativeLoopConfiguration(userID: userID, sessionID: sessionID,
+            engine: engine, mode: mode)
+        let services = engine == .unified ? try await makeUnifiedSessionServices(agentID: agentID,
+            sessionID: sessionID, userID: userID, channelID: channelID, runID: runID,
+            mode: mode, turnContext: turnContext) : nil
         let archiveStore = ToolOutputArtifactStore(workspaceRootURL: persistedModelContext.config.resolvedWorkspaceRootURL(), agentID: agentID, sessionID: sessionID)
         await runtime.setMalformedToolCallObserver(channelId: channelID) { [weak self] _ in
             await self?.recordMalformedToolCall(channelID: channelID)
@@ -1789,6 +2162,22 @@ actor AgentSessionOrchestrator {
                     sessionID: sessionID,
                     events: toolInvokerRecordsEvents ? [toolCallStatusEvent] : [toolCallStatusEvent, toolCallEvent]
                 )
+
+                if await self.hasAcceptedCompletion(channelID: channelID) {
+                    let result = ToolInvocationResult(tool: toolRequest.tool, ok: false, error: .init(
+                        code: "not_executed_after_completion",
+                        message: "Completion was already accepted. This call was not executed.", retryable: false
+                    ))
+                    let event = AgentSessionEvent(
+                        agentId: agentID, sessionId: sessionID, type: .toolResult,
+                        toolResult: .init(tool: result.tool, ok: false, error: result.error,
+                            callEventId: toolCallEvent.id,
+                            executionOutcome: .init(state: .cancelled, category: .policy, code: result.error?.code))
+                    )
+                    await self.appendEventsSafely(agentID: agentID, sessionID: sessionID,
+                        events: toolInvokerRecordsEvents ? [toolCallEvent, event] : [event])
+                    return result
+                }
 
                 if toolRequest.tool == SessionCompleteTool.toolName {
                     guard await self.shouldContinueSessionRun(channelID: channelID, runID: runID) else {
@@ -1948,10 +2337,14 @@ actor AgentSessionOrchestrator {
                             segments: [AgentMessageSegment(kind: .thinking, text: text)]
                         )
                     )
-                    await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [thinkingEvent])
+                    if engine == .unified {
+                        await self.appendUnifiedPresentation(agentID: agentID, sessionID: sessionID, event: thinkingEvent)
+                    } else {
+                        await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [thinkingEvent])
+                    }
                 case .usage(let tokenUsage):
                     await lastTokenUsageBox.set(tokenUsage)
-                    await self.tokenUsageObserver?(agentID, sessionID, tokenUsage)
+                    if engine != .unified { await self.tokenUsageObserver?(agentID, sessionID, tokenUsage) }
                     let usageStatus = AgentSessionEvent(
                         agentId: agentID,
                         sessionId: sessionID,
@@ -1963,7 +2356,11 @@ actor AgentSessionOrchestrator {
                             tokenUsage: tokenUsage
                         )
                     )
-                    await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [usageStatus])
+                    if engine == .unified {
+                        await self.appendUnifiedPresentation(agentID: agentID, sessionID: sessionID, event: usageStatus)
+                    } else {
+                        await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [usageStatus])
+                    }
                 case .toolCall, .toolResult:
                     break
                 }
@@ -1971,21 +2368,27 @@ actor AgentSessionOrchestrator {
             nativeLoopConfig: nativeLoopConfig,
             nativeLoopOutcomeHandler: { outcome in
                 await nativeLoopOutcomeBox.set(outcome)
-            }
+            },
+            runState: nativeRunStateByChannel[channelID],
+            agentLoopServices: services
         )
 
         let snapshot = await runtime.channelState(channelId: channelID)
         let nativeLoopOutcome = await nativeLoopOutcomeBox.get()
         let tokenUsage = await lastTokenUsageBox.get()
-        let selectedAutoRouteMode = selectedAutoRouteModeByChannel[channelID]
+        let selectedAutoRouteMode: AgentChatMode?
+        if engine == .unified {
+            let active = await nativeRunStateByChannel[channelID]?.snapshot().loopConfig?.activeMode
+            selectedAutoRouteMode = active == .auto ? nil : active
+        } else { selectedAutoRouteMode = selectedAutoRouteModeByChannel[channelID] }
         let streamedAssistantText = streamedAssistantByChannel[channelID]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let assistantTextFromSnapshot = snapshot?.messages.reversed().first(where: {
             $0.userId == "system" && !$0.content.contains(Self.sessionContextBootstrapMarker)
         })?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let completionSummary = sessionCompletionSummaryByChannel[channelID]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let completionRecord = await nativeRunStateByChannel[channelID]?.completion
+        let completionSummary = completionRecord?.summary.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let usedTools = toolDrivenSessionRunChannels.contains(channelID)
-        let didExplicitlyComplete = completedSessionRunChannels.contains(channelID)
-        let completionRecord = sessionCompletionRecordByChannel[channelID]
+        let didExplicitlyComplete = completionRecord != nil
         let wasInterrupted = interruptedSessionRunChannels.contains(channelID)
         let assistantText = !streamedAssistantText.isEmpty
             ? streamedAssistantText
@@ -1999,7 +2402,7 @@ actor AgentSessionOrchestrator {
             selectedAutoRouteMode: selectedAutoRouteMode,
             wasInterrupted: wasInterrupted,
             didResetContext: false,
-            pausedInputRequestID: pausedInputRequestByChannel[channelID],
+            pausedInputRequestID: engine == .unified ? completionRecord?.inputRequestId : pausedInputRequestByChannel[channelID],
             usedTools: usedTools,
             didExplicitlyComplete: didExplicitlyComplete,
             completionRecord: completionRecord,
@@ -2244,6 +2647,21 @@ actor AgentSessionOrchestrator {
         return "- Attachment context: path metadata prepared for \(names)\(suffix)"
     }
 
+    private func attachInputDelivery(to event: inout AgentSessionEvent, agentID: String, sessionID: String) throws {
+        guard var metadata = event.runtimeMetadata, metadata.presentationOnly == true,
+              let stage = event.runStatus?.stage, stage == .done || stage == .paused || stage == .interrupted else { return }
+        let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        guard let state = try SessionInputLifecycle.states(in: detail.events).values.first(where: {
+            $0.owner?.runId == metadata.runId && $0.owner?.userTurnId == metadata.userTurnId
+        }), state.latest.delivery != .delivered, let owner = state.owner else { return }
+        metadata.inputMessageId = state.latest.messageId
+        metadata.requestFingerprint = state.latest.fingerprint
+        event.version = 3
+        event.runtimeMetadata = metadata
+        event.inputTransitions = [.init(messageId: state.latest.messageId, fingerprint: state.latest.fingerprint,
+            disposition: .admitted, delivery: .delivered, owner: owner)]
+    }
+
     private func appendEventsAndNotify(
         agentID: String,
         sessionID: String,
@@ -2289,16 +2707,14 @@ actor AgentSessionOrchestrator {
         pausedInputRequestByChannel.removeValue(forKey: channelID)
         selectedAutoRouteModeByChannel.removeValue(forKey: channelID)
         toolDrivenSessionRunChannels.remove(channelID)
-        completedSessionRunChannels.remove(channelID)
-        sessionCompletionSummaryByChannel.removeValue(forKey: channelID)
-        sessionCompletionRecordByChannel.removeValue(forKey: channelID)
     }
 
     private func rememberPausedInputRequest(channelID: String, requestID: String) {
         pausedInputRequestByChannel[channelID] = requestID
     }
 
-    private func selectAutoRoute(channelID: String, request: ToolInvocationRequest, mode: AgentChatMode) -> ToolInvocationResult {
+    private func selectAutoRoute(channelID: String, request: ToolInvocationRequest, mode: AgentChatMode,
+        cacheLegacySelection: Bool = true) -> ToolInvocationResult {
         guard mode == .auto else {
             return ToolInvocationResult(
                 tool: request.tool,
@@ -2322,17 +2738,17 @@ actor AgentSessionOrchestrator {
                 )
             )
         }
-        if let selectedMode = Self.autoRouteMode(route) {
-            selectedAutoRouteModeByChannel[channelID] = selectedMode
-        } else {
-            selectedAutoRouteModeByChannel.removeValue(forKey: channelID)
+        let selectedMode = Self.autoRouteMode(route)
+        if cacheLegacySelection {
+            if let selectedMode { selectedAutoRouteModeByChannel[channelID] = selectedMode }
+            else { selectedAutoRouteModeByChannel.removeValue(forKey: channelID) }
         }
         return ToolInvocationResult(
             tool: request.tool,
             ok: true,
             data: .object([
                 "route": .string(route),
-                "mode": .string(selectedAutoRouteModeByChannel[channelID]?.rawValue ?? "skill"),
+                "mode": .string(selectedMode?.rawValue ?? "skill"),
                 "message": .string("Auto route recorded.")
             ])
         )
@@ -2342,7 +2758,7 @@ actor AgentSessionOrchestrator {
     /// successful tool results can establish or finish a route; assistant prose is never a signal.
     static func unfinishedAutoRouteMode(events: [AgentSessionEvent]) -> AgentChatMode? {
         for event in events.reversed() {
-            guard let result = event.toolResult, result.ok else { continue }
+            guard !event.isHistorical, let result = event.toolResult, result.ok else { continue }
             if result.tool == SessionCompleteTool.toolName,
                result.data?.asObject?["status"]?.asString == SessionCompletionDisposition.completed.rawValue {
                 return nil
@@ -2419,13 +2835,19 @@ actor AgentSessionOrchestrator {
         toolDrivenSessionRunChannels.insert(channelID)
     }
 
-    private func recordVerificationEvidence(
+    private func recordVerificationEvidence(channelID: String, request: ToolInvocationRequest,
+        result: ToolInvocationResult) async -> ToolInvocationResult {
+        await recordVerifiedToolOutcome(channelID: channelID, request: request, result: result).result
+    }
+
+    private func recordVerifiedToolOutcome(
         channelID: String,
         request: ToolInvocationRequest,
-        result: ToolInvocationResult
-    ) -> ToolInvocationResult {
+        result: ToolInvocationResult,
+        sourceCallID: String? = nil
+    ) async -> AgentLoopToolOutcome {
         guard result.ok, var data = result.data?.asObject else {
-            return result
+            return .init(result: result)
         }
 
         let kind: SessionVerificationEvidenceKind
@@ -2437,28 +2859,28 @@ actor AgentSessionOrchestrator {
             guard data["exitCode"]?.asInt == 0,
                   data["timedOut"]?.asBool != true
             else {
-                return result
+                return .init(result: result)
             }
             command = data["command"]?.asString ?? request.arguments["command"]?.asString
             arguments = data["arguments"]?.asArray?.compactMap(\.asString)
                 ?? request.arguments["arguments"]?.asArray?.compactMap(\.asString)
                 ?? []
             guard let commandKind = Self.verificationKind(command: command, arguments: arguments) else {
-                return result
+                return .init(result: result)
             }
             kind = commandKind
             exitCode = 0
         case "runtime.process":
             let action = request.arguments["action"]?.asString?.lowercased() ?? ""
             guard action == "start", data["running"]?.asBool == true else {
-                return result
+                return .init(result: result)
             }
             kind = .run
             command = request.arguments["command"]?.asString
             arguments = request.arguments["arguments"]?.asArray?.compactMap(\.asString) ?? []
             exitCode = nil
         case "devices.preview":
-            guard request.arguments["operation"]?.asString == "screenshot", data["path"]?.asString != nil else { return result }
+            guard request.arguments["operation"]?.asString == "screenshot", data["path"]?.asString != nil else { return .init(result: result) }
             kind = .screenshot
             command = nil
             arguments = []
@@ -2475,34 +2897,31 @@ actor AgentSessionOrchestrator {
                   let declared = data["verificationKind"]?.asString,
                   let declaredKind = SessionVerificationEvidenceKind(rawValue: declared)
             else {
-                return result
+                return .init(result: result)
             }
             kind = declaredKind
             command = [data["server"]?.asString, data["tool"]?.asString].compactMap { $0 }.joined(separator: ":")
             arguments = []
             exitCode = nil
         default:
-            return result
+            return .init(result: result)
         }
 
-        var evidence = sessionVerificationEvidenceByChannel[channelID] ?? []
-        let record = SessionVerificationEvidence(
-            id: "verification-\(evidence.count + 1)",
+        guard let state = nativeRunStateByChannel[channelID] else { return .init(result: result) }
+        let record = await state.recordEvidence(SessionVerificationEvidence(
             kind: kind,
             tool: result.tool,
             command: command,
             arguments: arguments,
             cwd: request.arguments["cwd"]?.asString,
             exitCode: exitCode,
-            observedAt: Date()
-        )
-        evidence.append(record)
-        sessionVerificationEvidenceByChannel[channelID] = evidence
+            observedAt: Date(), sourceCallID: sourceCallID
+        ))
         data["verificationEvidence"] = record.jsonValue
 
         var recordedResult = result
         recordedResult.data = .object(data)
-        return recordedResult
+        return .init(result: recordedResult, verificationEvidence: [record])
     }
 
     static func verificationKind(
@@ -2611,139 +3030,31 @@ actor AgentSessionOrchestrator {
         channelID: String,
         request: ToolInvocationRequest,
         mode: AgentChatMode
-    ) -> ToolInvocationResult {
-        let summary = request.arguments["summary"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let rawStatus = request.arguments["status"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard let disposition = SessionCompletionDisposition(rawValue: rawStatus) else {
-            return ToolInvocationResult(
-                tool: SessionCompleteTool.toolName,
-                ok: false,
-                error: ToolErrorPayload(
-                    code: "invalid_completion_status",
-                    message: "`status` must be completed, blocked, or waiting_input.",
-                    retryable: true
-                )
-            )
-        }
-
-        guard !summary.isEmpty else {
-            return ToolInvocationResult(
-                tool: SessionCompleteTool.toolName,
-                ok: false,
-                error: ToolErrorPayload(
-                    code: "completion_summary_required",
-                    message: "`summary` must describe the completed work, blocker, or requested input.",
-                    retryable: true
-                )
-            )
-        }
-
-        let verification = request.arguments["verification"]?.asArray?
-            .compactMap(\.asString)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
-        let requestedEvidenceIDs = request.arguments["verificationEvidenceIds"]?.asArray?
-            .compactMap(\.asString)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
-        let limitations = request.arguments["limitations"]?.asArray?
-            .compactMap(\.asString)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
-
-        let evidence = sessionVerificationEvidenceByChannel[channelID] ?? []
-        let evidenceByID = Dictionary(uniqueKeysWithValues: evidence.map { ($0.id, $0) })
-        let missingEvidenceIDs = requestedEvidenceIDs.filter { evidenceByID[$0] == nil }
-        if !missingEvidenceIDs.isEmpty {
-            return ToolInvocationResult(
-                tool: SessionCompleteTool.toolName,
-                ok: false,
-                error: ToolErrorPayload(
-                    code: "completion_verification_not_found",
-                    message: "Verification evidence must reference successful tool results from the current turn. Unknown IDs: \(missingEvidenceIDs.joined(separator: ", ")).",
-                    retryable: true
-                )
-            )
-        }
-        let resolvedEvidence = requestedEvidenceIDs.compactMap { evidenceByID[$0] }
-        let qualifyingEvidence = resolvedEvidence.filter { Self.isCompletionEvidence($0, sufficientFor: mode) }
-
-        if disposition == .completed,
-           Self.requiresExplicitCodingCompletion(mode: mode),
-           qualifyingEvidence.isEmpty
-        {
-            return ToolInvocationResult(
-                tool: SessionCompleteTool.toolName,
-                ok: false,
-                error: ToolErrorPayload(
-                    code: "completion_verification_required",
-                    message: "Completed Build and Debug turns require current-turn evidence from a successful build, test, or run: runtime.exec/runtime.process, or an MCP tool the server marks as verification (its result carries `verificationEvidence.id`). Debug also accepts screenshot evidence.",
-                    retryable: true
-                )
-            )
-        }
-
-        if disposition == .blocked, let rejection = turnGuardByChannel[channelID]?.blockedCompletionRejection {
-            return ToolInvocationResult(
-                tool: SessionCompleteTool.toolName,
-                ok: false,
-                error: ToolErrorPayload(
-                    code: "completion_blocked_prematurely",
-                    message: rejection,
-                    retryable: true
-                )
-            )
-        }
-
-        if disposition == .blocked, limitations.isEmpty {
-            return ToolInvocationResult(
-                tool: SessionCompleteTool.toolName,
-                ok: false,
-                error: ToolErrorPayload(
-                    code: "completion_limitations_required",
-                    message: "Blocked completion requires at least one concrete limitation or blocker.",
-                    retryable: true
-                )
-            )
-        }
-
-        let record = SessionCompletionRecord(
-            disposition: disposition,
-            summary: summary,
-            verification: verification,
-            verificationEvidence: resolvedEvidence,
-            limitations: limitations
+    ) async -> ToolInvocationResult {
+        let decision = SessionCompletionPolicy.evaluate(
+            request: request, mode: mode,
+            evidence: await nativeRunStateByChannel[channelID]?.verificationEvidence ?? [],
+            blockedCompletionRejection: turnGuardByChannel[channelID]?.blockedCompletionRejection
         )
-        completedSessionRunChannels.insert(channelID)
-        sessionCompletionSummaryByChannel[channelID] = summary
-        sessionCompletionRecordByChannel[channelID] = record
+        let record: RunCompletion
+        switch decision {
+        case .accepted(let accepted): record = accepted
+        case .rejected(let result): return result
+        }
+        guard let state = nativeRunStateByChannel[channelID], await state.acceptCompletion(record) else {
+            return ToolInvocationResult(tool: SessionCompleteTool.toolName, ok: false, error: .init(
+                code: "not_executed_after_completion", message: "This run already has a completion outcome.", retryable: false
+            ))
+        }
         return ToolInvocationResult(
             tool: SessionCompleteTool.toolName,
             ok: true,
-            data: .object([
-                "completed": .bool(disposition == .completed),
-                "status": .string(disposition.rawValue),
-                "summary": .string(summary),
-                "verification": .array(verification.map(JSONValue.string)),
-                "verificationEvidenceIds": .array(resolvedEvidence.map { .string($0.id) }),
-                "verificationEvidence": .array(resolvedEvidence.map(\.jsonValue)),
-                "limitations": .array(limitations.map(JSONValue.string)),
-            ])
+            data: record.jsonValue
         )
     }
 
-    private static func isCompletionEvidence(
-        _ evidence: SessionVerificationEvidence,
-        sufficientFor mode: AgentChatMode
-    ) -> Bool {
-        switch mode {
-        case .build:
-            return evidence.kind == .build || evidence.kind == .test || evidence.kind == .run
-        case .debug:
-            return evidence.kind == .build || evidence.kind == .test || evidence.kind == .run || evidence.kind == .screenshot
-        default:
-            return true
-        }
+    private func hasAcceptedCompletion(channelID: String) async -> Bool {
+        await nativeRunStateByChannel[channelID]?.completion != nil
     }
 
     private static func requiresExplicitCodingCompletion(mode: AgentChatMode) -> Bool {
@@ -2814,11 +3125,12 @@ actor AgentSessionOrchestrator {
         merged.selectedAutoRouteMode = initial.selectedAutoRouteMode ?? recovery.selectedAutoRouteMode ?? selectedMode
         merged.didResetContext = initial.didResetContext || recovery.didResetContext
         merged.usedTools = initial.usedTools || recovery.usedTools
-        merged.toolRoundsUsed = initial.toolRoundsUsed + recovery.toolRoundsUsed
-        merged.maxToolRounds = initial.maxToolRounds + recovery.maxToolRounds
+        merged.toolRoundsUsed = max(initial.toolRoundsUsed, recovery.toolRoundsUsed)
+        merged.maxToolRounds = initial.maxToolRounds
         merged.finishedNaturally = initial.finishedNaturally && recovery.finishedNaturally
         merged.hitTurnLimit = initial.hitTurnLimit || recovery.hitTurnLimit
-        merged.toolErrors = initial.toolErrors + recovery.toolErrors
+        // The turn-owned state already contains earlier failures.
+        merged.toolErrors = recovery.toolErrors
         return merged
     }
 
@@ -2904,7 +3216,8 @@ actor AgentSessionOrchestrator {
         guard isDelegatedSubagent else {
             return NativeAgentLoopConfig(
                 maxToolRounds: maxToolRounds,
-                enforceToolRoundLimit: enforceToolRoundLimit
+                enforceToolRoundLimit: enforceToolRoundLimit,
+                finalizerToolNames: [SessionCompleteTool.toolName]
             )
         }
 
@@ -2940,6 +3253,265 @@ actor AgentSessionOrchestrator {
         return trimmed
     }
 
+    func prepareUnifiedCompactionStorage(agentID: String) throws {
+        try agentCatalogStore.protectUnifiedJournalStorage(agentID: agentID,
+            availableModels: availableModels, minimumJournalVersion: 4)
+    }
+
+    func prepareUnifiedSteeringStorage(agentID: String, sessionID: String) throws {
+        let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        guard try SessionInputLifecycle.states(in: detail.events).values.contains(where: {
+            $0.latest.disposition == .queued && $0.context.request.deliveryIntent == .steering
+        }) else { return }
+        try agentCatalogStore.protectUnifiedJournalStorage(agentID: agentID,
+            availableModels: availableModels, minimumJournalVersion: 5)
+    }
+
+    func prepareUnifiedSessionRequest(_ request: ModelStepRequest, journal: SessionLoopJournal,
+        agentID: String, sessionID: String, userID: String) async throws -> ModelStepRequest {
+        guard !nativeWorkIsStopping else { throw CancellationError() }
+        try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID, userID: userID)
+        // Freeze disk first. A concurrent enqueue after this cursor cannot enter the request
+        // between selecting pending IDs and reading the journal.
+        let snapshot = try sessionStore.loadJournal(agentID: agentID, sessionID: sessionID)
+        let pendingIDs = await pendingMessageIDsProvider?(agentID, sessionID) ?? []
+        let admittedIDs = Set(try SessionInputLifecycle.states(in: snapshot.detail.events).compactMap { id, input in
+            input.owner == nil ? nil : id
+        })
+        return try await journal.prepareRequest(request, journal: snapshot,
+            excludingUserMessageIDs: pendingIDs.subtracting(admittedIDs).subtracting([request.userTurnId]))
+    }
+
+    private func unifiedJournalDidAppend(agentID: String, sessionID: String,
+        summary: AgentSessionSummary, events: [AgentSessionEvent]) async {
+        syncedSessionStoreFingerprintsByChannel[sessionChannelID(agentID: agentID, sessionID: sessionID)] = sessionStoreFingerprint(summary)
+        await eventAppendObserver?(agentID, sessionID, summary, events)
+    }
+
+    private func appendUnifiedPresentation(agentID: String, sessionID: String, event: AgentSessionEvent) async {
+        let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        guard let state = nativeRunStateByChannel[channelID] else { return }
+        var event = event
+        event.version = 2
+        event.runtimeMetadata = .init(runId: state.runID, userTurnId: state.userTurnID,
+            generation: await state.generation, presentationOnly: true)
+        do {
+            let summary = try sessionStore.appendEvents(agentID: agentID, sessionID: sessionID, events: [event])
+            await unifiedJournalDidAppend(agentID: agentID, sessionID: sessionID, summary: summary, events: [event])
+        } catch {
+            await state.cancel()
+            logger.error("Unified presentation could not be persisted", metadata: ["error": .string(String(describing: error))])
+        }
+    }
+
+    static func turnContextInstructions(_ text: String) -> [AgentRunInstruction] {
+        var instructions: [AgentRunInstruction] = []
+        var chunk = ""
+        var chunkBytes = 0
+        for scalar in text.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars {
+            let next = String(scalar)
+            let nextBytes = next.utf8.count
+            if chunkBytes + nextBytes > 8_192 {
+                instructions.append(.init(kind: .turnContext, text: chunk))
+                chunk = ""
+                chunkBytes = 0
+            }
+            chunk += next
+            chunkBytes += nextBytes
+        }
+        if !chunk.isEmpty { instructions.append(.init(kind: .turnContext, text: chunk)) }
+        return instructions
+    }
+
+    private func makeUnifiedSessionServices(agentID: String, sessionID: String, userID: String,
+        channelID: String, runID: UUID, mode: AgentChatMode, turnContext: String?) async throws -> AgentLoopServices {
+        guard let nativeToolInvoker, let state = nativeRunStateByChannel[channelID] else {
+            throw OrchestratorError.storageFailure
+        }
+        let writer = NativeJournalWriterGuard(directory: try agentCatalogStore.directoryURL(agentID: agentID))
+        let journal = SessionLoopJournal(store: sessionStore, agentID: agentID, sessionID: sessionID,
+            authorizeWriter: { try writer.authorize() }, includeResponseMessages: false,
+            onPersisted: { [weak self] summary, events in
+                await self?.unifiedJournalDidAppend(agentID: agentID, sessionID: sessionID, summary: summary, events: events)
+            })
+        if let text = turnContext?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            let frame = ModelStepRequest(runId: state.runID, userTurnId: state.userTurnID,
+                stepId: UUID().uuidString, attemptId: UUID().uuidString, model: "turn-context",
+                projectionRevision: "", cacheScope: channelID, messages: [], generation: await state.generation)
+            for instruction in Self.turnContextInstructions(text) {
+                try await journal.appendInstruction(instruction, request: frame)
+            }
+        }
+        let pinnedSettings = await state.requestSettings
+        let contract = await state.snapshot().loopConfig?.completionContract
+        let workerContract = contract == .worker
+        if contract == .worker || contract == .coordinator {
+            guard pinnedSettings?.delegatedAuthority != nil else { throw OrchestratorError.invalidPayload }
+        }
+        let executor = AgentLoopToolExecutor(execute: { [weak self] call, definition, arguments, beforeEffect in
+            guard let self, let metadata = call.runtimeMetadata,
+                  let stepID = metadata.stepId, let attemptID = metadata.attemptId else {
+                throw ModelStepFailure(category: .protocolViolation, code: "invocation_identity_missing",
+                    message: "Core requires the persisted model-step invocation identity.")
+            }
+            let request = ToolInvocationRequest(tool: definition.toolId, arguments: arguments)
+            let frame = ModelStepRequest(runId: metadata.runId, userTurnId: metadata.userTurnId,
+                stepId: stepID, attemptId: attemptID, model: "tool-result", projectionRevision: "",
+                cacheScope: channelID, messages: [], tools: [definition], generation: metadata.generation)
+            let context = NativeToolExecutionContext(delegatedAuthority: pinnedSettings?.delegatedAuthority,
+                delegatedToolScope: pinnedSettings?.toolScope, metadata: metadata, definition: definition,
+                beforeEffect: { [weak self] in
+                    guard let self, await self.shouldContinueSessionRun(channelID: channelID, runID: runID) else {
+                        throw CancellationError()
+                    }
+                    try await beforeEffect()
+                }, finalizer: { [weak self] request in
+                    guard let self else { return .init(result: Self.cancelledToolResult(tool: request.tool)) }
+                    return await self.unifiedCompletionCandidate(channelID: channelID, request: request, mode: mode)
+                }, routeSelector: { [weak self] request in
+                    guard let self else { return .init(result: Self.cancelledToolResult(tool: request.tool)) }
+                    return await self.unifiedRouteCandidate(channelID: channelID, request: request, mode: mode)
+                }, recordLateResult: { result in
+                    try await journal.appendResult(result, call: call, request: frame)
+                })
+            await self.markSessionRunToolDriven(channelID: channelID)
+            let effectiveMode = await self.effectiveNativeToolMode(channelID: channelID, mode: mode)
+            var outcome = await nativeToolInvoker(agentID, sessionID, request, effectiveMode, context)
+            // Late observations are written by the captured journal, never into another turn's evidence.
+            if await self.shouldContinueSessionRun(channelID: channelID, runID: runID) {
+                let verified = await self.recordVerifiedToolOutcome(channelID: channelID, request: request, result: outcome.result, sourceCallID: call.eventID)
+                outcome.result = verified.result
+                outcome.verificationEvidence = verified.verificationEvidence
+                outcome.result = await self.applyTurnGuards(channelID: channelID, request: request, result: outcome.result, mode: effectiveMode)
+                if workerContract, ["agent_delegate.finish", "agents.delegate_finish"].contains(definition.toolId),
+                   outcome.result.ok, let data = outcome.result.data?.asObject,
+                   data["finished"]?.asBool == true, let status = data["status"]?.asString,
+                   ["completed", "failed", "blocked"].contains(status),
+                   let summary = data["summary"]?.asString, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let limitations = data["error"]?.asString.map { [$0] } ?? []
+                    outcome.completion = .init(disposition: status == "completed" ? .completed : .blocked,
+                        summary: summary, verification: data["evidence"]?.asArray?.compactMap(\.asString) ?? [],
+                        verificationEvidence: [], limitations: limitations)
+                }
+                if definition.toolId == "planning.request_input", outcome.result.ok,
+                   outcome.result.data?.asObject?["paused"]?.asBool == true,
+                   let requestID = outcome.result.data?.asObject?["requestId"]?.asString {
+                    outcome.completion = try await self.unifiedInputPause(agentID: agentID,
+                        sessionID: sessionID, requestID: requestID)
+                }
+            }
+            return outcome
+        })
+        let coordinatorContract = await state.snapshot().loopConfig?.completionContract == .coordinator
+        let completionPolicy: (@Sendable (ModelStepResponse, ModelStepRequest) async throws -> AgentLoopCompletionDecision)?
+        if coordinatorContract {
+            completionPolicy = { [weak self] response, request in
+                guard let self else { throw CancellationError() }
+                return try await self.unifiedCoordinatorCompletion(response: response, request: request,
+                    agentID: agentID, sessionID: sessionID, channelID: channelID, state: state, journal: journal)
+            }
+        } else { completionPolicy = nil }
+        return .init(journal: NativeSessionLoopJournal(base: journal, owner: self,
+            agentID: agentID, sessionID: sessionID, userID: userID), executor: executor, completionPolicy: completionPolicy)
+    }
+
+    private func unifiedCoordinatorCompletion(response: ModelStepResponse, request: ModelStepRequest,
+        agentID: String, sessionID: String, channelID: String, state: RunState,
+        journal: SessionLoopJournal) async throws -> AgentLoopCompletionDecision {
+        try Task.checkCancellation()
+        let snapshot = await state.snapshot()
+        let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        let events = detail.events.filter { !$0.isHistorical && $0.runtimeMetadata?.runId == snapshot.runID &&
+            $0.runtimeMetadata?.userTurnId == snapshot.userTurnID }
+        let ledger = SessionActionLedger(events: events, detailsLimit: 6,
+            taskEvents: detail.events.filter { !$0.isHistorical }.compactMap(\.longChatTask))
+        let mode = snapshot.loopConfig?.activeMode ?? .ask
+        let handoffRequired = mode == .build || mode == .debug
+        let hasHandoff = ledger.actions.contains { $0.tool == "long_chat.delegate" && $0.ok == true && $0.assignmentId != nil }
+        let repair = ledger.repairableFailure
+        if !hasHandoff, repair != nil || (handoffRequired && !ledger.actions.contains { $0.ok == false }),
+           snapshot.recoveryCounts[RecoveryReason.coordinatorRecovery.rawValue, default: 0] < 2 {
+            return .recover(reason: .coordinatorRecovery, limit: 2,
+                instruction: .init(kind: .completionRecovery, text: """
+                [Coordinator tool recovery]
+                Continue the authorized work using the recorded result. Correct invalid fields or transient failures,
+                reusing the same requestKey for delegation. Do not broaden scope, bypass authorization, repeat
+                settled work, poll workers, or select the route again. An accepted Build/Debug task needs an
+                actual assignment or a concrete blocker. This recovery is bounded to two passes.
+                \(ledger.context)
+                """))
+        }
+        let original = detail.events.first { !$0.isHistorical && $0.message?.id == snapshot.userTurnID }?
+            .message?.segments.compactMap(\.text).joined(separator: "\n") ?? ""
+        let runtime = self.runtime
+        let reviewID = "coordinator-review-" + request.stepId
+        let savedReview = events.first { $0.id == "model-response-" + reviewID }?.runtimeMetadata?.modelResponse
+        let model = request.model
+        let verified = try await CoordinatorResponseReview.verifiedResponse(candidate: response.text,
+            userRequest: original, ledger: ledger,
+            isWorkerNotification: snapshot.requestSettings?.coordinatorNotification == true,
+            review: { prompt in
+                if let savedReview { return try JSONValueCoder.decode(ModelStepResponse.self, from: savedReview).text }
+                do {
+                    return try await runtime.generateAgentLoopReportReview(prompt: prompt, model: model,
+                        channelID: channelID, state: state, journal: journal, stepID: reviewID).text
+                } catch let failure as ModelStepFailure where failure.category == .transport ||
+                    failure.category == .provider || failure.category == .protocolViolation {
+                    return nil
+                }
+            })
+        try Task.checkCancellation()
+        let final = ModelStepResponse(text: verified, stopReason: .endTurn)
+        var terminal = request
+        terminal.stepId = "coordinator-final-" + request.stepId
+        terminal.purpose = .finalAnswer
+        // Commit the product-validated text before the settled checkpoint, so restart cannot
+        // publish the earlier unreviewed candidate or the hidden verdict JSON.
+        try await journal.appendResponse(final, request: terminal)
+        return .finish(final)
+    }
+
+    private func unifiedCompletionCandidate(channelID: String, request: ToolInvocationRequest,
+        mode: AgentChatMode) async -> AgentLoopToolOutcome {
+        switch SessionCompletionPolicy.evaluate(request: request, mode: await effectiveNativeToolMode(channelID: channelID, mode: mode),
+            evidence: await nativeRunStateByChannel[channelID]?.verificationEvidence ?? [],
+            blockedCompletionRejection: turnGuardByChannel[channelID]?.blockedCompletionRejection,
+            evidencePolicyVersion: await nativeRunStateByChannel[channelID]?.requestSettings?.evidencePolicyVersion ?? 1,
+            workScopeRevision: await nativeRunStateByChannel[channelID]?.workScopeRevision) {
+        case .accepted(let completion):
+            return .init(result: .init(tool: request.tool, ok: true, data: completion.jsonValue), completion: completion)
+        case .rejected(let result): return .init(result: result)
+        }
+    }
+
+    private func effectiveNativeToolMode(channelID: String, mode: AgentChatMode) async -> AgentChatMode {
+        guard mode == .auto else { return mode }
+        if let state = nativeRunStateByChannel[channelID], let config = await state.snapshot().loopConfig, config.engine == .unified {
+            return config.activeMode ?? mode
+        }
+        return selectedAutoRouteModeByChannel[channelID] ?? mode
+    }
+
+    private func unifiedRouteCandidate(channelID: String, request: ToolInvocationRequest,
+        mode: AgentChatMode) -> AgentLoopToolOutcome {
+        let result = selectAutoRoute(channelID: channelID, request: request, mode: mode, cacheLegacySelection: false)
+        var outcome = AgentLoopToolOutcome(result: result)
+        if result.ok { outcome.selectedMode = result.data?.asObject?["mode"]?.asString.flatMap(AgentChatMode.init(rawValue:)) ?? .auto }
+        return outcome
+    }
+
+    private func unifiedInputPause(agentID: String, sessionID: String, requestID: String) throws -> RunCompletion {
+        let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        guard let input = detail.events.last(where: {
+            !$0.isHistorical && $0.inputRequest?.id == requestID
+        })?.inputRequest, !detail.events.contains(where: {
+            !$0.isHistorical && $0.inputResponse?.requestId == requestID
+        }) else { throw OrchestratorError.invalidPayload }
+        let title = input.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return .init(disposition: .waitingInput, summary: title.isEmpty ? "Waiting for input" : title,
+            verification: [], verificationEvidence: [], limitations: [], inputRequestId: requestID)
+    }
+
     private func invokeTool(
         agentID: String,
         sessionID: String,
@@ -2967,11 +3539,37 @@ actor AgentSessionOrchestrator {
         userID: String? = nil
     ) async throws {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        let runtimeConfig = try agentCatalogStore.getAgentRuntimeConfig(agentID: agentID)
+        let pinnedEngine: AgentNativeEngine?
+        if activeSessionRunChannels.contains(channelID), let state = nativeRunStateByChannel[channelID] {
+            pinnedEngine = await state.snapshot().loopConfig?.engine
+        } else {
+            pinnedEngine = nil
+        }
+        let usesUnifiedLoop = pinnedEngine.map { $0 == .unified }
+            ?? (runtimeConfig.type == .native && runtimeConfig.effectiveNativeEngine == .unified)
+        if usesUnifiedLoop {
+            try agentCatalogStore.protectUnifiedJournalStorage(agentID: agentID, availableModels: availableModels)
+        }
         let shouldRefreshBootstrap = channelsRequiringBootstrapRefresh.contains(channelID)
         let scopedUserID = Self.scopedMemoryUserID(userID)
-        var sessionDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        var sessionDetail: AgentSessionDetail?
+        if pinnedEngine != .unified, runtimeConfig.type == .native, runtimeConfig.effectiveNativeEngine == .legacy {
+            let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+            // New runs cannot reinterpret an existing native journal through a legacy loop.
+            guard !detail.events.contains(where: { !$0.isHistorical && $0.runtimeMetadata != nil }) else {
+                throw OrchestratorError.invalidPayload
+            }
+            sessionDetail = detail
+        } else {
+            sessionDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        }
         if !activeSessionRunChannels.contains(channelID), !(await runtime.hasCachedChannelSession(channelId: channelID)), let detail = sessionDetail {
-            let interrupted = SessionToolRecovery.interruptionEvents(for: detail)
+            let interrupted = SessionToolRecovery.interruptionEvents(for: detail).filter {
+                // The common loop can resume an original, never-started request under its
+                // saved approval. Started effects remain unknown and must be reconciled.
+                !usesUnifiedLoop || $0.toolResult?.error?.code != "tool_not_started"
+            }
             if !interrupted.isEmpty {
                 _ = try appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: interrupted)
                 sessionDetail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
@@ -2979,7 +3577,7 @@ actor AgentSessionOrchestrator {
         }
         let pendingIDs = await pendingMessageIDsProvider?(agentID, sessionID) ?? []
         sessionDetail?.events.removeAll { event in
-            event.message.map { pendingIDs.contains($0.id) } ?? false
+            !event.isHistorical && (event.message.map { pendingIDs.contains($0.id) } ?? false)
         }
         await runtime.setMemoryProject(channelId: channelID, projectID: sessionDetail?.summary.projectId)
         let memoryContext = await runtime.persistentMemoryContext(channelId: channelID)
@@ -3000,15 +3598,25 @@ actor AgentSessionOrchestrator {
         if let sourceID = recoverySourceSessionID {
             let pendingSourceIDs = await pendingMessageIDsProvider?(agentID, sourceID) ?? []
             recoverySourceDetail?.events.removeAll { event in
-                event.message.map { pendingSourceIDs.contains($0.id) } ?? false
+                !event.isHistorical && (event.message.map { pendingSourceIDs.contains($0.id) } ?? false)
             }
         }
         let existingSnapshot = await runtime.channelState(channelId: channelID)
+        if usesUnifiedLoop, let source = recoverySourceDetail,
+           try sessionStore.loadSession(agentID: agentID, sessionID: sessionID).events.allSatisfy({ $0.type == .sessionCreated }) {
+            let kinds: Set<AgentSessionEventType> = [.message, .toolCall, .toolResult]
+            let context = SessionInputLifecycle.contextEvents(source.events, canonical: source.events).filter { kinds.contains($0.type) }
+            let copies = try sessionStore.makeHistoricalEvents(context, agentID: agentID, sessionID: sessionID)
+            if !copies.isEmpty {
+                _ = try appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: copies)
+                sessionDetail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+            }
+        }
         let existingBootstrapContent = await runtime.channelBootstrapContent(channelId: channelID)
             ?? existingSnapshot?.messages.last(where: {
                 $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
             })?.content
-        if let existingBootstrapContent,
+        if !usesUnifiedLoop, let existingBootstrapContent,
            !shouldRefreshBootstrap,
            !hasScopedUserContext,
            await runtime.hasCachedChannelSession(channelId: channelID),
@@ -3030,7 +3638,7 @@ actor AgentSessionOrchestrator {
             )
             return
         }
-        if let existingBootstrapContent,
+        if !usesUnifiedLoop, let existingBootstrapContent,
            !shouldRefreshBootstrap,
            !hasScopedUserContext,
            !bootstrapNeedsConversationHistoryRefresh(
@@ -3058,7 +3666,7 @@ actor AgentSessionOrchestrator {
 
         if existingBootstrapContent != nil {
             logger.info(
-                "Refreshing session bootstrap with persisted conversation history",
+                "Refreshing session bootstrap",
                 metadata: [
                     "agent_id": .string(agentID),
                     "session_id": .string(sessionID)
@@ -3127,7 +3735,7 @@ actor AgentSessionOrchestrator {
         }
 
         var includedConversationHistory = false
-        if let historyContext = buildConversationHistoryContext(
+        if !usesUnifiedLoop, let historyContext = buildConversationHistoryContext(
             agentID: agentID,
             sessionID: sessionID,
             currentDetail: sessionDetail,
@@ -3193,18 +3801,21 @@ actor AgentSessionOrchestrator {
             ]
         )
 
-        await runtime.appendSystemMessage(channelId: channelID, content: bootstrapContent)
+        // The unified projection owns conversation history. Refresh its instruction slot
+        // without growing channel history or triggering unrelated shadow compactions.
+        let hasChannelSnapshot = await runtime.channelState(channelId: channelID) != nil
+        if !usesUnifiedLoop || !hasChannelSnapshot {
+            await runtime.appendSystemMessage(channelId: channelID, content: bootstrapContent)
+        }
         await runtime.setChannelBootstrap(channelId: channelID, content: bootstrapContent)
         channelsRequiringBootstrapRefresh.remove(channelID)
         bootstrapMemoryContextsByChannel[channelID] = memoryContext
         bootstrapUserIDsByChannel[channelID] = scopedUserID
         bootstrapDocumentsByChannel[channelID] = documents
-        await setRecoveryTranscriptIfAvailable(
-            channelID: channelID,
-            currentDetail: sessionDetail,
-            sourceDetail: recoverySourceDetail,
-            clearWhenUnavailable: false
-        )
+        if !usesUnifiedLoop {
+            await setRecoveryTranscriptIfAvailable(channelID: channelID, currentDetail: sessionDetail,
+                sourceDetail: recoverySourceDetail, clearWhenUnavailable: false)
+        }
         if includedConversationHistory,
            await runtime.hasCachedChannelSession(channelId: channelID) {
             await runtime.invalidateChannelSession(channelId: channelID)
@@ -3682,6 +4293,8 @@ actor AgentSessionOrchestrator {
             return .sessionNotFound
         case .invalidPayload:
             return .invalidPayload
+        case .unsupportedJournalVersion, .unsupportedRuntimeVersion:
+            return .storageFailure
         }
     }
 

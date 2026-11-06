@@ -29,7 +29,19 @@ extension SQLiteStore {
     private static let baselineVersion = 1
 
     /// Ordered upgrades applied after the baseline. Versions must be strictly increasing and start at 2.
-    private static let steps: [MigrationStep] = []
+    private static let steps: [MigrationStep] = [
+        .init(version: 2, name: "native_usage_ownership", statements: [
+            """
+            CREATE TABLE IF NOT EXISTS usage_request_runs (
+                request_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                user_turn_id TEXT NOT NULL,
+                FOREIGN KEY(request_id) REFERENCES usage_requests(id) ON DELETE CASCADE
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_usage_request_runs_owner ON usage_request_runs(run_id, user_turn_id);"
+        ])
+    ]
 
     static var latestSchemaVersion: Int {
         steps.last?.version ?? baselineVersion

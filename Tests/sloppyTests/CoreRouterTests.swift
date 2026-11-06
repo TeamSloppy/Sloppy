@@ -5606,6 +5606,15 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
         agentID: "branch-usage-agent",
         request: AgentSessionCreateRequest(title: "Branch usage session")
     )
+    let accounting = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingOldest(1))
+    await service.observeBranchAccountingForTests(channelID: "agent:branch-usage-agent:session:\(session.id)",
+        continuation: accounting.continuation)
+    let accountingDeadline = Task {
+        do { try await Task.sleep(for: .seconds(60)) } catch { return }
+        accounting.continuation.yield(false)
+        accounting.continuation.finish()
+    }
+    defer { accountingDeadline.cancel(); accounting.continuation.finish() }
 
     let toolResult = await service.invokeToolFromRuntime(
         agentID: "branch-usage-agent",
@@ -5619,13 +5628,12 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
         )
     )
     #expect(toolResult.ok)
-
-    let hasPersistedBranchUsage = await waitForCondition(timeoutSeconds: 3) {
-        let usage = await service.listTokenUsage(channelId: "agent:branch-usage-agent:session:\(session.id)")
-        return usage.items.contains(where: { item in
-            item.promptTokens == 300 && item.completionTokens == 120
-        })
-    }
+    guard toolResult.ok else { return }
+    var didFinishAccounting = false
+    for await signal in accounting.stream { didFinishAccounting = signal; break }
+    try #require(didFinishAccounting, "Core did not finish handling the matching branch accounting event")
+    let persistedUsage = await service.listTokenUsage(channelId: "agent:branch-usage-agent:session:\(session.id)")
+    let hasPersistedBranchUsage = persistedUsage.items.contains { $0.promptTokens == 300 && $0.completionTokens == 120 }
     #expect(hasPersistedBranchUsage)
 
     let response = await router.handle(
@@ -5640,6 +5648,17 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
     let usageResponse = try decoder.decode(TokenUsageResponse.self, from: response.body)
     #expect(usageResponse.items.contains(where: { $0.promptTokens == 300 && $0.completionTokens == 120 }))
     #expect(usageResponse.totalTokens >= 420)
+}
+
+private extension CoreService {
+    func observeBranchAccountingForTests(channelID: String, continuation: AsyncStream<Bool>.Continuation) {
+        runtimeEventAccountingFinishedForTests = { event in
+            if event.channelId == channelID, event.messageType == .branchConclusion {
+                continuation.yield(true)
+                continuation.finish()
+            }
+        }
+    }
 }
 
 @Test

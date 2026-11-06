@@ -2,10 +2,38 @@ import Foundation
 import Testing
 import AnyLanguageModel
 import AgentRuntime
+import PluginSDK
 import Protocols
 import SloppyRuntime
 import SloppyMigration
 @testable import sloppy
+
+private actor MigrationStepProbe: ModelStepProvider {
+    private(set) var requests: [ModelStepRequest] = []
+    private func next(_ request: ModelStepRequest) -> ModelStepResponse {
+        requests.append(request)
+        return .init(text: "Native continuation accepted.", stopReason: .endTurn)
+    }
+    nonisolated func streamStep(_ request: ModelStepRequest) -> AsyncThrowingStream<ModelStepEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                continuation.yield(.started)
+                continuation.yield(.final(await self.next(request)))
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+}
+
+private struct MigrationStepFactory: ModelProvider, ModelStepProviderFactory {
+    let id = "migration-step-fixture"
+    let supportedModels = ["mock:test-model"]
+    let probe: MigrationStepProbe
+    func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? { probe }
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel { throw CancellationError() }
+}
 
 @Suite struct MigrationTests {
     private func item(category: MigrationCategory = .session) -> MigrationItem {
@@ -51,6 +79,8 @@ import SloppyMigration
     @Test func importCreatesResumableNativeSessionAndRevisionPreservesContinuedChat() async throws {
         let config = CoreConfig.test
         let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder(), sharedSkillsRootURLs: [])
+        let probe = MigrationStepProbe()
+        await service.overrideModelProviderForTests(MigrationStepFactory(probe: probe), defaultModel: "mock:test-model")
         var imported = item()
         let selection = MigrationSelection(items: [imported])
         let job = try await service.importMigration(selection)
@@ -70,7 +100,11 @@ import SloppyMigration
             request: .init(userId: "fixture-user", content: "Native continuation", mode: .ask))
         let runtime = await service.runtime
         let bootstrap = await runtime.channelBootstrapContent(channelId: "agent:\(agentID):session:\(sessionID)")
-        #expect(bootstrap?.contains("Project knowledge") == true)
+        #expect(bootstrap?.contains("Project knowledge") == false)
+        let frame = try #require(await probe.requests.first)
+        #expect(frame.messages.contains { $0.role == .user && $0.text == "Project knowledge" })
+        #expect(frame.messages.contains { $0.role == .user && $0.text == "Native continuation" })
+        #expect(frame.messages.allSatisfy { $0.toolCalls.isEmpty })
         let repeated = try await service.importMigration(selection); await jobs.wait(repeated.id)
         #expect(try await service.migrationJob(repeated.id).outcomes.first?.status == "duplicate")
         imported.messages.append(.init(id: "source-new", kind: .assistant, text: "Changed source", createdAt: Date(timeIntervalSince1970: 3)))

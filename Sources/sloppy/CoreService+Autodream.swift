@@ -55,7 +55,7 @@ extension CoreService {
                     sessionUpdatedAt: session.updatedAt
                 ))
 
-                await runAgentMemoryCheckpoint(
+                let succeeded = await runAgentMemoryCheckpoint(
                     agentID: agent.id,
                     sessionID: session.id,
                     reason: "autodream:\(reason)",
@@ -65,7 +65,7 @@ extension CoreService {
                 await store.saveAutodreamSessionReview(AutodreamSessionReviewRecord(
                     agentId: agent.id,
                     sessionId: session.id,
-                    status: "succeeded",
+                    status: succeeded ? "succeeded" : "failed",
                     reason: reason,
                     sessionUpdatedAt: session.updatedAt
                 ))

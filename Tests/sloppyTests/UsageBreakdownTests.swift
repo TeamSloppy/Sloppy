@@ -4,6 +4,36 @@ import Protocols
 @testable import sloppy
 
 @Suite struct UsageBreakdownTests {
+    @Test func nativeUsageQueriesScopeRealSQLiteByRunAndTurn() async throws {
+        let store = try store()
+        var first = record("native-one", call: "call-one")
+        first.runId = "run-one"
+        first.userTurnId = "shared-turn"
+        var second = record("native-two", call: "call-two")
+        second.runId = "run-two"
+        second.userTurnId = "shared-turn"
+        try await store.persistUsageRequest(first)
+        try await store.persistUsageRequest(first)
+        try await store.persistUsageRequest(second)
+        try await store.persistUsageRequest(record("legacy", call: "legacy-call"))
+        let run = try await store.usageBreakdown(.init(runId: "run-one"))
+        #expect(run.requestCount == 1)
+        #expect(run.providerUsage.total == 120)
+        #expect(run.calls.map(\.id) == ["call-one"])
+        #expect(run.groups.first?.calls == 1)
+        #expect(run.groups.first?.argumentsTokens == 5)
+        let turn = try await store.usageBreakdown(.init(userTurnId: "shared-turn"))
+        #expect(turn.requestCount == 2)
+        #expect(turn.providerUsage.total == 240)
+        #expect(Set(turn.calls.map(\.id)) == ["call-one", "call-two"])
+        #expect(try await store.usageBreakdown(.init(runId: "run-one", userTurnId: "other")).requestCount == 0)
+        #expect(try await store.usageBreakdown(.init(runId: "unknown")).requestCount == 0)
+        let all = try await store.usageBreakdown(.init())
+        #expect(all.requestCount == 3)
+        #expect(all.providerUsage.total == 360)
+        #expect(await store.listTokenUsage(channelId: nil, taskId: nil, from: nil, to: nil).count == 3)
+    }
+
     private func store() throws -> SQLiteStore {
         let root = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let schema = try String(contentsOf:root.appendingPathComponent("Sources/sloppy/Storage/schema.sql"),encoding:.utf8)

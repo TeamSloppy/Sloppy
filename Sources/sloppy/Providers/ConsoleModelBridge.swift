@@ -25,11 +25,12 @@ struct ConsoleModelInstance: Codable, Sendable {
 }
 
 struct ConsoleModelRequest: Codable, Sendable {
-    enum Action: String, Codable, Sendable { case catalog, inference, cancel }
+    enum Action: String, Codable, Sendable { case catalog, inference, step, cancel }
     var id: UUID
     var instanceID: UUID
     var action: Action
     var inference: SloppyInferenceRequest?
+    var step: SloppyModelStepRequest?
 }
 
 struct ConsoleModelResponse: Codable, Sendable {
@@ -38,6 +39,7 @@ struct ConsoleModelResponse: Codable, Sendable {
     var event: Event
     var models: [ProviderModelOption]? = nil
     var response: SloppyInferenceResponse? = nil
+    var step: SloppyModelStepResponse? = nil
     var message: String? = nil
     var accessDenied: Bool? = nil
 }
@@ -167,12 +169,14 @@ actor ConsoleModelBridge {
         if response.event != .snapshot { pending[response.id] = nil; item.continuation.finish() }
         return true
     }
-    private func request(instanceID: UUID, inference: SloppyInferenceRequest?, onSnapshot: (@Sendable (SloppyInferenceResponse) -> Void)?) async throws -> ConsoleModelResponse {
-        let (context, instance, proof) = try await target(instanceID, inference: inference != nil)
+    private func request(instanceID: UUID, inference: SloppyInferenceRequest?, step: SloppyModelStepRequest? = nil,
+        onSnapshot: (@Sendable (SloppyInferenceResponse) -> Void)?) async throws -> ConsoleModelResponse {
+        let generating = inference != nil || step != nil
+        let (context, instance, proof) = try await target(instanceID, inference: generating)
         guard pending.count < 16 else { throw BridgeError.unavailable }
         let id = UUID(), pair = AsyncThrowingStream<ConsoleModelResponse, Error>.makeStream(bufferingPolicy: .bufferingNewest(32))
-        pending[id] = .init(peerID: instance.hostDeviceID, inference: inference != nil, continuation: pair.continuation)
-        let message = ConsoleModelRequest(id: id, instanceID: instanceID, action: inference == nil ? .catalog : .inference, inference: inference)
+        pending[id] = .init(peerID: instance.hostDeviceID, inference: generating, continuation: pair.continuation)
+        let message = ConsoleModelRequest(id: id, instanceID: instanceID, action: step != nil ? .step : (inference == nil ? .catalog : .inference), inference: inference, step: step)
         do {
             return try await withThrowingTaskGroup(of: ConsoleModelResponse.self) { group in
                 group.addTask {
@@ -187,7 +191,7 @@ actor ConsoleModelBridge {
                     }
                     throw BridgeError.invalidResponse
                 }
-                group.addTask { try await Task.sleep(for: .seconds(inference == nil ? 30 : 300)); throw BridgeError.unavailable }
+                group.addTask { try await Task.sleep(for: .seconds(generating ? 300 : 30)); throw BridgeError.unavailable }
                 defer { group.cancelAll() }
                 guard let result = try await group.next() else { throw BridgeError.invalidResponse }
                 return result
@@ -207,6 +211,11 @@ actor ConsoleModelBridge {
     func infer(instanceID: UUID, request: SloppyInferenceRequest, onSnapshot: (@Sendable (SloppyInferenceResponse) -> Void)?) async throws -> SloppyInferenceResponse {
         let result = try await self.request(instanceID: instanceID, inference: request, onSnapshot: onSnapshot)
         guard result.event == .complete, let response = result.response else { throw BridgeError.invalidResponse }
+        return response
+    }
+    func inferStep(instanceID: UUID, request: SloppyModelStepRequest) async throws -> SloppyModelStepResponse {
+        let result = try await self.request(instanceID: instanceID, inference: nil, step: request, onSnapshot: nil)
+        guard result.event == .complete, let response = result.step else { throw BridgeError.invalidResponse }
         return response
     }
 }

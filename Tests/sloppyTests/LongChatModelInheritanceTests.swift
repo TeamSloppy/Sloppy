@@ -1,4 +1,6 @@
 import Foundation
+import AgentRuntime
+import SloppyRuntime
 import Protocols
 import Testing
 
@@ -72,27 +74,50 @@ struct LongChatModelInheritanceTests {
         #expect(detail.events.compactMap(\.runStatus).first?.selectedModel == "mock:chosen")
     }
 
-    @Test func workerNotificationKeepsCoordinatorModel() async throws {
-        let service = try await service()
+    @Test(arguments: [AgentNativeEngine.legacy, .unified])
+    func workerNotificationKeepsCoordinatorModel(engine: AgentNativeEngine) async throws {
+        let service = try await service(engine: engine)
         defer { Task { await service.stop() } }
         let chat = try await service.openLongChat(agentID: "model-agent", userID: "local")
         _ = try await service.prepareModelInheritanceWorker(parentID: chat.id)
         let conversation = try await service.getLongChat(agentID: "model-agent", sessionID: chat.id)
         try await service.publishLongChatTask(sessionID: chat.id, taskID: conversation.assignments[0].tasks[0].id,
             reason: "failed", notify: true)
+        var completed = false
         for _ in 0..<500 {
             let detail = try await service.getAgentSession(agentID: "model-agent", sessionID: chat.id)
             if let status = detail.events.compactMap(\.runStatus).last, status.stage == .done {
                 #expect(status.selectedModel == "mock:chosen")
                 #expect(try await service.modelInheritanceNotificationChoice(parentID: chat.id) == "mock:chosen")
-                return
+                completed = true
+                break
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-        Issue.record("Coordinator did not process the worker notification")
+        #expect(completed)
+        if engine == .unified, completed {
+            let store = await service.sessionStore
+            let detail = try store.loadSession(agentID: "model-agent", sessionID: chat.id)
+            let journal = SessionLoopJournal(store: store, agentID: "model-agent", sessionID: chat.id, authorizeWriter: {})
+            let restored = try #require(try await journal.restoreRunState())
+            let snapshot = await restored.snapshot()
+            #expect(snapshot.phase == .settled)
+            #expect(snapshot.loopConfig?.completionContract == .coordinator)
+            #expect(snapshot.requestSettings?.coordinatorNotification == true)
+            #expect(snapshot.requestSettings?.toolScope == [])
+            #expect(snapshot.requestAttempts == 2)
+            #expect(!detail.events.contains { $0.message?.role == .user })
+            #expect(!detail.events.contains { $0.toolCall != nil })
+            #expect(snapshot.userTurnID.hasSuffix("-notification"))
+            let replay = try await service.replayStoredNotificationForTests(parentID: chat.id)
+            #expect(replay.replayed == true)
+            let afterReplay = try store.loadSession(agentID: "model-agent", sessionID: chat.id)
+            #expect(afterReplay.events.filter { $0.runtimeMetadata?.runId == snapshot.runID } ==
+                detail.events.filter { $0.runtimeMetadata?.runId == snapshot.runID })
+        }
     }
 
-    private func service() async throws -> CoreService {
+    private func service(engine: AgentNativeEngine = .legacy) async throws -> CoreService {
         var config = CoreConfig.test
         config.models = ["mock:default", "mock:chosen"].map {
             .init(title: $0, apiKey: "", apiUrl: "", model: $0)
@@ -101,12 +126,21 @@ struct LongChatModelInheritanceTests {
         _ = try await service.createAgent(.init(id: "model-agent", displayName: "Model Agent", role: "Testing"))
         let current = try await service.getAgentConfig(agentID: "model-agent")
         _ = try await service.updateAgentConfig(agentID: "model-agent", request: .init(
-            role: current.role, selectedModel: "mock:default", documents: current.documents))
+            role: current.role, selectedModel: "mock:default", documents: current.documents,
+            automaticModelRouting: false,
+            runtime: .init(nativeEngine: engine, planningPolicy: .executor)))
         return service
     }
 }
 
 private extension CoreService {
+    func replayStoredNotificationForTests(parentID: String) async throws -> AgentSessionMessageResponse {
+        let turn = try #require(try longChats().state.turns.last { $0.sessionId == parentID && $0.isNotification })
+        return try await sessionOrchestrator.postMessage(agentID: "model-agent", sessionID: parentID,
+            request: turn.request, userMessageAlreadyPersisted: true,
+            responseMessageID: "long-chat-response-" + turn.id, isWorkerNotification: true, sourceMessageID: turn.id)
+    }
+
     func modelInheritanceNotificationChoice(parentID: String) throws -> String? {
         try longChats().state.turns.last { $0.sessionId == parentID && $0.isNotification }?.request.selectedModel
     }

@@ -3032,10 +3032,7 @@ private func authenticateMeshSocket(
     try await sendMeshEnvelope(NodeMeshClient.makeHelloEnvelope(identity: identity), encoder: encoder, over: socket)
 }
 
-private func encodedMeshEnvelope(_ envelope: MeshEnvelope, encoder: JSONEncoder) throws -> String {
-    let payload = try encoder.encode(envelope)
-    return try #require(String(data: payload, encoding: .utf8))
-}
+
 
 private func receiveMeshWebSocketMessage(
     over socket: URLSessionWebSocketTask,
@@ -3164,6 +3161,11 @@ private actor WebSocketSentMessageRecorder {
     func append(_ message: String) {
         messages.append(message)
     }
+}
+
+private func encodedMeshEnvelope(_ envelope: MeshEnvelope, encoder: JSONEncoder) throws -> String {
+    let payload = try encoder.encode(envelope)
+    return try #require(String(data: payload, encoding: .utf8))
 }
 
 private func receiveRelayAuthChallenge(

@@ -49,16 +49,21 @@ private struct FixedTextLanguageModel: LanguageModel {
     }
 }
 
-private actor FixedHeartbeatModelProvider: ModelProvider {
+private actor FixedHeartbeatModelProvider: ModelProvider, ModelStepProviderFactory {
     nonisolated let id: String = "heartbeat-fixed-provider"
     nonisolated let supportedModels: [String]
     private let responseText: String
 
-    init(models: [String] = ["openai-api:gpt-5.4-mini"], responseText: String) {
+    init(models: [String] = ["openai-api:gpt-5.4-mini", "mock:test-model"], responseText: String) {
         self.supportedModels = models
         self.responseText = responseText
     }
 
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        let text = responseText
+        return FixtureModelStep { _ in .init(text: text, stopReason: .endTurn) }
+    }
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         FixedTextLanguageModel(responseText: responseText)
     }

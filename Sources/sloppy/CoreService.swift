@@ -100,6 +100,7 @@ public actor CoreService {
     }
 
     public enum AgentSessionError: Error {
+        case workspaceUnavailable
         case invalidAgentID
         case invalidSessionID
         case invalidPayload
@@ -293,7 +294,15 @@ public actor CoreService {
     var sessionMessageRecoveryCompleted = false
     var sessionMessageIsStopping = false
     var sessionMessageRunners: [String: Task<Void, Never>] = [:]
+    var sessionControlDepth: [String: Int] = [:]
+    var sessionMessageOperations: [String: (id: UUID, task: Task<AgentSessionMessageResponse, Error>)] = [:]
+    // Test-only suspension at the existing control dispatch boundary; absent in normal use.
+    var sessionControlAdmissionForTests: (@Sendable () async -> Void)?
+    var sessionMessagePreparationForTests: (@Sendable () async -> Void)?
+    /// Test synchronization after the event consumer finishes accounting, including intentional skips.
+    var runtimeEventAccountingFinishedForTests: (@Sendable (EventEnvelope) -> Void)?
     var activeSessionMessageRuns: Set<String> = []
+    var activeNativeSessionInputs: [String: NativeSessionDelivery.ActiveInput] = [:]
     var activePeerSessionOrigins: [String: AgentSessionPeerOrigin] = [:]
     var peerConversationSessions: Set<String> = []
     var longChatStorage: LongChatFileStore?
@@ -332,6 +341,10 @@ public actor CoreService {
     var toolApprovalAgentReviewOverride: (@Sendable (ToolApprovalRecord, String) async -> ToolApprovalAgentReviewDecision?)?
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
+    var nativeDerivedWorkIsStopping = false
+    var nativeDerivedRunsBySession: [String: [String: RunState]] = [:]
+    var nativeDerivedRecoveryTask: Task<Void, Never>?
+    var nativeDerivedReservations: [String: Task<Bool, Never>] = [:]
     /// Background sessions started by TUI `/bg`; owned by CoreService so screen teardown does not cancel them.
     var tuiBackgroundSessionTasks: [String: Task<Void, Never>] = [:]
     /// Prevents overlapping proposal reviews per agent/session pair.
@@ -541,7 +554,11 @@ public actor CoreService {
             return AgentSkillsFileStore(agentsRootURL: agentsRootURL)
         }
         self.agentCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
-        self.sessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
+        let journalOwnership = FileOwnershipLease.Reference()
+        let authorizeJournalWrite: @Sendable (URL, Int) throws -> Void = { directory, version in
+            try NativeJournalWriterGuard(directory: directory).authorize(minimumJournalVersion: version)
+        }
+        self.sessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL, journalOwnership: journalOwnership, authorizeJournalWrite: authorizeJournalWrite)
         self.textSearch = TextSearchService(root: self.workspaceRootURL)
         self.systemLogStore = SystemLogFileStore(workspaceRootURL: self.workspaceRootURL)
         self.issueReportLogUploader = issueReportLogUploader
@@ -579,7 +596,7 @@ public actor CoreService {
         self.workspaceGitSyncService = WorkspaceGitSyncService()
         self.sessionGoalController = AgentSessionGoalController()
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
-        let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
+        let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL, journalOwnership: journalOwnership, authorizeJournalWrite: authorizeJournalWrite)
         let orchestratorSkillsStore = makeAgentSkillsStore(self.agentsRootURL)
         let initialAvailableAgentModels = Self.availableAgentModels(
             config: config,
@@ -643,7 +660,9 @@ public actor CoreService {
         self.notificationService = NotificationService()
         self.kanbanEventService = KanbanEventService()
         self.workspaceRealtimeService = WorkspaceRealtimeService(store: self.store)
-        self.toolApprovalService = ToolApprovalService(eventBus: self.runtime.eventBus, notificationService: self.notificationService)
+        self.toolApprovalService = ToolApprovalService(eventBus: self.runtime.eventBus, notificationService: self.notificationService,
+            persistenceURL: config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
+                .appendingPathComponent(".runtime/tool-approvals-v1.json"), ownershipReference: journalOwnership)
         self.pendingApprovalService = PendingApprovalService(
             workspaceDirectory: config
                 .resolvedWorkspaceRootURL(currentDirectory: currentDirectory).path
@@ -778,6 +797,18 @@ public actor CoreService {
                     chatMode: mode
                 )
             }
+            await self.sessionOrchestrator.updateNativeWorkerAuthorityProvider { [weak self] agentID, sessionID in
+                guard let self else { throw AgentSessionError.storageFailure }
+                return try await self.nativeWorkerAuthority(agentID: agentID, sessionID: sessionID)
+            }
+            await self.sessionOrchestrator.updateNativeToolInvoker { [weak self] agentID, sessionID, request, mode, context in
+                guard let self else {
+                    return .init(result: .init(tool: request.tool, ok: false,
+                        error: .init(code: "tool_invoker_unavailable", message: "Tool invoker is unavailable.", retryable: false)))
+                }
+                return await self.invokeNativeTool(agentID: agentID, sessionID: sessionID,
+                    request: request, context: context, chatMode: mode)
+            }
             await self.sessionOrchestrator.updateToolInvokerRecordsEvents(true)
             await self.sessionOrchestrator.updateResponseChunkObserver { [weak self] agentID, sessionID, chunk in
                 guard let self else {
@@ -789,6 +820,7 @@ public actor CoreService {
                 guard let self else {
                     return
                 }
+                await self.persistCanonicalUsage(events)
                 await self.publishLiveSessionEvents(
                     agentID: agentID,
                     sessionID: sessionID,
@@ -1189,7 +1221,7 @@ extension CoreService: ProjectToolService {
     }
 
     func requestProjectMemoryCheckpoint(agentID: String, sessionID: String, projectID: String, taskID: String, status: String) async {
-        scheduleAgentMemoryCheckpoint(
+        await scheduleAgentMemoryCheckpoint(
             agentID: agentID,
             sessionID: sessionID,
             reason: "project_task_\(status):\(projectID):\(taskID)"

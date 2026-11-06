@@ -168,7 +168,7 @@ extension CoreService {
                                 }
                             }
                         }
-                        await runtime.setChannelToolAllowList(
+                        await runtime.setChannelToolScope(
                             channelId: sessionChannelID(agentID: turn.agentId, sessionID: sessionID),
                             toolIDs: LongChatCoordinatorPolicy.readTools.union(
                                 LongChatCoordinatorPolicy.managementTools.union(SessionCommunicationPolicy.tools)
@@ -180,7 +180,7 @@ extension CoreService {
                             additionalContext: SessionCommunicationPolicy.instructions + "\n" + LongChatCoordinatorPolicy.instructions
                                 + "\n[Current assignments — authoritative persisted state]\n" + snapshot + "\n" + actionLedger,
                             responseMessageID: responseID, peerOrigin: turn.peerOrigin,
-                            isWorkerNotification: turn.isNotification)
+                            isWorkerNotification: turn.isNotification, sourceMessageID: turn.id)
                         try recordLongChatModel(agentID: turn.agentId, sessionID: sessionID, turnID: turn.id)
                     } catch {
                         if longChatIsStopping { return }

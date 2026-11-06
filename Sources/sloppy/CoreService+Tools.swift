@@ -1,5 +1,7 @@
 import Foundation
+import AgentRuntime
 import Logging
+import PluginSDK
 import Protocols
 import SloppyRuntime
 import Tracing
@@ -28,6 +30,15 @@ extension CoreService {
         requireApproval: Bool = false,
         chatMode: AgentChatMode? = nil
     ) async -> ToolInvocationResult {
+        await invokeSessionTool(agentID: agentID, sessionID: sessionID, request: request,
+            recordSessionEvents: recordSessionEvents, requireApproval: requireApproval, chatMode: chatMode, nativeContext: nil).result
+    }
+
+    func invokeSessionTool(
+        agentID: String, sessionID: String, request: ToolInvocationRequest,
+        recordSessionEvents: Bool, requireApproval: Bool, chatMode: AgentChatMode?,
+        nativeContext: NativeToolExecutionContext?, derivedSource: NativeDerivedWorkSource? = nil
+    ) async -> AgentLoopToolOutcome {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             return .init(
                 tool: request.tool,
@@ -88,7 +99,21 @@ extension CoreService {
             return .init(tool: request.tool, ok: false, error: .init(code: "tool_forbidden", message: "Worker assignment ledger is unavailable; execution is disabled.", retryable: false))
         }
         let sessionMCPRegistry = acpSessionMCPRegistries[normalizedSessionID] ?? mcpRegistry
-        if SessionToolRecovery.requiresReconciliation(tool: request.tool, arguments: request.arguments, events: sessionDetail.events) {
+        if let nativeContext {
+            guard nativeContext.recordLateResult != nil else {
+                return .init(tool: request.tool, ok: false, error: .init(code: "late_result_writer_required",
+                    message: "Native execution requires a correlated durable late-result writer.", retryable: false))
+            }
+            guard nativeContext.matches(request, events: sessionDetail.events) else {
+                return .init(tool: request.tool, ok: false, error: .init(code: "tool_forbidden",
+                    message: "The invocation does not match its durable native request.", retryable: false))
+            }
+            let safeInspection = nativeContext.definition.readOnly && ToolConcurrencyPolicy.readOnlyToolIDs.contains(request.tool)
+            if !safeInspection, !SessionToolRecovery.unknownEffectCallIDs(in: sessionDetail.events).isEmpty {
+                return .init(tool: request.tool, ok: false, error: .init(code: "tool_reconciliation_required",
+                    message: "An earlier effect has an unknown outcome. Inspect and reconcile it before making further changes.", retryable: false))
+            }
+        } else if SessionToolRecovery.requiresReconciliation(tool: request.tool, arguments: request.arguments, events: sessionDetail.events) {
             return .init(tool: request.tool, ok: false, error: .init(code: "tool_reconciliation_required", message: "The previous identical call was interrupted and may have produced side effects. Inspect and reconcile its result before replaying it.", retryable: false))
         }
         let needsReadEffects = peerConversationSessions.contains(normalizedSessionID) || sessionDetail.summary.kind == .longChat || (isLongChatWorker.map { $0.1.readOnly ?? $0.1.resourceKeys.isEmpty } ?? false)
@@ -142,8 +167,19 @@ extension CoreService {
             )
         }
 
+        if let pinned = nativeContext?.delegatedAuthority,
+           !NativeToolExecutionContext.authorityMatches(pinned.policy, authorization.policy) {
+            return .init(tool: request.tool, ok: false,
+                error: .init(code: "tool_forbidden", message: "Delegated policy changed; a new authorized assignment is required.", retryable: false))
+        }
+        if let scope = nativeContext?.delegatedToolScope, !scope.contains(request.tool) {
+            return .init(tool: request.tool, ok: false,
+                error: .init(code: "tool_forbidden", message: "Tool is outside the saved delegated scope.", retryable: false))
+        }
+        let nativeInitialPolicy = nativeContext == nil ? nil : authorization.policy
+        let derivedInitialPolicy = derivedSource == nil ? nil : authorization.policy
         let trimmedToolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
-        if LongChatCoordinatorPolicy.managementTools.contains(trimmedToolID) {
+        if nativeContext == nil, LongChatCoordinatorPolicy.managementTools.contains(trimmedToolID) {
             guard authorization.allowed, sessionDetail.summary.kind == .longChat else {
                 return .init(tool: request.tool, ok: false, error: .init(code: "tool_forbidden", message: "Long chat management is only available to its coordinator.", retryable: false))
             }
@@ -163,24 +199,24 @@ extension CoreService {
                             executionOutcome: .init(state: result.ok ? .completed : .failed, category: result.ok ? nil : .tool,
                                 code: result.error?.code, retryable: result.error?.retryable ?? false)))]))
             }
-            return result
+            return .init(result: result)
         }
 
-        if trimmedToolID == "planning.request_input" {
-            return await handleAgentPlanInputTool(
+        if nativeContext == nil, trimmedToolID == "planning.request_input" {
+            return .init(result: await handleAgentPlanInputTool(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
                 request: request,
                 chatMode: chatMode
-            )
+            ))
         }
-        if trimmedToolID == "planning.progress_update" {
-            return await handleAgentBuildProgressTool(
+        if nativeContext == nil, trimmedToolID == "planning.progress_update" {
+            return .init(result: await handleAgentBuildProgressTool(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
                 request: request,
                 chatMode: chatMode
-            )
+            ))
         }
 
         var missingAccessApprovalGranted = false
@@ -217,7 +253,7 @@ extension CoreService {
             )
            ) {
             if let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: accessState.result) {
-                return deniedResult
+                return .init(result: deniedResult)
             }
             authorization = ToolAuthorizationDecision(
                 allowed: true,
@@ -230,7 +266,6 @@ extension CoreService {
 
         if authorization.allowed,
            let allowOverlay = sessionSubagentToolAllowList[normalizedSessionID],
-           !allowOverlay.isEmpty,
            !allowOverlay.contains(trimmedToolID) {
             return .init(
                 tool: request.tool,
@@ -243,12 +278,14 @@ extension CoreService {
             )
         }
 
-        let sessionToolContext = await toolContextForSession(
-            sessionID: normalizedSessionID,
-            sessionTitle: sessionDetail.summary.title,
-            projectID: sessionDetail.summary.projectId,
-            taskID: sessionDetail.summary.taskId
-        )
+        let sessionToolContext: (workingDirectory: String?, extraRoots: [String])
+        if let authority = nativeContext?.delegatedAuthority {
+            sessionToolContext = (authority.workingDirectory, authority.extraRoots)
+        } else {
+            sessionToolContext = await toolContextForSession(sessionID: normalizedSessionID,
+                sessionTitle: sessionDetail.summary.title, projectID: sessionDetail.summary.projectId,
+                taskID: sessionDetail.summary.taskId)
+        }
         await ensureDebugDirectoryForSessionIfNeeded(
             chatMode: chatMode,
             sessionID: normalizedSessionID,
@@ -284,6 +321,17 @@ extension CoreService {
             URL(fileURLWithPath: $0, isDirectory: true)
         }
 
+        let nativeApprovalBinding: ToolApprovalBinding?
+        if let nativeContext, let nativeInitialPolicy {
+            do {
+                nativeApprovalBinding = try nativeContext.approvalBinding(policy: nativeInitialPolicy,
+                    workingDirectory: sessionToolContext.workingDirectory, extraRoots: sessionToolContext.extraRoots)
+            } catch {
+                return .init(result: .init(tool: request.tool, ok: false,
+                    error: .init(code: "approval_binding_failed", message: "The invocation authority could not be bound to its approval.", retryable: false)))
+            }
+        } else { nativeApprovalBinding = nil }
+
         var effectiveRequest = request
         if authorization.allowed {
             let missingGrants = missingDirectoryApprovalGrants(
@@ -298,10 +346,10 @@ extension CoreService {
                 channelID: nil,
                 topicID: nil,
                 request: request,
-                grants: missingGrants
+                grants: missingGrants, binding: nativeApprovalBinding
                ) {
                 if let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: accessState.result) {
-                    return deniedResult
+                    return .init(result: deniedResult)
                 }
                 effectivePolicy = applyApprovalGrants(accessState.grants, to: effectivePolicy, matchingToolID: trimmedToolID)
                 missingAccessApprovalGranted = true
@@ -334,6 +382,14 @@ extension CoreService {
             }
         }
 
+        if let nativeContext, authorization.allowed, preHookBlockedResult == nil {
+            do { try nativeContext.validateArguments(effectiveRequest) }
+            catch {
+                return .init(tool: request.tool, ok: false, error: .init(code: "invalid_tool_arguments",
+                    message: String(describing: error), retryable: false))
+            }
+        }
+
         let loopGuardEnabled = !currentConfig.experimentalFlags.disableToolBudgetAndLoopGuard
         let loopDecision: ToolLoopGuard.Decision
         if loopGuardEnabled, authorization.allowed, preHookBlockedResult == nil {
@@ -349,6 +405,7 @@ extension CoreService {
         }
 
         let toolCallEvent = AgentSessionEvent(
+            id: nativeContext?.metadata.callEventId ?? UUID().uuidString,
             agentId: normalizedAgentID,
             sessionId: normalizedSessionID,
             type: .toolCall,
@@ -389,6 +446,8 @@ extension CoreService {
         }
 
         var result: ToolInvocationResult
+        var completionCandidate: RunCompletion?
+        var selectedNativeMode: AgentChatMode?
         if authorization.allowed {
             if let preHookBlockedResult {
                 result = preHookBlockedResult
@@ -428,7 +487,8 @@ extension CoreService {
                             (requireApproval || effectivePolicy.approval.enabled ||
                                 sessionToolApprovalRequired.contains(normalizedSessionID))),
                         approvalSettings: effectivePolicy.approval,
-                        forcePerInvocation: readOnlyWorkerExec || untrustedContextForcesApproval
+                        forcePerInvocation: readOnlyWorkerExec || untrustedContextForcesApproval,
+                        binding: nativeApprovalBinding
                     ), let deniedResult = toolApprovalDeniedResult(tool: effectiveRequest.tool, approval: approval) {
                         result = deniedResult
                         break
@@ -473,11 +533,14 @@ extension CoreService {
                     }
                     let invocationDiscoveryScope = discoveryAllowedToolIDs
                     let timeoutMs = toolInvocationHardTimeoutMs(request: invocationRequest, policy: invocationPolicy)
-                    result = await runToolInvocationWithHardTimeout(
-                        toolID: invocationRequest.tool,
-                        timeoutMs: timeoutMs
-                    ) {
-                        await withSpan("tool.invoke", ofKind: .internal) { span in
+                    let operation: @Sendable () async -> ToolInvocationResult = {
+                        if let derivedSource, let derivedInitialPolicy,
+                           !(await self.validateDerivedEffect(source: derivedSource, request: invocationRequest,
+                               initialPolicy: derivedInitialPolicy, runID: nativeContext?.metadata.runId)) {
+                            return .init(tool: invocationRequest.tool, ok: false, error: .init(code: "tool_forbidden",
+                                message: "The background source changed or its authority was revoked.", retryable: false))
+                        }
+                        return await withSpan("tool.invoke", ofKind: .internal) { span in
                             span.attributes["agent_id"] = "\(normalizedAgentID)"
                             span.attributes["session_id"] = "\(normalizedSessionID)"
                             span.attributes["tool_id"] = "\(invocationRequest.tool)"
@@ -493,6 +556,41 @@ extension CoreService {
                             )
                         }
                     }
+                    if let nativeContext, let initialPolicy = nativeInitialPolicy,
+                       let recordLateResult = nativeContext.recordLateResult {
+                        if let remaining = nativeContext.remainingDeadlineMilliseconds, remaining <= 0 {
+                            result = .init(tool: invocationRequest.tool, ok: false, error: .init(
+                                code: "tool_deadline_exhausted", message: "The run deadline expired before this effect started.", retryable: false))
+                            break
+                        }
+                        let timeout = min(timeoutMs, nativeContext.remainingDeadlineMilliseconds ?? timeoutMs)
+                        let lateLogger = logger
+                        let requiresWorkerScope = isLongChatWorker != nil
+                        let ownershipLease = await toolApprovalService.currentOwnershipLease()
+                        let outcome = await ToolEffectRunner.run(toolID: invocationRequest.tool, timeoutMilliseconds: timeout,
+                            now: nativeContext.effectNow ?? { .now }, onLateResult: { late in
+                                defer { withExtendedLifetime(ownershipLease) {} }
+                                do { try await recordLateResult(late) }
+                                catch {
+                                    lateLogger.error("Failed to persist actual late tool outcome", metadata: [
+                                        "agent_id": .string(normalizedAgentID), "session_id": .string(normalizedSessionID),
+                                        "call_event_id": .string(nativeContext.metadata.callEventId ?? ""),
+                                        "error": .string(String(describing: error))
+                                    ])
+                                }
+                            }, operation: { [self] in
+                                defer { withExtendedLifetime(ownershipLease) {} }
+                                return await executeNativeEffect(agentID: normalizedAgentID, sessionID: normalizedSessionID,
+                                    request: invocationRequest, context: nativeContext, initialPolicy: initialPolicy,
+                                    requiresWorkerScope: requiresWorkerScope, chatMode: chatMode, operation: operation)
+                            })
+                        result = outcome.result
+                        completionCandidate = outcome.completion
+                        selectedNativeMode = outcome.selectedMode
+                    } else {
+                        result = await runToolInvocationWithHardTimeout(toolID: invocationRequest.tool,
+                            timeoutMs: timeoutMs, operation: operation)
+                    }
                     if loopGuardEnabled {
                         let correctionExhausted = await toolLoopGuard.recordResult(
                             sessionID: normalizedSessionID,
@@ -502,7 +600,9 @@ extension CoreService {
                             workspaceRootURL: workspaceRootURL,
                             currentDirectoryURL: currentDirectoryURL
                         )
-                        if correctionExhausted { result = toolArgumentCorrectionExhausted(result) }
+                        if correctionExhausted, result.error?.code != "tool_execution_interrupted" {
+                            result = toolArgumentCorrectionExhausted(result)
+                        }
                     }
                 }
             }
@@ -611,7 +711,9 @@ extension CoreService {
             durationMs: result.durationMs
         )
 
-        return result
+        var outcome = AgentLoopToolOutcome(result: result, completion: result.ok ? completionCandidate : nil)
+        outcome.selectedMode = result.ok ? selectedNativeMode : nil
+        return outcome
     }
 
     /// Internal runtime path used by gateway/channel sessions linked to an agent.
@@ -926,7 +1028,7 @@ extension CoreService {
         channelID: String?,
         topicID: String?,
         request: ToolInvocationRequest,
-        grants: [ToolApprovalGrant]
+        grants: [ToolApprovalGrant], binding: ToolApprovalBinding? = nil
     ) async -> MissingAccessApprovalState? {
         let normalizedGrants = normalizedMissingAccessGrants(grants)
         guard !normalizedGrants.isEmpty else {
@@ -962,7 +1064,7 @@ extension CoreService {
             channelID: channelID,
             topicID: topicID,
             request: request,
-            grants: normalizedGrants
+            grants: normalizedGrants, binding: binding
         )
         return MissingAccessApprovalState(result: result, grants: normalizedGrants)
     }
@@ -1536,6 +1638,12 @@ extension CoreService {
         return (workingDirectory, roots)
     }
 
+}
+
+fileprivate extension AgentLoopToolOutcome {
+    init(tool: String, ok: Bool, data: JSONValue? = nil, error: ToolErrorPayload? = nil, durationMs: Int = 0) {
+        self.init(result: .init(tool: tool, ok: ok, data: data, error: error, durationMs: durationMs))
+    }
 }
 
 private actor ToolInvocationResultBox {

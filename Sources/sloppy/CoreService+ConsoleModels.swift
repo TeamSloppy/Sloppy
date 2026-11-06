@@ -29,7 +29,7 @@ extension CoreService {
             let context = try await store.authorize(proof, peerCertificate: certificate)
             try ConsoleModelAuthorization.require(context, inference: request.action != .catalog)
             if request.action == .catalog {
-                let models = listAvailableProviderModels().filter { !$0.id.hasPrefix("sloppy:") && modelProvider?.supports(modelName: $0.id) == true }
+                let models = modelStepCatalog().filter { !$0.id.hasPrefix("sloppy:") && modelProvider?.supports(modelName: $0.id) == true }
                 return .init(kind: "models.response", payload: try ConsoleWire.encode(ConsoleModelResponse(id: request.id, event: .catalog, models: models)))
             }
             if request.action == .cancel {
@@ -37,13 +37,24 @@ extension CoreService {
                 closeConsoleModelStream(request.id)
                 return nil
             }
-            guard let input = request.inference, !input.model.hasPrefix("sloppy:"),
+            guard let model = request.step?.request.model ?? request.inference?.model, !model.hasPrefix("sloppy:"),
                   consoleModelStreams.count < 16, consoleModelStreams[request.id] == nil,
                   let remote = consoleRemoteConnection else { throw ConsoleTrustError.forbidden }
             let generation = UUID()
             let task = Task<Void, Never> { [weak self] in
                 guard let self else { return }
                 do {
+                    if request.action == .step, let input = request.step {
+                        let result = await self.remoteModelStepResult(input, scope: "console:" + senderID.uuidString)
+                        try Task.checkCancellation()
+                        let current = try await store.authorize(proof, peerCertificate: certificate)
+                        try ConsoleModelAuthorization.require(current, inference: true)
+                        let frame = ConsoleModelResponse(id: request.id, event: .complete, step: result)
+                        try await remote.send(.init(kind: "models.response", payload: ConsoleWire.encode(frame)), to: senderID)
+                        await self.finishConsoleModelStream(request.id, generation: generation)
+                        return
+                    }
+                    guard let input = request.inference else { throw ConsoleModelBridge.BridgeError.invalidResponse }
                     let updates = try await self.streamRemoteInference(input)
                     var completed = false
                     for await event in updates {

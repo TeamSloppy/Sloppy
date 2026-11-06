@@ -7,6 +7,225 @@ import SloppyRuntime
 @testable import PluginSDK
 @testable import Protocols
 
+private struct LegacyOnlyFixtureProvider: ModelProvider {
+    let base: any ModelProvider
+    var id: String { base.id }
+    var supportedModels: [String] { base.supportedModels }
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel { try await base.createLanguageModel(for: modelName) }
+}
+
+private extension AgentSessionOrchestrator {
+    init(fixtureRuntime runtime: RuntimeSystem,
+        sessionStore: AgentSessionFileStore,
+        agentCatalogStore: AgentCatalogFileStore,
+        agentSkillsStore: AgentSkillsFileStore? = nil,
+        acpSessionManager: ACPSessionManager? = nil,
+        promptComposer: AgentPromptComposer = AgentPromptComposer(),
+        semanticModelRouter: SemanticModelRouter? = nil,
+        availableModels: [ProviderModelOption],
+        persistedModelContext: (config: CoreConfig, hasOAuthCredentials: Bool) = (CoreConfig.default, false),
+        toolInvoker: AgentSessionOrchestrator.ToolInvoker? = nil,
+        nativeToolInvoker: AgentSessionOrchestrator.NativeToolInvoker? = nil,
+        toolInvokerRecordsEvents: Bool = false,
+        responseChunkObserver: AgentSessionOrchestrator.ResponseChunkObserver? = nil,
+        eventAppendObserver: AgentSessionOrchestrator.EventAppendObserver? = nil,
+        tokenUsageObserver: AgentSessionOrchestrator.TokenUsageObserver? = nil,
+        planArtifactRecorder: AgentSessionOrchestrator.PlanArtifactRecorder? = nil
+) {
+    let native: AgentSessionOrchestrator.NativeToolInvoker = { agent, session, request, mode, context in
+        do { try Task.checkCancellation(); try await context.beforeEffect(); try Task.checkCancellation() }
+        catch { return .init(result: .init(tool: request.tool, ok: false,
+            error: .init(code: "not_executed_cancelled", message: "Fixture effect was cancelled", retryable: false))) }
+        if request.tool == "session.complete", let finalizer = context.finalizer { return await finalizer(request) }
+        if request.tool == "planning.select_route", let route = context.routeSelector { return await route(request) }
+        guard let toolInvoker else { return .init(result: .init(tool: request.tool, ok: false,
+            error: .init(code: "fixture_invoker_missing", message: "No fixture effect configured", retryable: false))) }
+        return .init(result: await toolInvoker(agent, session, request, mode))
+    }
+    self.init(runtime: runtime, sessionStore: sessionStore, agentCatalogStore: agentCatalogStore,
+        agentSkillsStore: agentSkillsStore, acpSessionManager: acpSessionManager, promptComposer: promptComposer,
+        semanticModelRouter: semanticModelRouter, availableModels: availableModels, persistedModelContext: persistedModelContext,
+        toolInvoker: toolInvoker, nativeToolInvoker: nativeToolInvoker ?? native, toolInvokerRecordsEvents: toolInvokerRecordsEvents,
+        responseChunkObserver: responseChunkObserver, eventAppendObserver: eventAppendObserver,
+        tokenUsageObserver: tokenUsageObserver, planArtifactRecorder: planArtifactRecorder)
+    }
+}
+
+private func installFixtureAuthority(_ orchestrator: AgentSessionOrchestrator, runtime: RuntimeSystem, directory: URL) async {
+    let tools = await runtime.modelProvider?.tools.map(\.name) ?? []
+    await orchestrator.updateNativeWorkerAuthorityProvider { _, _ in
+        (tools, .init(policy: .init(), workingDirectory: directory.path, extraRoots: []))
+    }
+}
+
+private actor NativeRecoveryEffects {
+    private(set) var count = 0
+    func record() { count += 1 }
+}
+
+private actor UnifiedRoutingScript: ModelStepProvider {
+    private(set) var requests: [ModelStepRequest] = []
+    func record(_ request: ModelStepRequest) { requests.append(request) }
+    nonisolated func streamStep(_ request: ModelStepRequest) -> AsyncThrowingStream<ModelStepEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                await self.record(request)
+                continuation.yield(.started)
+                continuation.yield(.final(.init(text: "Routed answer", stopReason: .endTurn)))
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+}
+
+private struct UnifiedRoutingFactory: ModelProvider, ModelStepProviderFactory {
+    let id = "routing-fixture"
+    let supportedModels = ["mock:fast", "mock:senior"]
+    let script: UnifiedRoutingScript
+    let seniorSupported: Bool
+    func supportsModelSteps(for modelName: String) -> Bool { modelName == "mock:fast" || (seniorSupported && modelName == "mock:senior") }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? { script }
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel { throw CancellationError() }
+}
+
+@Test(arguments: [false, true])
+func unifiedAutomaticRoutingOnlySelectsSingleStepModels(seniorSupported: Bool) async throws {
+    let models = [ProviderModelOption(id: "mock:fast", title: "Fast"), ProviderModelOption(id: "mock:senior", title: "Senior")]
+    let (catalog, store, root) = try makeAgentSessionFixture(agentID: "unified-route", selectedModel: models[0].id, availableModels: models)
+    defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+    let profile = try catalog.getAgentConfig(agentID: "unified-route", availableModels: models)
+    _ = try catalog.updateAgentConfig(agentID: "unified-route", request: .init(role: profile.role, selectedModel: models[0].id,
+        documents: profile.documents, automaticModelRouting: true, runtime: .init(sharedMemoryEnabled: false,
+            nativeEngine: .unified, planningPolicy: .executor)), availableModels: models)
+    let script = UnifiedRoutingScript()
+    let runtime = RuntimeSystem(modelProvider: UnifiedRoutingFactory(script: script, seniorSupported: seniorSupported), defaultModel: models[0].id)
+    let router = SemanticModelRouter(config: .init(provider: .typeSafe, executorModelRouting: .active,
+        modelProfiles: ["fast": .init(model: "mock:fast", description: "Routine"), "senior": .init(model: "mock:senior", description: "Complex")]),
+        usageMeter: SemanticDecisionUsageMeter(), providerFactory: { _ in OrchestratorSemanticDecisionProvider() })
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog,
+        semanticModelRouter: router, availableModels: models,
+        nativeToolInvoker: { _, _, request, _, _ in .init(result: .init(tool: request.tool, ok: false)) })
+    let session = try await orchestrator.createSession(agentID: "unified-route", request: .init())
+    var failure: Error?
+    do {
+        _ = try await orchestrator.postMessage(agentID: "unified-route", sessionID: session.id,
+            request: .init(userId: "fixture", content: "Diagnose the concurrency issue", mode: .ask))
+    } catch { failure = error }
+    #expect(failure == nil)
+    let requests = await script.requests
+    #expect(requests.count == 1)
+    #expect(requests.first?.model == (seniorSupported ? "mock:senior" : "mock:fast"))
+    let state = try #require(store.loadSession(agentID: "unified-route", sessionID: session.id).events.last { $0.runtimeMetadata?.runState != nil }?.runtimeMetadata?.runState)
+    #expect(try JSONValueCoder.decode(RunStateSnapshot.self, from: state).model == requests.first?.model)
+}
+
+@Test
+func unsupportedUnifiedEngineCannotFallBackToLegacyGeneration() async throws {
+    let models = [ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "test", capabilities: ["tools"])]
+    let agentID = "engine-admission-agent"
+    let (catalog, store, _) = try makeAgentSessionFixture(agentID: agentID, selectedModel: models[0].id, availableModels: models)
+    let config = try catalog.getAgentConfig(agentID: agentID, availableModels: models)
+    let runtimeConfig = try JSONDecoder().decode(AgentRuntimeConfig.self,
+        from: Data("{\"type\":\"native\",\"nativeEngine\":\"unified\"}".utf8))
+    _ = try catalog.updateAgentConfig(agentID: agentID,
+        request: .init(role: config.role, selectedModel: models[0].id, documents: config.documents, runtime: runtimeConfig), availableModels: models)
+    let provider = ToolCallingModelProvider(models: models.map(\.id), toolName: "files.list")
+    let runtime = RuntimeSystem(modelProvider: LegacyOnlyFixtureProvider(base: provider), defaultModel: models[0].id)
+    let effects = NativeRecoveryEffects()
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog,
+        availableModels: models, toolInvoker: { _, _, request, _ in
+            await effects.record()
+            return .init(tool: request.tool, ok: true)
+        })
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    await #expect(throws: AgentSessionOrchestrator.OrchestratorError.self) {
+        _ = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id,
+            request: .init(userId: "dashboard", content: "Inspect", mode: .ask))
+    }
+    #expect(provider.callStore.transcripts.isEmpty)
+    #expect(await effects.count == 0)
+}
+
+@Test
+func completionRecoveryRetainsTheOriginalToolBudget() async throws {
+    let models = [ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "test", capabilities: ["tools"])]
+    let agentID = "recovery-budget-agent"
+    let (catalog, store, _) = try makeAgentSessionFixture(
+        agentID: agentID, selectedModel: models[0].id, availableModels: models
+    )
+    let provider = ToolCallingModelProvider(models: models.map(\.id), toolName: "files.list", finalText: "Inspecting")
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: models[0].id)
+    let effects = NativeRecoveryEffects()
+    var config = CoreConfig.default
+    config.toolBudgetExhausted = 2
+    config.experimentalFlags.toolBudgetEnabled = true
+    config.experimentalFlags.disableToolBudgetAndLoopGuard = false
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
+        persistedModelContext: (config, false),
+        toolInvoker: { _, _, request, _ in
+            await effects.record()
+            return ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
+        }
+    )
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID, sessionID: session.id,
+        request: .init(userId: "dashboard", content: "Inspect the project and fix it", mode: .build)
+    )
+    #expect(await effects.count == 2)
+    let status = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(status.stage == .interrupted)
+    #expect(status.diagnostics?.toolRoundsUsed == 3)
+    #expect(await effects.count == 2)
+    #expect(status.diagnostics?.maxToolRounds == 2)
+}
+
+@Test(arguments: [false, true])
+func acceptedCompletionPreventsLaterToolEffectsAndRecordsTheirResults(enforceSmallBudget: Bool) async throws {
+    let models = [ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "test", capabilities: ["tools"])]
+    let agentID = "completion-barrier-agent"
+    let (catalog, store, _) = try makeAgentSessionFixture(
+        agentID: agentID, selectedModel: models[0].id, availableModels: models
+    )
+    let provider = ToolCallingModelProvider(
+        models: models.map(\.id), toolNames: ["runtime.exec", "session.complete", "files.write"],
+        toolArguments: ["runtime.exec": GeneratedContent(properties: ["command": "swift", "arguments": ["test"]])],
+        finalText: "Verified and completed", batchCalls: true
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: models[0].id)
+    let writes = NativeRecoveryEffects()
+    var config = CoreConfig.default
+    config.toolBudgetExhausted = 1
+    config.experimentalFlags.toolBudgetEnabled = enforceSmallBudget
+    config.experimentalFlags.disableToolBudgetAndLoopGuard = false
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
+        persistedModelContext: (config, false),
+        toolInvoker: { _, _, request, _ in
+            if request.tool == "files.write" { await writes.record() }
+            return ToolInvocationResult(tool: request.tool, ok: true, data: .object([
+                "command": .string("swift"), "arguments": .array([.string("test")]),
+                "exitCode": .number(0), "timedOut": .bool(false)
+            ]))
+        }
+    )
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID, sessionID: session.id,
+        request: .init(userId: "dashboard", content: "Fix and verify the code", mode: .build)
+    )
+    #expect(await writes.count == 0)
+    let detail = try store.loadSession(agentID: agentID, sessionID: session.id)
+    let skipped = try #require(detail.events.first { $0.toolResult?.tool == "files.write" }?.toolResult)
+    #expect(!skipped.ok)
+    #expect(skipped.error?.code == "not_executed_after_completion")
+    #expect(skipped.callEventId != nil)
+    #expect(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus?.stage == .done)
+    if enforceSmallBudget {
+        #expect(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus?.diagnostics?.toolRoundsUsed == 1)
+    }
+}
+
 private final class MockCallStore: @unchecked Sendable {
     private let lock = NSLock()
     private var _models: [String] = []
@@ -28,6 +247,18 @@ private final class MockCallStore: @unchecked Sendable {
                     return data
                 }
             })
+        }
+    }
+    func recordFrame(_ frame: ModelStepRequest) {
+        lock.withLock {
+            _models.append(frame.model)
+            _reasoningEfforts.append(frame.reasoningEffort)
+            _prompts.append(frame.messages.filter { $0.role == .user }.map(\.text).joined(separator: "\n"))
+            _transcripts.append(frame.messages.map { message in
+                let kind = message.role == .system ? "instructions" : message.role == .user ? "prompt" : "response"
+                return kind + ":" + message.text + (message.toolCalls.isEmpty ? "" : "\ntoolCalls:" + message.toolCalls.map(\.name).joined(separator: ",")) + (message.toolOutput.map { "\ntoolOutput:" + $0.content } ?? "")
+            })
+            _imageData.append(frame.messages.flatMap(\.images).compactMap(\.data))
         }
     }
     var models: [String] { lock.withLock { _models } }
@@ -83,13 +314,21 @@ private struct FixedTextLanguageModel: LanguageModel {
     }
 }
 
-private actor SessionCapturingModelProvider: ModelProvider {
+private actor SessionCapturingModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "session-capturing"
     let supportedModels: [String]
     nonisolated let callStore = MockCallStore()
 
     init(models: [String]) {
         self.supportedModels = models
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in
+            self.callStore.recordFrame(request)
+            return .init(text: "Captured.", stopReason: .endTurn)
+        }
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -185,14 +424,25 @@ func nativeLoopConfigDisablesToolBudgetByDefault() {
     #expect(!nativeLoopConfig.enforceToolRoundLimit)
 }
 
-private actor FixedOutputModelProvider: ModelProvider {
+private actor FixedOutputModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "fixed-output"
     let supportedModels: [String]
+    nonisolated let callStore = MockCallStore()
+    func requestedTranscriptsSnapshot() -> [[String]] { callStore.transcripts }
     private let output: String
 
     init(models: [String], output: String) {
         self.supportedModels = models
         self.output = output
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        let output = output
+        return FixtureModelStep { request in
+            self.callStore.recordFrame(request)
+            return .init(text: output, stopReason: .endTurn)
+        }
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -273,7 +523,7 @@ private struct SequentialTextLanguageModel: LanguageModel {
     }
 }
 
-private actor SequentialOutputModelProvider: ModelProvider {
+private actor SequentialOutputModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "sequential-output"
     let supportedModels: [String]
     nonisolated let store: SequentialTextStore
@@ -281,6 +531,11 @@ private actor SequentialOutputModelProvider: ModelProvider {
     init(models: [String], outputs: [String]) {
         self.supportedModels = models
         self.store = SequentialTextStore(outputs: outputs)
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { _ in .init(text: await self.store.next(), stopReason: .endTurn) }
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -384,12 +639,14 @@ private struct ToolCallingLanguageModel: LanguageModel {
     }
 }
 
-private actor ToolCallingModelProvider: ModelProvider {
+private actor ToolCallingModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "tool-calling"
     let supportedModels: [String]
-    private let toolNames: [String]
-    private let toolArguments: [String: GeneratedContent]
+    nonisolated private let toolNames: [String]
+    nonisolated private let toolArguments: [String: GeneratedContent]
     private let finalText: String
+    private let batchCalls: Bool
+    private let repeatToolsOnRecovery: Bool
     nonisolated let callStore = MockCallStore()
 
     init(models: [String], toolName: String, finalText: String = "Tool result inspected.") {
@@ -397,20 +654,61 @@ private actor ToolCallingModelProvider: ModelProvider {
         self.toolNames = [toolName]
         self.toolArguments = [:]
         self.finalText = finalText
+        self.batchCalls = false
+        self.repeatToolsOnRecovery = true
     }
 
-    init(models: [String], toolNames: [String], finalText: String = "Tool result inspected.") {
+    init(models: [String], toolNames: [String], finalText: String = "Tool result inspected.", repeatToolsOnRecovery: Bool = true) {
         self.supportedModels = models
         self.toolNames = toolNames
         self.toolArguments = [:]
         self.finalText = finalText
+        self.batchCalls = false
+        self.repeatToolsOnRecovery = repeatToolsOnRecovery
     }
 
-    init(models: [String], toolNames: [String], toolArguments: [String: GeneratedContent], finalText: String = "Tool result inspected.") {
+    init(models: [String], toolNames: [String], toolArguments: [String: GeneratedContent], finalText: String = "Tool result inspected.", batchCalls: Bool = false) {
         self.supportedModels = models
         self.toolNames = toolNames
         self.toolArguments = toolArguments
         self.finalText = finalText
+        self.batchCalls = batchCalls
+        self.repeatToolsOnRecovery = true
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in await self.nextStep(request) }
+    }
+
+    private var stepsByRun: [String: Int] = [:]
+    nonisolated var tools: [any Tool] { Array(Set(toolNames)).sorted().map {
+        FixtureToolDeclaration(name: $0, example: toolArguments[$0] ?? Self.arguments(for: $0, index: 0))
+    } }
+    private static func arguments(for tool: String, index: Int) -> GeneratedContent {
+        if tool == "session.complete" { return GeneratedContent(properties: ["status": "completed",
+            "summary": "Completion summary from tool", "verification": ["Focused tests passed"], "verificationEvidenceIds": ["verification-1"]]) }
+        if tool == "agent_delegate.finish" { return GeneratedContent(properties: ["status": "completed", "summary": "Delegated finish summary from tool"]) }
+        return GeneratedContent(properties: ["call": "\(index)"])
+    }
+    private func nextStep(_ request: ModelStepRequest) -> ModelStepResponse {
+        callStore.recordFrame(request)
+        if [.planning, .reportReview, .compaction].contains(request.purpose) {
+            return .init(text: "Fixture tool-free plan.", stopReason: .endTurn)
+        }
+        if request.purpose == .finalAnswer { return .init(text: finalText, stopReason: .endTurn) }
+        if request.purpose == .completionRecovery && repeatToolsOnRecovery { stepsByRun[request.runId] = 0 }
+        let index = stepsByRun[request.runId, default: 0]
+        stepsByRun[request.runId] = index + (batchCalls ? toolNames.count : 1)
+        guard index < toolNames.count else { return .init(text: finalText, stopReason: .endTurn) }
+        let indices = batchCalls ? Array(toolNames.indices) : [index]
+        let calls = indices.map { position -> ModelStepToolCall in
+            let tool = toolNames[position]
+            let arguments = toolArguments[tool] ?? Self.arguments(for: tool, index: position)
+            let name = request.tools.first { $0.toolId == tool }?.name ?? tool
+            return .init(id: "fixture-\(position)", name: name, rawArguments: arguments.jsonString)
+        }
+        return .init(toolCalls: calls, stopReason: .toolCalls)
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -517,8 +815,7 @@ func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async th
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:executor")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -559,8 +856,7 @@ func nativeAgentRunSkipsPlannerWithoutDedicatedPlannerModel() async throws {
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:executor")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -640,8 +936,7 @@ func explicitTurnModelOverrideWinsOverSemanticRouting() async throws {
         usageMeter: usageMeter,
         providerFactory: { _ in OrchestratorSemanticDecisionProvider() }
     )
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         semanticModelRouter: semanticRouter,
@@ -692,8 +987,7 @@ func semanticRoutingSelectsExecutorModelForTurn() async throws {
         usageMeter: usageMeter,
         providerFactory: { _ in OrchestratorSemanticDecisionProvider() }
     )
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         semanticModelRouter: semanticRouter,
@@ -766,8 +1060,7 @@ func fixedAgentModelSkipsJEVRouting() async throws {
         usageMeter: usageMeter,
         providerFactory: { _ in OrchestratorSemanticDecisionProvider() }
     )
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         semanticModelRouter: router,
@@ -796,8 +1089,7 @@ func agentSessionOneShotBuildCommandOverridesAskMode() async throws {
     )
     let provider = SessionCapturingModelProvider(models: [modelID])
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: modelID)
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -844,8 +1136,7 @@ func agentSessionLeanBootstrapUsesManifestInsteadOfLargeDocuments() async throws
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: modelID)
     var config = CoreConfig.default
     config.agentRuntimeContext.bootstrapMode = .lean
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         agentSkillsStore: AgentSkillsFileStore(agentsRootURL: agentsRootURL),
@@ -972,8 +1263,7 @@ func agentSessionOrchestratorUsesSelectedReasoningModelAndEffort() async throws 
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -1022,8 +1312,7 @@ func agentSessionOrchestratorUsesAgentDefaultReasoningEffortWhenRequestOmitsIt()
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:o4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -1070,8 +1359,7 @@ func agentSessionOrchestratorRequestReasoningEffortOverridesAgentDefault() async
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:o4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -1104,8 +1392,7 @@ func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async t
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:o4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -1140,8 +1427,7 @@ func agentSessionOrchestratorAppendsPlanArtifactEventForCompletedPlanTurn() asyn
         defaultModel: "mock:plan"
     )
     let capture = PlanArtifactRecorderCapture()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1205,8 +1491,7 @@ func agentSessionOrchestratorAppendsPlanArtifactEventForAutoModePlanRoute() asyn
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:auto-plan")
     let capture = PlanArtifactRecorderCapture()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1265,8 +1550,7 @@ func agentSessionTreatsPlainAssistantAnswerWithoutToolsAsDone() async throws {
         outputs: ["Recovered without tools."]
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -1317,9 +1601,9 @@ func autoRetryDoesNotMarkUnfinishedBuildDoneAfterPrerequisiteCheck() async throw
     let models = [ProviderModelOption(id: "mock:continuation", title: "Mock", capabilities: ["tools"])]
     let agentID = "auto-build-retry"
     let (catalog, store, _) = try makeAgentSessionFixture(agentID: agentID, selectedModel: models[0].id, availableModels: models)
-    let provider = ToolCallingModelProvider(models: models.map(\.id), toolName: "files.list", finalText: "Connection restored. Code and deployment are still unfinished.")
+    let provider = ToolCallingModelProvider(models: models.map(\.id), toolNames: ["planning.select_route", "files.list"], toolArguments: ["planning.select_route": GeneratedContent(properties: ["route": "mode-build", "reason": "Continue authorized work"])], finalText: "Connection restored. Code and deployment are still unfinished.")
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: models[0].id)
-    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
         toolInvoker: { _, _, request, _ in .init(tool: request.tool, ok: true, data: .object(["count": .number(1)])) })
     let session = try await orchestrator.createSession(agentID: agentID, request: .init())
     _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [
@@ -1352,8 +1636,7 @@ func agentSessionRetriesAndMarksToollessDebugTurnIncompleteWithoutCompletionEvid
         outputs: ["Изучаю контекст создания резолвера во всех точках."]
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1398,8 +1681,7 @@ func agentSessionRetriesAndMarksToolDrivenDebugTurnIncompleteWithoutExplicitComp
         finalText: "Need more context before this can be handed back."
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1462,8 +1744,7 @@ func agentSessionTreatsToolDrivenTurnWithExplicitCompletionAsDone() async throws
         finalText: "Ran the focused tests and finished the handoff."
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1504,7 +1785,7 @@ func agentSessionTreatsToolDrivenTurnWithExplicitCompletionAsDone() async throws
         }
         return event.message?.segments.compactMap(\.text).joined(separator: "\n")
     }
-    #expect(assistantTexts.last == "Ran the focused tests and finished the handoff.")
+    #expect(assistantTexts.last == "Completion summary from tool")
 
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
@@ -1553,8 +1834,7 @@ func agentSessionRejectsCompletedDebugOutcomeWithoutVerificationEvidence() async
         ]
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -1607,8 +1887,7 @@ func agentSessionRejectsEvidenceIdFromNonVerificationCommand() async throws {
         ]
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1679,8 +1958,7 @@ func agentSessionSurfacesTypedBlockedDebugOutcome() async throws {
         ]
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -1723,8 +2001,7 @@ func agentSessionMarksTurnIncompleteWhenNativeToolRoundLimitIsReached() async th
     var config = CoreConfig.default
     config.experimentalFlags.toolBudgetEnabled = true
     config.experimentalFlags.disableToolBudgetAndLoopGuard = false
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1756,7 +2033,8 @@ func agentSessionMarksTurnIncompleteWhenNativeToolRoundLimitIsReached() async th
 
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
-    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 60)
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 61)
+    #expect(detail.events.filter { $0.runtimeMetadata?.executionPhase == .started }.count == 60)
 }
 
 @Test
@@ -1773,14 +2051,13 @@ func tuiAgentSessionDoesNotEnforceNativeToolRoundLimit() async throws {
     let provider = ToolCallingModelProvider(
         models: availableModels.map(\.id),
         toolNames: Array(repeating: "files.list", count: 61),
-        finalText: "TUI finished after extended tool use."
+        finalText: "TUI finished after extended tool use.", repeatToolsOnRecovery: false
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
     var config = CoreConfig.default
     config.experimentalFlags.toolBudgetEnabled = true
     config.experimentalFlags.disableToolBudgetAndLoopGuard = false
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1830,8 +2107,7 @@ func delegatedSubagentCanFinishAfterToolBudgetRecovery() async throws {
     var config = CoreConfig.default
     config.experimentalFlags.toolBudgetEnabled = true
     config.experimentalFlags.disableToolBudgetAndLoopGuard = false
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1853,6 +2129,7 @@ func delegatedSubagentCanFinishAfterToolBudgetRecovery() async throws {
         }
     )
 
+    await installFixtureAuthority(orchestrator, runtime: runtime, directory: agentsRootURL)
     let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
     await orchestrator.markDelegatedSubagentSession(sessionID: session.id)
     let response = try await orchestrator.postMessage(
@@ -1871,7 +2148,8 @@ func delegatedSubagentCanFinishAfterToolBudgetRecovery() async throws {
 
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
-    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 60)
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 61)
+    #expect(detail.events.filter { $0.runtimeMetadata?.executionPhase == .started }.count == 61)
     #expect(detail.events.contains {
         $0.toolResult?.tool == "agent_delegate.finish" &&
             $0.toolResult?.ok == true &&
@@ -1901,8 +2179,7 @@ func agentSessionInterruptPreventsLateNativeToolCallbacksFromAppendingEvents() a
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
     let gate = BlockingToolInvocationGate()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -1960,7 +2237,10 @@ func agentSessionInterruptPreventsLateNativeToolCallbacksFromAppendingEvents() a
             $0.message?.segments.compactMap(\.text).joined(separator: "\n") == "Done."
     } == false)
     #expect(eventsAfterInterrupt.contains { $0.toolCall != nil } == false)
-    #expect(eventsAfterInterrupt.contains { $0.toolResult != nil } == false)
+    let lateResults = eventsAfterInterrupt.filter { $0.toolResult != nil }
+    #expect(lateResults.count == 1)
+    #expect(lateResults.allSatisfy { $0.runtimeMetadata?.observationOnly == true &&
+        $0.runtimeMetadata?.completionCandidate == nil && $0.runtimeMetadata?.verificationEvidence == nil })
     #expect(eventsAfterInterrupt.contains { $0.runStatus?.stage == .searching } == false)
 }
 
@@ -1981,8 +2261,7 @@ func agentSessionPlanningRequestInputStillPausesAfterToolUse() async throws {
         finalText: "This should wait for the user first."
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -2047,7 +2326,7 @@ func agentSessionPlanningRequestInputStillPausesAfterToolUse() async throws {
     )
 
     #expect(response.appendedEvents.contains(where: { $0.runStatus?.stage == .responding }))
-    #expect(response.appendedEvents.contains(where: { $0.runStatus?.stage == .paused }) == false)
+    #expect(response.appendedEvents.contains(where: { $0.runStatus?.stage == .paused }))
     #expect(response.appendedEvents.contains(where: { $0.message?.role == .assistant }) == false)
 
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
@@ -2098,8 +2377,7 @@ func agentSessionOrchestratorAppendsFriendReminderToRuntimeUserMessage() async t
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2136,8 +2414,7 @@ func nativeAgentSessionPromptIncludesAttachmentPaths() async throws {
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2196,8 +2473,7 @@ func attachmentsDoNotCreateInitialSearchingStatus() async throws {
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2238,8 +2514,7 @@ func toolCallsStillCreateExecutingToolSearchingStatus() async throws {
     )
     let provider = ToolCallingModelProvider(models: availableModels.map(\.id), toolName: "files.read")
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -2258,7 +2533,9 @@ func toolCallsStillCreateExecutingToolSearchingStatus() async throws {
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
     let searchingStatuses = detail.events.compactMap(\.runStatus).filter { $0.stage == .searching }
-    #expect(searchingStatuses.contains { $0.label == "Executing tool" && $0.details == "Tool: files.read" })
+    let calls = try sessionStore.loadSession(agentID: agentID, sessionID: session.id).events.filter { $0.toolCall?.tool == "files.read" }
+    #expect(calls.count == 1)
+    #expect(calls.first?.runtimeMetadata?.executionPhase == .requested)
     #expect(detail.events.contains { $0.toolCall?.tool == "files.read" })
 }
 
@@ -2282,8 +2559,7 @@ func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         agentSkillsStore: skillsStore,
@@ -2347,8 +2623,7 @@ func agentDocumentUpdatesRefreshExistingSessionBootstrap() async throws {
 
     let provider = SessionCapturingModelProvider(models: [modelID])
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: modelID)
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2435,8 +2710,7 @@ func agentSessionBootstrapIncludesReadableEntrypointsForInstalledSkills() async 
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         agentSkillsStore: skillsStore,
@@ -2470,8 +2744,7 @@ func agentSessionBootstrapBackfillsBuiltInTaskSpecSkillWhenAgentHasNoSkills() as
     let skillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         agentSkillsStore: skillsStore,
@@ -2516,8 +2789,7 @@ func agentSessionBootstrapIncludesToolCallProtocol() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2557,8 +2829,7 @@ func agentSessionTextContainingFailedDoesNotForceInterruptedStatus() async throw
     )
 
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2590,8 +2861,7 @@ func agentSessionReusesPersistentSessionAcrossMessages() async throws {
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2609,11 +2879,11 @@ func agentSessionReusesPersistentSessionAcrossMessages() async throws {
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "second message")
     )
 
-    #expect(await provider.requestedModelsSnapshot().count == 1)
+    #expect(await provider.requestedModelsSnapshot().count == 2)
 }
 
 @Test
-func agentSessionReportsLiveRuntimeSessionOnlyWhileCached() async throws {
+func agentSessionDurableHistoryDoesNotRequireALiveLanguageModelSession() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
     ]
@@ -2625,8 +2895,7 @@ func agentSessionReportsLiveRuntimeSessionOnlyWhileCached() async throws {
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2640,7 +2909,7 @@ func agentSessionReportsLiveRuntimeSessionOnlyWhileCached() async throws {
         sessionID: session.id,
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "first message")
     )
-    #expect(await orchestrator.hasLiveRuntimeSession(agentID: agentID, sessionID: session.id) == true)
+    #expect(await orchestrator.hasLiveRuntimeSession(agentID: agentID, sessionID: session.id) == false)
 
     await runtime.invalidateChannelSession(channelId: "agent:\(agentID):session:\(session.id)")
     #expect(await orchestrator.hasLiveRuntimeSession(agentID: agentID, sessionID: session.id) == false)
@@ -2663,8 +2932,7 @@ func agentSessionRestoresPersistedTranscriptAfterRuntimeSessionInvalidation() as
         finalText: "Tool-backed answer."
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
@@ -2710,8 +2978,7 @@ func linkedChildSessionStartsWithParentTranscriptContext() async throws {
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2753,8 +3020,7 @@ func checkpointSessionStartsWithCheckpointTranscriptContext() async throws {
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2797,8 +3063,7 @@ func unlinkedFreshSessionDoesNotInheritRecentInterruptedSessionTranscript() asyn
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2853,8 +3118,7 @@ func agentSessionBootstrapFallsBackWhenPromptComposerFails() async throws {
     let composer = AgentPromptComposer(templateLoader: failingLoader)
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         agentSkillsStore: AgentSkillsFileStore(agentsRootURL: agentsRootURL),
@@ -2897,8 +3161,7 @@ func agentSessionBootstrapIncludesSkillsRulesPartial() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2927,8 +3190,7 @@ func agentSessionBootstrapIncludesCompletionReflectionPartial() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2957,8 +3219,7 @@ func agentSessionBootstrapIncludesTaskPlanningRulesPartial() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -2988,8 +3249,7 @@ func agentSessionBootstrapIncludesTaskSpecRulesPartial() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -3019,8 +3279,7 @@ func notifySkillsChangedAppendsSystemMessageToActiveSessions() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         agentSkillsStore: AgentSkillsFileStore(agentsRootURL: agentsRootURL),
@@ -3066,8 +3325,7 @@ func notifySkillsChangedDoesNothingForNonBootstrappedSessions() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         agentSkillsStore: AgentSkillsFileStore(agentsRootURL: agentsRootURL),
@@ -3118,8 +3376,7 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
         output: "Hello! I can help with that."
     )
     let runtime1 = RuntimeSystem(modelProvider: provider1, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator1 = AgentSessionOrchestrator(
-        runtime: runtime1,
+    let orchestrator1 = AgentSessionOrchestrator(fixtureRuntime: runtime1,
         sessionStore: sessionStore1,
         agentCatalogStore: catalogStore1,
         availableModels: availableModels
@@ -3147,8 +3404,7 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
     let runtime2 = RuntimeSystem(modelProvider: provider2, defaultModel: "openai-api:gpt-5.4-mini")
     let sessionStore2 = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let catalogStore2 = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
-    let orchestrator2 = AgentSessionOrchestrator(
-        runtime: runtime2,
+    let orchestrator2 = AgentSessionOrchestrator(fixtureRuntime: runtime2,
         sessionStore: sessionStore2,
         agentCatalogStore: catalogStore2,
         availableModels: availableModels
@@ -3166,10 +3422,10 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
         $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
     })?.content ?? ""
 
-    #expect(bootstrapMessage.contains("[Previous conversation history]"))
-    #expect(bootstrapMessage.contains("Tell me about Swift concurrency"))
-    #expect(bootstrapMessage.contains("How do actors work?"))
-    #expect(bootstrapMessage.contains("[End of previous conversation]"))
+    #expect(!bootstrapMessage.contains("[Previous conversation history]"))
+    let frames = await provider2.requestedTranscriptsSnapshot()
+    #expect(frames.last?.joined(separator: "\n").contains("Tell me about Swift concurrency") == true)
+    #expect(frames.last?.joined(separator: "\n").contains("How do actors work?") == true)
 }
 
 @Test
@@ -3184,9 +3440,9 @@ func agentSessionRefreshesStaleBootstrapWithPersistedHistory() async throws {
         availableModels: availableModels
     )
 
-    let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let capture = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: capture, defaultModel: availableModels[0].id)
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -3233,9 +3489,10 @@ func agentSessionRefreshesStaleBootstrapWithPersistedHistory() async throws {
     )
 
     let refreshedBootstrap = await runtime.channelBootstrapContent(channelId: channelID) ?? ""
-    #expect(refreshedBootstrap.contains("[Previous conversation history]"))
-    #expect(refreshedBootstrap.contains("Original task: explain the failing session restore"))
-    #expect(refreshedBootstrap.contains("I found that the restored session needs its JSONL history."))
+    #expect(!refreshedBootstrap.contains("[Previous conversation history]"))
+    let frame = await capture.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
+    #expect(frame.contains("Original task: explain the failing session restore"))
+    #expect(frame.contains("I found that the restored session needs its JSONL history."))
 }
 
 @Test
@@ -3251,8 +3508,7 @@ func agentSessionInvalidatesCachedModelSessionWhenStaleBootstrapGainsHistory() a
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -3312,8 +3568,7 @@ func agentSessionBootstrapOmitsHistoryForFreshSession() async throws {
     )
 
     let runtime = RuntimeSystem()
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels
@@ -3343,7 +3598,7 @@ func sessionRefreshesChangedScopedDocumentsWithoutLosingConversation() async thr
     try catalog.writeAgentScopedMarkdown(agentID: agentID, userID: "alice", field: .user, markdown: "SCOPED_BEFORE_MARKER")
     let provider = SessionCapturingModelProvider(models: [modelID])
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: modelID)
-    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
     let session = try await orchestrator.createSession(agentID: agentID, request: .init())
     _ = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id, request: .init(userId: "alice", content: "Remember this conversation"))
     #expect(await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n").contains("SCOPED_BEFORE_MARKER") == true)
@@ -3362,7 +3617,7 @@ func sessionDeliveryPersistsClientMessageIdentity() async throws {
     let agentID = "delivery-identity"
     let (catalog, store, _) = try makeAgentSessionFixture(agentID: agentID, selectedModel: "mock:delivery", availableModels: models)
     let runtime = RuntimeSystem(modelProvider: FixedOutputModelProvider(models: models.map(\.id), output: "Done"), defaultModel: "mock:delivery")
-    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
     let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
     let clientID = UUID().uuidString
     let response = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id, request: AgentSessionPostMessageRequest(
@@ -3381,7 +3636,7 @@ func nativeSessionReceivesActualImageBytesAndRestoresThemAfterRestart() async th
     defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
     let provider = SessionCapturingModelProvider(models: ["mock:vision"])
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:vision")
-    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
     let session = try await orchestrator.createSession(agentID: "vision", request: .init())
     let image = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6SfkAAAAASUVORK5CYII="))
     _ = try await orchestrator.postMessage(agentID: "vision", sessionID: session.id, request: .init(userId: "local", content: "Describe this image", attachments: [.init(name: "pixel.png", mimeType: "image/png", sizeBytes: image.count, contentBase64: image.base64EncodedString())], mode: .ask))
@@ -3389,7 +3644,7 @@ func nativeSessionReceivesActualImageBytesAndRestoresThemAfterRestart() async th
     let prompt = provider.callStore.prompts.last ?? ""
     #expect(prompt.contains("Never read an image with files.read"))
     let restoredRuntime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:vision")
-    let restored = AgentSessionOrchestrator(runtime: restoredRuntime, sessionStore: AgentSessionFileStore(agentsRootURL: root), agentCatalogStore: AgentCatalogFileStore(agentsRootURL: root), availableModels: models)
+    let restored = AgentSessionOrchestrator(fixtureRuntime: restoredRuntime, sessionStore: AgentSessionFileStore(agentsRootURL: root), agentCatalogStore: AgentCatalogFileStore(agentsRootURL: root), availableModels: models)
     _ = try await restored.postMessage(agentID: "vision", sessionID: session.id, request: .init(userId: "local", content: "What was in the image?", mode: .ask))
     #expect(provider.callStore.imageData.last == [image])
     #expect(provider.callStore.transcripts.last?.last?.contains("<image>") == false)
@@ -3442,13 +3697,33 @@ private struct RecoveringCoordinatorModel: LanguageModel {
     }
 }
 
-private actor RecoveringCoordinatorProvider: ModelProvider {
+private actor RecoveringCoordinatorProvider: ModelProvider, ModelStepProviderFactory {
     let id = "coordinator-recovery"
     let supportedModels = ["mock:coordinator"]
     nonisolated let calls = CoordinatorRecoveryCalls()
     let alwaysInvalid: Bool
     init(alwaysInvalid: Bool = false) { self.alwaysInvalid = alwaysInvalid }
     nonisolated var tools: [any Tool] { [LongChatTool(action: "delegate")] }
+    private var responded = false
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in try await self.nextStep(request) }
+    }
+    private func nextStep(_ request: ModelStepRequest) async throws -> ModelStepResponse {
+        if request.purpose == .reportReview {
+            await calls.recordReview()
+            return .init(text: #"{"supported":true,"correctedResponse":null}"#, stopReason: .endTurn)
+        }
+        if responded {
+            responded = false
+            return .init(text: await calls.calls <= 1 || alwaysInvalid ? "Delegation failed." : "Assignment created; the worker will continue separately.", stopReason: .endTurn)
+        }
+        responded = true
+        let attempt = await calls.next()
+        let criteria = attempt == 0 || alwaysInvalid ? #"["Verified"]"# : #""Verified""#
+        let raw = "{\"assignment\":{\"requestKey\":\"import\",\"title\":\"Import\",\"acceptanceCriteria\":\(criteria),\"tasks\":[{\"key\":\"import\",\"title\":\"Import\",\"objective\":\"Import authorized skills\",\"resourceKeys\":[\"agent:skills\"],\"dependsOn\":[],\"readOnly\":false}]}}"
+        return .init(toolCalls: [.init(id: "delegate-\(attempt)", name: "long_chat_delegate", rawArguments: raw)], stopReason: .toolCalls)
+    }
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel { RecoveringCoordinatorModel(calls: calls, alwaysInvalid: alwaysInvalid) }
 }
 
@@ -3460,7 +3735,7 @@ func coordinatorRepairsDelegationAndDoesNotPublishFailedDraft() async throws {
     let provider = RecoveringCoordinatorProvider()
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:coordinator")
     let published = MockCallStore()
-    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
         toolInvoker: { _, _, request, _ in
             do {
                 _ = try LongChatDelegationDecoder.decode(request.arguments["assignment"])
@@ -3469,6 +3744,7 @@ func coordinatorRepairsDelegationAndDoesNotPublishFailedDraft() async throws {
                 return .init(tool: request.tool, ok: false, error: .init(code: "invalid_arguments", message: "acceptanceCriteria must be a string", retryable: false, hint: "Correct criteria and retry", argumentRecovery: .init(invalidFields: ["assignment"])))
             }
         }, responseChunkObserver: { _, _, text in published.recordPrompt(Prompt(text)) })
+    await installFixtureAuthority(orchestrator, runtime: runtime, directory: root)
     let session = try await orchestrator.createSession(agentID: "coordinator", request: .init(kind: .longChat))
     let result = try await orchestrator.postMessage(agentID: "coordinator", sessionID: session.id, request: .init(userId: "local", content: "Import my skills", mode: .build))
     #expect(await provider.calls.calls == 2)
@@ -3478,7 +3754,7 @@ func coordinatorRepairsDelegationAndDoesNotPublishFailedDraft() async throws {
     #expect(detail.events.compactMap(\.toolResult).map(\.ok) == [false, true])
     #expect(result.appendedEvents.compactMap(\.message).flatMap(\.segments).compactMap(\.text).contains("Assignment created; the worker will continue separately."))
     #expect(result.appendedEvents.last?.runStatus?.stage == .done)
-    #expect(await runtime.hasCachedChannelSession(channelId: "agent:coordinator:session:\(session.id)"))
+    #expect(await runtime.hasCachedChannelSession(channelId: "agent:coordinator:session:\(session.id)") == false)
 }
 
 @Test
@@ -3489,8 +3765,8 @@ func coordinatorOrdinaryReplySkipsReviewDespiteHistoricalToolCalls() async throw
     defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
     let provider = SessionCapturingModelProvider(models: ["mock:conversation"])
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:conversation")
-    let orchestrator = AgentSessionOrchestrator(
-        runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
+    await installFixtureAuthority(orchestrator, runtime: runtime, directory: root)
     let session = try await orchestrator.createSession(agentID: "conversation", request: .init(kind: .longChat))
     _ = try store.appendEvents(agentID: "conversation", sessionID: session.id, events: [
         .init(id: "old-read", agentId: "conversation", sessionId: session.id, type: .toolCall,
@@ -3502,7 +3778,8 @@ func coordinatorOrdinaryReplySkipsReviewDespiteHistoricalToolCalls() async throw
         request: .init(userId: "local", content: "Thanks!", mode: .ask))
     #expect(provider.callStore.prompts.count == 1)
     #expect(response.appendedEvents.compactMap(\.message).flatMap(\.segments).compactMap(\.text).contains("Captured."))
-    #expect(await runtime.hasCachedChannelSession(channelId: "agent:conversation:session:\(session.id)"))
+    #expect(await runtime.hasCachedChannelSession(channelId: "agent:conversation:session:\(session.id)") == false)
+    #expect(await runtime.channelState(channelId: "agent:conversation:session:\(session.id)") != nil)
 }
 
 
@@ -3540,11 +3817,12 @@ func coordinatorRecoveryStopsAfterTwoPassesAndKeepsHandoffIncomplete() async thr
     defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
     let provider = RecoveringCoordinatorProvider(alwaysInvalid: true)
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:coordinator")
-    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
+    let orchestrator = AgentSessionOrchestrator(fixtureRuntime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models,
         toolInvoker: { _, _, request, _ in
             .init(tool: request.tool, ok: false, error: .init(code: "invalid_arguments", message: "acceptanceCriteria must be a string", retryable: false,
                 hint: "Correct criteria", argumentRecovery: .init(invalidFields: ["assignment"])))
         })
+    await installFixtureAuthority(orchestrator, runtime: runtime, directory: root)
     let session = try await orchestrator.createSession(agentID: "bounded", request: .init(kind: .longChat))
     let result = try await orchestrator.postMessage(agentID: "bounded", sessionID: session.id, request: .init(userId: "local", content: "Import skills", mode: .build))
     #expect(await provider.calls.calls == 3)

@@ -20,7 +20,7 @@ public enum UsageObservedURLSession {
         }
     }
 
-    public static func make(wrapping base: URLSession?, context: ModelUsageContext) -> URLSession {
+    public static func make(wrapping base: URLSession?, context: ModelUsageContext) throws -> URLSession {
         let base = base ?? URLSession(configuration: .default)
         let scope = Scope(base: base, context: context)
         let id = UUID().uuidString
@@ -28,7 +28,7 @@ public enum UsageObservedURLSession {
             scopes = scopes.filter { $0.value.value != nil }
             scopes[id] = WeakScope(scope)
         }
-        let config = base.configuration
+        let config = try copyConfiguration(of: base)
         config.protocolClasses = [UsageObservationURLProtocol.self] + (config.protocolClasses ?? [])
         var headers = config.httpAdditionalHeaders ?? [:]
         headers.removeValue(forKey: TokenUsageCaptureRegistry.headerField)
@@ -37,12 +37,23 @@ public enum UsageObservedURLSession {
         return URLSession(configuration: config, delegate: ScopeAnchor(scope: scope), delegateQueue: nil)
     }
 
-    fileprivate static func scope(_ request: URLRequest) -> Scope? {
+    static func copyConfiguration(of session: URLSession) throws -> URLSessionConfiguration {
+        guard let copy = session.configuration.copy() as? URLSessionConfiguration else {
+            throw ModelStepFailure(category: .unavailable, code: "configuration_copy_failed",
+                message: "The configured HTTP transport could not be copied.", stage: .preparation)
+        }
+        return copy
+    }
+
+    fileprivate static func scope(_ request: URLRequest, task: URLSessionTask?) -> Scope? {
+        // The receiving session owns direct requests, including a reused request carrying
+        // another scope's header. Native delegate transports retain the header fallback.
+        if let anchor = task?.delegate as? ScopeAnchor { return anchor.scope }
         guard let id = request.value(forHTTPHeaderField: header) else { return nil }
         return lock.withLock { scopes[id]?.value }
     }
 
-    private final class ScopeAnchor: NSObject, URLSessionDelegate, @unchecked Sendable {
+    private final class ScopeAnchor: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         let scope: Scope
         init(scope: Scope) { self.scope = scope }
         func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
@@ -69,7 +80,9 @@ private final class UsageObservationURLProtocol: URLProtocol {
     private var stopped = false
     private var finished = false
     override class func canInit(with request: URLRequest) -> Bool {
-        request.httpMethod == "POST" && UsageObservedURLSession.scope(request) != nil
+        // This protocol is installed only on observed configurations. FoundationNetworking
+        // has not applied configuration headers yet; task ownership is available at start.
+        request.httpMethod == "POST"
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -78,7 +91,7 @@ private final class UsageObservationURLProtocol: URLProtocol {
     }
     private func startForwarding() {
         guard !stopped else { return }
-        guard let scope = UsageObservedURLSession.scope(request) else {
+        guard let scope = UsageObservedURLSession.scope(request, task: self.task) else {
             client?.urlProtocol(self, didFailWithError: URLError(.unknown)); return
         }
         var outgoing = request
@@ -91,7 +104,7 @@ private final class UsageObservationURLProtocol: URLProtocol {
                 var options = object["stream_options"] as? [String: Any] ?? [:]
                 options["include_usage"] = true
                 object["stream_options"] = options
-                payload = try JSONSerialization.data(withJSONObject: object)
+                payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
                 outgoing.setValue(nil, forHTTPHeaderField: "Content-Length")
             }
             body = payload
@@ -99,11 +112,19 @@ private final class UsageObservationURLProtocol: URLProtocol {
         } catch { client?.urlProtocol(self, didFailWithError: error); return }
         outgoing.setValue(nil, forHTTPHeaderField: UsageObservedURLSession.header)
         outgoing.setValue(nil, forHTTPHeaderField: TokenUsageCaptureRegistry.headerField)
-        let config = scope.base.configuration
+        let config: URLSessionConfiguration
+        do { config = try UsageObservedURLSession.copyConfiguration(of: scope.base) }
+        catch { client?.urlProtocol(self, didFailWithError: error); return }
         var forwardingHeaders = config.httpAdditionalHeaders ?? [:]
         forwardingHeaders.removeValue(forKey: UsageObservedURLSession.header)
         forwardingHeaders.removeValue(forKey: TokenUsageCaptureRegistry.headerField)
         config.httpAdditionalHeaders = forwardingHeaders
+        // Custom URL protocols on FoundationNetworking see the request before configuration
+        // headers are applied. Preserve caller headers while keeping request overrides first.
+        for (key, value) in forwardingHeaders {
+            guard let name = key as? String, outgoing.value(forHTTPHeaderField: name) == nil else { continue }
+            outgoing.setValue(String(describing: value), forHTTPHeaderField: name)
+        }
         // Preserve proxy, custom auth/rewriting protocols and trust handling.
         config.protocolClasses = (config.protocolClasses ?? []).filter { $0 != UsageObservationURLProtocol.self }
         let delegate = Bridge(owner: self, scope: scope, body: body)

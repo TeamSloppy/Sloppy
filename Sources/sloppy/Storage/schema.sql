@@ -524,3 +524,13 @@ CREATE TABLE IF NOT EXISTS usage_components (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_components_request ON usage_components(request_id);
 CREATE INDEX IF NOT EXISTS idx_usage_components_replay ON usage_components(channel_id, tool_call_id, kind);
+
+-- Native request usage ownership
+-- Keep the existing usage_requests column layout compatible with older writers.
+CREATE TABLE IF NOT EXISTS usage_request_runs (
+    request_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    user_turn_id TEXT NOT NULL,
+    FOREIGN KEY(request_id) REFERENCES usage_requests(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_usage_request_runs_owner ON usage_request_runs(run_id, user_turn_id);

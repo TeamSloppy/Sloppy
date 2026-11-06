@@ -5,19 +5,42 @@ public enum AgentRuntimeType: String, Codable, Sendable, Equatable {
     case acp
 }
 
+public enum AgentNativeEngine: String, Codable, Sendable, Equatable {
+    case legacy
+    case unified
+}
+
+public enum AgentPlanningPolicy: String, Codable, Sendable, Equatable {
+    case legacy, executor, separate
+}
+
 public struct AgentRuntimeConfig: Codable, Sendable, Equatable {
     public var type: AgentRuntimeType
     public var acp: AgentACPConfig?
     public var sharedMemoryEnabled: Bool
+    /// Absent in older clients; config updates preserve an existing explicit selection.
+    public var nativeEngine: AgentNativeEngine?
+    /// Legacy remains a readable configuration spelling; native scheduling has one owner.
+    public var effectiveNativeEngine: AgentNativeEngine { .unified }
+    public var planningPolicy: AgentPlanningPolicy?
+    public var effectivePlanningPolicy: AgentPlanningPolicy { planningPolicy ?? .legacy }
+    public var planningPolicyVersion: Int? = nil
+    public var evidencePolicyVersion: Int? = nil
 
-    public init(type: AgentRuntimeType = .native, acp: AgentACPConfig? = nil, sharedMemoryEnabled: Bool = true) {
+    public init(type: AgentRuntimeType = .native, acp: AgentACPConfig? = nil, sharedMemoryEnabled: Bool = true,
+                nativeEngine: AgentNativeEngine? = nil, planningPolicy: AgentPlanningPolicy? = nil,
+                planningPolicyVersion: Int? = nil, evidencePolicyVersion: Int? = nil) {
         self.type = type
         self.acp = acp
         self.sharedMemoryEnabled = sharedMemoryEnabled
+        self.nativeEngine = nativeEngine
+        self.planningPolicy = planningPolicy
+        self.planningPolicyVersion = planningPolicyVersion
+        self.evidencePolicyVersion = evidencePolicyVersion
     }
 
     enum CodingKeys: String, CodingKey {
-        case type, acp, sharedMemoryEnabled
+        case type, acp, sharedMemoryEnabled, nativeEngine, planningPolicy, planningPolicyVersion, evidencePolicyVersion
     }
 
     public init(from decoder: Decoder) throws {
@@ -25,6 +48,13 @@ public struct AgentRuntimeConfig: Codable, Sendable, Equatable {
         type = try container.decodeIfPresent(AgentRuntimeType.self, forKey: .type) ?? .native
         acp = try container.decodeIfPresent(AgentACPConfig.self, forKey: .acp)
         sharedMemoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .sharedMemoryEnabled) ?? true
+        nativeEngine = try container.decodeIfPresent(AgentNativeEngine.self, forKey: .nativeEngine)
+        planningPolicy = try container.decodeIfPresent(AgentPlanningPolicy.self, forKey: .planningPolicy)
+        planningPolicyVersion = try container.decodeIfPresent(Int.self, forKey: .planningPolicyVersion)
+        evidencePolicyVersion = try container.decodeIfPresent(Int.self, forKey: .evidencePolicyVersion)
+        guard [1, 2].contains(evidencePolicyVersion ?? 1), planningPolicyVersion == nil || planningPolicyVersion == 1 else {
+            throw DecodingError.dataCorruptedError(forKey: .evidencePolicyVersion, in: container, debugDescription: "Unsupported runtime policy version")
+        }
     }
 }
 
@@ -821,8 +851,12 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
 }
 
 public struct AgentSessionEvent: Codable, Sendable, Equatable {
+    public static let latestJournalVersion = 3
     /// Imported events are historical and must never become pending executable tool calls.
     public var importOrigin: AgentSessionImportOrigin? = nil
+    public var forkOrigin: AgentSessionForkOrigin? = nil
+    /// Historical records remain visible as context, without admitting or resuming a run.
+    public var isHistorical: Bool { importOrigin != nil || forkOrigin != nil }
     public var id: String
     public var version: Int
     public var agentId: String
@@ -830,6 +864,8 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
     public var type: AgentSessionEventType
     public var createdAt: Date
     public var metadata: AgentSessionMetadataEvent?
+    public var runtimeMetadata: AgentRunMetadata?
+    public var inputTransitions: [AgentInputTransition]?
     public var message: AgentSessionMessage?
     public var runStatus: AgentRunStatusEvent?
     public var memoryCheckpoint: AgentMemoryCheckpointEvent?
@@ -852,6 +888,8 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
         type: AgentSessionEventType,
         createdAt: Date = Date(),
         metadata: AgentSessionMetadataEvent? = nil,
+        runtimeMetadata: AgentRunMetadata? = nil,
+        inputTransitions: [AgentInputTransition]? = nil,
         message: AgentSessionMessage? = nil,
         runStatus: AgentRunStatusEvent? = nil,
         memoryCheckpoint: AgentMemoryCheckpointEvent? = nil,
@@ -873,6 +911,8 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
         self.type = type
         self.createdAt = createdAt
         self.metadata = metadata
+        self.runtimeMetadata = runtimeMetadata
+        self.inputTransitions = inputTransitions
         self.message = message
         self.runStatus = runStatus
         self.memoryCheckpoint = memoryCheckpoint
@@ -968,7 +1008,12 @@ public enum AgentChatMode: String, Codable, Sendable, Equatable, CaseIterable {
     public static let defaultMode: AgentChatMode = .auto
 }
 
-public struct AgentSessionPostMessageRequest: Codable, Sendable {
+public enum AgentInputDeliveryIntent: String, Codable, Sendable, Equatable {
+    case steering
+    case followUp = "follow_up"
+}
+
+public struct AgentSessionPostMessageRequest: Codable, Sendable, Equatable {
     public var userId: String
     public var content: String
     public var attachments: [AgentAttachmentUpload]
@@ -981,6 +1026,8 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
     public var clientMessageId: String?
     public var sessionReferences: [AgentSessionReference]?
     public var supportsA2UI: Bool?
+    /// Nil preserves ordinary follow-up behavior. Steering joins the active owner at a completed step.
+    public var deliveryIntent: AgentInputDeliveryIntent? = nil
 
     public init(
         userId: String,
@@ -1053,10 +1100,13 @@ public struct AgentSessionMessageResponse: Codable, Sendable {
     public var summary: AgentSessionSummary
     public var appendedEvents: [AgentSessionEvent]
     public var routeDecision: ChannelRouteDecision?
+    /// The original delivery is returned without starting another turn.
+    public var replayed: Bool?
 
-    public init(summary: AgentSessionSummary, appendedEvents: [AgentSessionEvent], routeDecision: ChannelRouteDecision?) {
+    public init(summary: AgentSessionSummary, appendedEvents: [AgentSessionEvent], routeDecision: ChannelRouteDecision?, replayed: Bool? = nil) {
         self.summary = summary
         self.appendedEvents = appendedEvents
         self.routeDecision = routeDecision
+        self.replayed = replayed
     }
 }

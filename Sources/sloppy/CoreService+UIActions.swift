@@ -1,7 +1,18 @@
 import Foundation
 import Protocols
+import SloppyRuntime
 
 extension CoreService {
+    /// Presentation follows the authoritative receipt; surface reads also use its pinned context.
+    func publishAcceptedUISnapshot(_ entry: SessionMessageInboxFileStore.Entry) {
+        do { try persistAcceptedUISnapshot(entry) }
+        catch {
+            logger.warning("session_ui.presentation_write_failed", metadata: [
+                "session_id": .string(entry.sessionId), "action_id": .string(entry.id),
+                "error": .string(String(describing: error))])
+        }
+    }
+
     func persistAcceptedUISnapshot(_ entry: SessionMessageInboxFileStore.Entry) throws {
         guard let snapshot = entry.uiSnapshot else { return }
         let detail = try getAgentSession(agentID: entry.agentId, sessionID: entry.sessionId)
@@ -19,6 +30,7 @@ extension CoreService {
     ) throws -> AgentUIActionReceipt {
         let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
         guard UUID(uuidString: submission.actionId) != nil else { throw AgentUIError.invalidAction }
+        guard !NativeSessionDelivery.hasHistoricalMessageID(submission.actionId, in: detail) else { throw AgentUIError.actionConflict }
         var conversationID: String?
         if detail.summary.kind == .longChat {
             conversationID = sessionID
@@ -34,6 +46,27 @@ extension CoreService {
         let sender = userID ?? owner
         if conversationID != nil, sender != owner { throw AgentUIError.forbidden }
         let storage = try sessionMessageInbox()
+        if let input = try SessionInputLifecycle.states(in: detail.events)[submission.actionId] {
+            guard let snapshot = input.context.uiSnapshot,
+                  snapshot.surfaceId == surfaceID, input.context.uiSubmission == submission,
+                  input.context.request.userId == sender else { throw AgentUIError.actionConflict }
+            let request = try NativeInputCapture.materialize(input.context, store: sessionStore, agentID: agentID, sessionID: sessionID)
+            var entry = SessionMessageInboxFileStore.Entry(id: submission.actionId, agentId: agentID, sessionId: sessionID,
+                request: request, sourceRequest: input.context.sourceRequest, origin: input.context.peerOrigin,
+                uiSnapshot: snapshot, uiSubmission: submission)
+            switch input.latest.disposition {
+            case .queued: entry.state = .queued
+            case .admitted: entry.state = input.latest.delivery == .delivered ? .delivered : .interrupted
+            case .cancelled, .failed: entry.state = .failed
+            case .recordedOnly: entry.state = .delivered; entry.recordedOnly = true
+            }
+            // Validate global identity before registering this canonical cache projection.
+            _ = try storage.existingEquivalent(to: entry)
+            storage.registerCanonical(entry)
+            _ = try storage.enqueue(entry)
+            try finishUIActionDelivery(entry, detail: detail)
+            return .init(actionId: submission.actionId, surfaceId: surfaceID, revision: snapshot.revision, status: "accepted")
+        }
         if let existing = storage.entries.first(where: { $0.id == submission.actionId }) {
             guard existing.agentId == agentID, existing.sessionId == sessionID, existing.uiSnapshot?.surfaceId == surfaceID,
                 existing.uiSubmission == submission, existing.request.userId == sender, let snapshot = existing.uiSnapshot
@@ -41,6 +74,8 @@ extension CoreService {
             try finishUIActionDelivery(existing, detail: detail)
             return .init(actionId: submission.actionId, surfaceId: surfaceID, revision: snapshot.revision, status: "accepted")
         }
+        guard !detail.events.contains(where: { !$0.isHistorical && $0.message?.id == submission.actionId })
+        else { throw AgentUIError.actionConflict }
         guard let surface = try agentUISurfaceStates(agentID: agentID, sessionID: sessionID).first(where: { $0.surfaceId == surfaceID })
         else { throw AgentUIError.invalidAction }
         guard surface.revision == submission.revision, surface.submittedActionId == nil else {
@@ -58,7 +93,7 @@ extension CoreService {
         let content = "[UI action]\n" + (stableJSONString(body) ?? "{}")
         let request = AgentSessionPostMessageRequest(
             userId: sender, content: content, clientMessageId: submission.actionId, supportsA2UI: true)
-        let entry = try storage.enqueue(
+        let (entry, _) = try commitSessionInboxMessage(
             .init(
                 id: submission.actionId, agentId: agentID, sessionId: sessionID, request: request,
                 uiSnapshot: accepted, uiSubmission: submission))

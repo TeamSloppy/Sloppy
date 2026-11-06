@@ -1366,7 +1366,7 @@ extension CoreService {
             )
             if event.messageType == .workerCompleted,
                resolvedStatus == ProjectTaskStatus.done.rawValue || resolvedStatus == ProjectTaskStatus.needsReview.rawValue {
-                scheduleProjectMemoryCheckpointFromWorkerEvent(
+                await scheduleProjectMemoryCheckpointFromWorkerEvent(
                     projectID: project.id,
                     taskID: task.id,
                     status: resolvedStatus,

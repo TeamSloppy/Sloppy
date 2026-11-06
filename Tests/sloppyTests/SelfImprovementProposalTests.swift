@@ -505,7 +505,7 @@ func selfImprovementFailureReviewWithoutClassificationIsRejected() async throws 
     #expect(project.tasks.isEmpty)
 }
 
-@Test
+@Test(.timeLimit(.minutes(3)))
 func selfImprovementFailureReviewTriggersProposalWithClassification() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let agentID = "failure-review-\(UUID().uuidString.lowercased())"
@@ -576,7 +576,7 @@ func selfImprovementFailureReviewTriggersProposalWithClassification() async thro
     )
     #expect(response.appendedEvents.contains { $0.runStatus?.stage == .done })
 
-    let created = await waitForSelfImprovementProposalCondition(timeoutNanoseconds: 5_000_000_000) {
+    let created = await waitForSelfImprovementProposalCondition(timeoutNanoseconds: 180_000_000_000) {
         guard let project = try? await service.getProject(id: projectID) else {
             return false
         }

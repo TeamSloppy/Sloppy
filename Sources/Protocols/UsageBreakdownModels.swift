@@ -59,10 +59,13 @@ public struct UsageToolCallRecord: Codable, Sendable, Equatable {
 }
 
 public struct UsageRequestRecord: Codable, Sendable, Equatable {
+    public enum ValidationError: Error, Sendable { case incompleteRunIdentity }
     public var id: String
     public var channelId: String
     public var sessionId: String?
     public var agentId: String?
+    public var runId: String?
+    public var userTurnId: String?
     public var provider: String
     public var model: String
     public var createdAt: Date
@@ -74,10 +77,22 @@ public struct UsageRequestRecord: Codable, Sendable, Equatable {
     public init(id: String = UUID().uuidString, channelId: String, sessionId: String? = nil,
                 agentId: String? = nil, provider: String, model: String, createdAt: Date = Date(),
                 usage: TokenUsage? = nil, failed: Bool = false, complete: Bool = true,
-                components: [UsageComponentRecord] = [], calls: [UsageToolCallRecord] = []) {
+                components: [UsageComponentRecord] = [], calls: [UsageToolCallRecord] = [],
+                runId: String? = nil, userTurnId: String? = nil) {
         self.id = id; self.channelId = channelId; self.sessionId = sessionId; self.agentId = agentId
         self.provider = provider; self.model = model; self.createdAt = createdAt; self.usage = usage
         self.failed = failed; self.complete = complete; self.components = components; self.calls = calls
+        self.runId = runId; self.userTurnId = userTurnId
+    }
+
+    public func validateRunIdentity() throws {
+        guard (runId == nil && userTurnId == nil) ||
+            (runId?.isEmpty == false && userTurnId?.isEmpty == false) else { throw ValidationError.incompleteRunIdentity }
+    }
+
+    public static func nativeIdentifier(channelId: String, runId: String, userTurnId: String,
+                                        stepId: String, attemptId: String) throws -> String {
+        "native:" + ContentDigest.sha256(try JSONEncoder().encode([channelId, runId, userTurnId, stepId, attemptId]))
     }
 }
 
@@ -93,12 +108,16 @@ public struct UsageBreakdownQuery: Sendable {
     public var groupId: String?
     public var cursor: String?
     public var limit: Int
+    public var runId: String?
+    public var userTurnId: String?
     public init(from: Date? = nil, to: Date? = nil, channelId: String? = nil, sessionId: String? = nil,
                 provider: String? = nil, model: String? = nil, serverId: String? = nil,
-                groupBy: String = "tool", groupId: String? = nil, cursor: String? = nil, limit: Int = 50) {
+                groupBy: String = "tool", groupId: String? = nil, cursor: String? = nil, limit: Int = 50,
+                runId: String? = nil, userTurnId: String? = nil) {
         self.from = from; self.to = to; self.channelId = channelId; self.sessionId = sessionId
         self.provider = provider; self.model = model; self.serverId = serverId
         self.groupBy = groupBy; self.groupId = groupId; self.cursor = cursor; self.limit = min(200, max(1, limit))
+        self.runId = runId; self.userTurnId = userTurnId
     }
 }
 

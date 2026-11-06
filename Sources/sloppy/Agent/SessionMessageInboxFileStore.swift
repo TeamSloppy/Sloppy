@@ -1,14 +1,17 @@
 import Foundation
+import Logging
 import Protocols
 
-/// Owned by CoreService; an accepted receipt always follows an atomic write.
+/// Owned by CoreService; native receipts live in the journal and legacy receipts in this file.
 final class SessionMessageInboxFileStore {
+    private let logger = Logger(label: "sloppy.core.session-inbox")
     enum State: String, Codable, Sendable { case queued, processing, delivered, failed, interrupted }
-    struct Entry: Codable, Sendable {
+    struct Entry: Codable, Sendable, Equatable {
         var id: String
         var agentId: String
         var sessionId: String
         var request: AgentSessionPostMessageRequest
+        var sourceRequest: AgentSessionPostMessageRequest? = nil
         var origin: AgentSessionPeerOrigin?
         var uiSnapshot: AgentUISurfaceSnapshot?
         var uiSubmission: AgentUISubmission?
@@ -17,39 +20,112 @@ final class SessionMessageInboxFileStore {
         // Optional so existing queues decode unchanged and older Core versions can still read them.
         var recordedOnly: Bool?
         var receiptState: String { recordedOnly == true ? "recorded" : state.rawValue }
+
+        func originalRequest() throws -> AgentSessionPostMessageRequest {
+            guard var source = sourceRequest else { return request }
+            guard source.attachments.count == request.attachments.count else { throw PeerSessionMessageError.conflict }
+            for index in source.attachments.indices { source.attachments[index].contentBase64 = request.attachments[index].contentBase64 }
+            return source
+        }
+    }
+
+    private struct Identity: Hashable {
+        let agent: String
+        let session: String
+        let message: String
+        init(_ entry: Entry) { agent = entry.agentId; session = entry.sessionId; message = entry.id }
     }
 
     private let url: URL
     private let scopesURL: URL
     private(set) var scopes: [String: [String]]
     private(set) var entries: [Entry]
+    private var canonicalIDs: Set<Identity> = []
+    private(set) var cacheWriteError: String?
+    private(set) var quarantinedCache: URL?
+    private var unpreservedCacheError: (any Error)?
 
-    init(root: URL) throws {
+    init(root: URL, recovering canonical: [Entry]? = nil,
+         preserveCorruptCache: ((URL, URL) throws -> Void)? = nil) throws {
         url = root.appendingPathComponent("session-messages/inbox.json")
         scopesURL = root.appendingPathComponent("session-messages/worker-scopes.json")
         scopes = FileManager.default.fileExists(atPath: scopesURL.path)
             ? try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: scopesURL)) : [:]
-        entries = FileManager.default.fileExists(atPath: url.path)
-            ? try JSONDecoder().decode([Entry].self, from: Data(contentsOf: url)) : []
+        if FileManager.default.fileExists(atPath: url.path) {
+            do { entries = try JSONDecoder().decode([Entry].self, from: Data(contentsOf: url)) }
+            catch {
+                guard canonical != nil else { throw error }
+                entries = []
+                // Preserve unreadable legacy data for manual recovery; never guess its requests.
+                let backup = url.deletingLastPathComponent().appendingPathComponent("inbox-corrupt-" + UUID().uuidString + ".json")
+                do {
+                    if let preserveCorruptCache { try preserveCorruptCache(url, backup) }
+                    else { try FileManager.default.copyItem(at: url, to: backup) }
+                    quarantinedCache = backup
+                } catch {
+                    unpreservedCacheError = error
+                    cacheWriteError = String(describing: error)
+                    logger.warning("session_messages.cache_preservation_failed", metadata: ["error": "\(error)"])
+                }
+            }
+        } else { entries = [] }
+        if let canonical { try reconcileCanonical(canonical) }
     }
+
+    func reconcileCanonical(_ canonical: [Entry]) throws {
+        let prior = Set(entries.map(Identity.init))
+        canonicalIDs = Set(canonical.map(Identity.init))
+        let selected = canonical.filter { $0.state == .queued || $0.origin != nil || $0.uiSubmission != nil || prior.contains(Identity($0)) }
+        try transaction { entries in
+            entries.removeAll { canonicalIDs.contains(Identity($0)) }
+            entries.append(contentsOf: selected)
+        }
+    }
+
+    func registerCanonical(_ entry: Entry) { canonicalIDs.insert(Identity(entry)) }
 
     func transaction(_ update: (inout [Entry]) throws -> Void) throws {
         var next = entries
         try update(&next)
         let data = try JSONEncoder().encode(next)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
+        let changesLegacy = entries.filter { !canonicalIDs.contains(Identity($0)) }
+            != next.filter { !canonicalIDs.contains(Identity($0)) }
+        if let unpreservedCacheError {
+            // The original may contain unknown legacy requests. Until it is preserved,
+            // canonical entries can progress in memory, but nothing may overwrite it.
+            guard !changesLegacy else { throw unpreservedCacheError }
+            entries = next
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+            cacheWriteError = nil
+        } catch {
+            guard !changesLegacy else { throw error }
+            let description = String(describing: error)
+            if cacheWriteError != description {
+                logger.warning("session_messages.cache_write_failed", metadata: ["error": "\(description)"])
+            }
+            cacheWriteError = description
+        }
         entries = next
     }
 
-    func enqueue(_ entry: Entry) throws -> Entry {
+    func existingEquivalent(to entry: Entry) throws -> Entry? {
         if let existing = entries.first(where: { $0.id == entry.id }) {
             guard existing.agentId == entry.agentId, existing.sessionId == entry.sessionId,
-                  existing.request.content == entry.request.content, existing.uiSubmission == entry.uiSubmission,
-                  existing.origin?.agentId == entry.origin?.agentId,
-                  existing.origin?.sessionId == entry.origin?.sessionId else { throw PeerSessionMessageError.conflict }
+                  existing.uiSubmission == entry.uiSubmission,
+                  try NativeSessionDelivery.fingerprint(existing.originalRequest(), peerOrigin: existing.origin)
+                    == NativeSessionDelivery.fingerprint(entry.originalRequest(), peerOrigin: entry.origin)
+            else { throw PeerSessionMessageError.conflict }
             return existing
         }
+        return nil
+    }
+
+    func enqueue(_ entry: Entry) throws -> Entry {
+        if let existing = try existingEquivalent(to: entry) { return existing }
         try transaction { $0.append(entry) }
         return entry
     }

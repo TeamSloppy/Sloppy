@@ -29,6 +29,7 @@ public extension RuntimeSystem {
 
     /// Clears cached LLM session and bootstrap for an ephemeral channel (memory checkpoints).
     func discardEphemeralCheckpointChannel(channelId: String) async {
+        modelStepHistoryByChannel.removeValue(forKey: channelId)
         sessionsByChannel.removeValue(forKey: channelId)
         bootstrapByChannel.removeValue(forKey: channelId)
         imagesByChannel.removeValue(forKey: channelId)
@@ -38,6 +39,7 @@ public extension RuntimeSystem {
         channelToolAllowList.removeValue(forKey: channelId)
         channelExcludedTools.removeValue(forKey: channelId)
         contextLedgerByChannel.removeValue(forKey: channelId)
+        retryPresentationByChannel.removeValue(forKey: channelId)
         recoveryTranscriptByChannel.removeValue(forKey: channelId)
         contextArchiversByChannel.removeValue(forKey: channelId)
         malformedToolCallObserversByChannel.removeValue(forKey: channelId)

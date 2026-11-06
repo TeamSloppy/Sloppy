@@ -34,7 +34,7 @@ public actor UsageTokenCounter {
             }
             let data = try String(contentsOf: url, encoding: .utf8)
             var ranks: [[UInt8]: UInt32] = [:]
-            for line in data.split(separator: "\n") {
+            for line in data.split(whereSeparator: \.isNewline) {
                 let parts = line.split(separator: " ")
                 guard parts.count == 2, let bytes = Data(base64Encoded: String(parts[0])), let rank = UInt32(parts[1]) else { continue }
                 ranks[Array(bytes)] = rank

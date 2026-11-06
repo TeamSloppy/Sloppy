@@ -9,7 +9,7 @@ import Protocols
 /// Model provider for OpenAI-compatible APIs.
 /// Supports both API-key auth and OAuth bearer tokens.
 /// Automatically retries with the Responses API variant when the Chat Completions API rejects a model.
-public struct OpenAIModelProvider: ModelProvider {
+public struct OpenAIModelProvider: ModelProvider, ModelStepProviderFactory {
     public struct Settings: Sendable {
         public var apiKey: @Sendable () -> String
         public var baseURL: URL
@@ -98,12 +98,47 @@ public struct OpenAIModelProvider: ModelProvider {
     public func supportsUsageObservation(for modelName: String) -> Bool { supports(modelName: modelName) }
 
     public func createLanguageModel(for modelName: String, usageContext: ModelUsageContext) async throws -> any LanguageModel {
-        let observed = UsageObservedURLSession.make(wrapping: settings.session, context: usageContext)
+        let observed = try UsageObservedURLSession.make(wrapping: settings.session, context: usageContext)
         return try await makeLanguageModel(for: modelName, sessionOverride: observed, captureLegacyUsage: false, promptCacheScope: usageContext.channelId)
     }
 
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         try await makeLanguageModel(for: modelName)
+    }
+
+    public func supportsModelSteps(for modelName: String) -> Bool {
+        supports(modelName: modelName)
+    }
+
+    public func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        guard supportsModelSteps(for: modelName) else { return nil }
+        let session = try usageContext.map { try UsageObservedURLSession.make(wrapping: settings.session, context: $0) }
+            ?? settings.session ?? .shared
+        if !(settings.useOpenAICodexOAuthPath && isOAuthToken(settings.apiKey())) {
+            let format: ModelStepHTTPFormat
+            switch settings.apiVariant {
+            case .responses: format = .responses
+            case .chatCompletions: format = settings.useOpenResponsesLanguageModel ? .responses : .chatCompletions
+            }
+            let identity = id + "/" + format.rawValue + "/" + ModelStepHTTPTransport.cacheKeyDigest(settings.baseURL.absoluteString)
+            let primary = NativeHTTPModelStepProvider(providerID: identity, model: normalizeModelName(modelName),
+                baseURL: settings.baseURL, token: settings.apiKey, refresh: settings.refreshTokenIfNeeded,
+                session: session, instructions: systemInstructions ?? "", format: format)
+            if format == .chatCompletions, settings.allowResponsesAPIFallback {
+                let responseIdentity = id + "/responses/" + ModelStepHTTPTransport.cacheKeyDigest(settings.baseURL.absoluteString)
+                let secondary = NativeHTTPModelStepProvider(providerID: responseIdentity, model: normalizeModelName(modelName),
+                    baseURL: settings.baseURL, token: settings.apiKey, refresh: settings.refreshTokenIfNeeded,
+                    session: session, instructions: systemInstructions ?? "", format: .responses)
+                return OpenAIFormatStepProvider(chat: primary, responses: secondary)
+            }
+            return primary
+        }
+        let baseURL = settings.baseURL == OpenAILanguageModel.defaultBaseURL ? OpenAIOAuthModel.defaultBaseURL : settings.baseURL
+        return OpenAIOAuthModel(baseURL: baseURL, bearerTokenProvider: settings.apiKey,
+            bearerTokenRefresh: settings.refreshTokenIfNeeded, bearerTokenForceRefresh: settings.refreshTokenAfterInvalidToken,
+            model: normalizeModelName(modelName), accountId: settings.accountId,
+            instructions: systemInstructions ?? "You are an execution-focused assistant.",
+            promptCacheScope: usageContext?.channelId, session: session)
     }
 
     private func makeLanguageModel(for modelName: String, sessionOverride: URLSession? = nil,

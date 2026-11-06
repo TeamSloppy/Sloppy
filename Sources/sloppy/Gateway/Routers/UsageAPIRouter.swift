@@ -20,7 +20,8 @@ struct UsageAPIRouter: APIRouter {
                 let result = try await service.usageBreakdown(query:.init(from:from,to:to,
                     channelId:request.queryParam("channelId"),sessionId:request.queryParam("sessionId"),
                     provider:request.queryParam("provider"),model:request.queryParam("model"),serverId:request.queryParam("serverId"),
-                    groupBy:group,groupId:request.queryParam("groupId"),cursor:request.queryParam("cursor"),limit:limit))
+                    groupBy:group,groupId:request.queryParam("groupId"),cursor:request.queryParam("cursor"),limit:limit,
+                    runId:request.queryParam("runId"),userTurnId:request.queryParam("userTurnId")))
                 return CoreRouter.encodable(status:HTTPStatus.ok,payload:result)
             } catch { return CoreRouter.json(status:HTTPStatus.internalServerError,payload:["error":"usage_read_failed"]) }
         }
