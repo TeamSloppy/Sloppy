@@ -16,9 +16,6 @@ public struct SessionWorkLedger: Sendable, Equatable {
         var signature: String
         var label: String
         var digest: String
-        /// Native file reads go stale when files change; MCP reads do not track the remote state.
-        var fileEpoch: Int?
-        var served = 0
     }
 
     public private(set) var goal: String?
@@ -26,7 +23,6 @@ public struct SessionWorkLedger: Sendable, Equatable {
     private(set) var reads: [ReadRecord] = []
     public private(set) var changedFiles: [String] = []
     public private(set) var checks: [String] = []
-    private var fileEpoch = 0
 
     public init() {}
 
@@ -47,23 +43,10 @@ public struct SessionWorkLedger: Sendable, Equatable {
         return request.tool + "|" + args
     }
 
-    /// A short answer for an identical read already performed, or `nil` when the call should run.
-    /// The first repeat is answered from the ledger; asking a second time runs the tool for fresh data.
+    /// Compatibility entry point. Summaries cannot satisfy a read: always execute the request.
+    /// A future cache must retain the full equivalent result and enforce current resource/access policy.
     public mutating func duplicateReadResult(for request: ToolInvocationRequest) -> ToolInvocationResult? {
-        let signature = Self.signature(request)
-        guard let index = reads.firstIndex(where: { $0.signature == signature }) else { return nil }
-        if let epoch = reads[index].fileEpoch, epoch != fileEpoch { return nil }
-        guard reads[index].served == 0 else { return nil }
-        reads[index].served += 1
-        return ToolInvocationResult(
-            tool: request.tool,
-            ok: true,
-            data: .object([
-                "alreadyRead": .bool(true),
-                "note": .string("This exact call was already made in this session; its content is not repeated. Key facts are below. Move on to implementing; repeat the identical call only if you need fresh data."),
-                "digest": .string(reads[index].digest),
-            ])
-        )
+        nil
     }
 
     public mutating func observe(request: ToolInvocationRequest, result: ToolInvocationResult) {
@@ -73,7 +56,6 @@ public struct SessionWorkLedger: Sendable, Equatable {
             return
         }
         if Self.fileMutatingTools.contains(request.tool) {
-            fileEpoch += 1
             if let path = request.arguments["path"]?.asString, !changedFiles.contains(path) {
                 changedFiles.append(path)
                 if changedFiles.count > 40 { changedFiles.removeFirst() }
@@ -87,18 +69,14 @@ public struct SessionWorkLedger: Sendable, Equatable {
         }
         let isNativeRead = Self.nativeReadOnlyTools.contains(request.tool)
         let isRemoteRead = result.data?.asObject?["readOnly"]?.asBool == true
-        // Commands may change files on disk, so earlier file reads are no longer authoritative.
-        if request.tool == "runtime.exec" || request.tool == "runtime.process" { fileEpoch += 1 }
         guard isNativeRead || isRemoteRead else { return }
         let signature = Self.signature(request)
-        var record = ReadRecord(
+        let record = ReadRecord(
             signature: signature,
             label: Self.label(for: request),
-            digest: Self.digest(of: result),
-            fileEpoch: isNativeRead ? fileEpoch : nil
+            digest: Self.digest(of: result)
         )
         if let index = reads.firstIndex(where: { $0.signature == signature }) {
-            record.served = reads[index].fileEpoch == record.fileEpoch ? reads[index].served : 0
             reads[index] = record
         } else {
             reads.append(record)
@@ -114,13 +92,13 @@ public struct SessionWorkLedger: Sendable, Equatable {
     /// Text that is inserted into compacted context. Bounded so it cannot dominate the budget.
     public func render(maxCharacters: Int = 6000) -> String {
         guard !isEmpty else { return "" }
-        var lines = ["[Session work ledger — facts gathered before compaction; do not repeat this work]"]
+        var lines = ["[Session work ledger — historical facts gathered before compaction]"]
         if let goal { lines.append("Goal: \(goal)") }
         if let plan { lines.append("Current plan/checklist: \(plan)") }
         if !changedFiles.isEmpty { lines.append("Changed files: " + changedFiles.joined(separator: ", ")) }
         if !checks.isEmpty { lines.append("Builds/checks:\n" + checks.map { "- \($0)" }.joined(separator: "\n")) }
         if !reads.isEmpty {
-            lines.append("Already read (identical calls are answered from this ledger):")
+            lines.append("Read summaries (historical facts, not cached results; read again when content is needed):")
             lines += reads.map { "- \($0.label): \($0.digest)" }
         }
         let text = lines.joined(separator: "\n")

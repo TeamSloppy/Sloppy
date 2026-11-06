@@ -81,10 +81,22 @@ private struct DelegateAwareToolCallingLanguageModel: LanguageModel {
     }
 }
 
-private actor DelegateAwareToolCallingModelProvider: ModelProvider {
+private actor DelegateAwareToolCallingModelProvider: ModelProvider, ModelStepProviderFactory {
     nonisolated let id: String = "delegate-aware-tool-calling"
     nonisolated let supportedModels: [String] = ["mock:linked-agent", "mock:test-model"]
 
+    private var generatedRuns: Set<String> = []
+    nonisolated var tools: [any Tool] { [FixtureToolDeclaration(name: "system.list_tools")] }
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in await self.nextStep(request) }
+    }
+    private func nextStep(_ request: ModelStepRequest) -> ModelStepResponse {
+        if let tool = request.tools.first(where: { $0.toolId == "system.list_tools" }), generatedRuns.insert(request.runId).inserted {
+            return .init(toolCalls: [.init(id: "list-tools", name: tool.name, rawArguments: "{}")], stopReason: .toolCalls)
+        }
+        return .init(text: "tool delegate used", stopReason: .endTurn)
+    }
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         DelegateAwareToolCallingLanguageModel(
             toolName: "system.list_tools",

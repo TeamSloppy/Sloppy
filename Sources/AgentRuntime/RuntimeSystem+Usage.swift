@@ -5,9 +5,16 @@ import Protocols
 
 extension RuntimeSystem {
     func createUsageObservedModel(provider: any ModelProvider, model: String, channelId: String) async throws -> any LanguageModel {
+        guard let context = await makeUsageContext(provider: provider, model: model, channelId: channelId) else {
+            return try await provider.createLanguageModel(for: model)
+        }
+        return try await provider.createLanguageModel(for: model, usageContext: context)
+    }
+
+    func makeUsageContext(provider: any ModelProvider, model: String, channelId: String) async -> ModelUsageContext? {
         guard usageRequestHandler != nil, provider.supportsUsageObservation(for: model) else {
             observedUsageChannels.remove(channelId)
-            return try await provider.createLanguageModel(for: model)
+            return nil
         }
         var provenance = await usageProvenanceProvider?(channelId) ?? UsageProvenance()
         provenance.toolNameMap = ModelToolNameSanitizer.sanitizeTools(filteredModelTools(channelId: channelId, modelProvider: provider, includeTools: true, activeModel: model)).nameMap
@@ -18,7 +25,7 @@ extension RuntimeSystem {
             }) { [weak self] record in
                 await self?.receiveUsageRequest(record)
             }
-        return try await provider.createLanguageModel(for: model, usageContext: context)
+        return context
     }
     private func receiveUsageRequest(_ record: UsageRequestRecord) async {
         await usageRequestHandler?(record)

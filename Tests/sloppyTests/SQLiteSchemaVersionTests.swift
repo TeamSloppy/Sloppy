@@ -1,4 +1,5 @@
 import Foundation
+import Protocols
 import Testing
 @testable import sloppy
 
@@ -7,6 +8,52 @@ import CSQLite3
 
 @Suite("SQLite schema versioning")
 struct SQLiteSchemaVersionTests {
+    @Test("native usage ownership migrates from version one without changing legacy usage rows")
+    func usageRunIdentityMigratesFromVersionOne() async throws {
+        let (root, path) = try makeTemporaryDatabasePath()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let schema = try loadSchema()
+        let legacySchema = schema.components(separatedBy: "-- Native request usage ownership").first ?? schema
+        #expect(SQLiteStore.prepareDatabase(path: path, schemaSQL: legacySchema) == nil)
+        try withDatabase(path: path) { db in
+            #expect(sqlite3_exec(db, "DROP TABLE IF EXISTS usage_request_runs;", nil, nil, nil) == SQLITE_OK)
+            #expect(sqlite3_exec(db, "PRAGMA user_version = 1;", nil, nil, nil) == SQLITE_OK)
+        }
+        // Reopen with the old schema text so only the versioned migration can create ownership.
+        let store = SQLiteStore(path: path, schemaSQL: legacySchema)
+        let legacy = UsageRequestRecord(id: "legacy", channelId: "channel", provider: "fixture", model: "model",
+            usage: .init(prompt: 4, completion: 2))
+        try await store.persistUsageRequest(legacy)
+        var raw = try #require(JSONValueCoder.encode(UsageRequestRecord(id: "scoped", channelId: "channel",
+            provider: "fixture", model: "model", usage: .init(prompt: 7, completion: 3))).asObject)
+        raw["runId"] = .string("run")
+        raw["userTurnId"] = .string("turn")
+        let scoped = try JSONValueCoder.decode(UsageRequestRecord.self, from: .object(raw))
+        try await store.persistUsageRequest(scoped)
+        try await store.persistUsageRequest(scoped)
+        try withDatabase(path: path) { db in
+            var statement: OpaquePointer?
+            let status = sqlite3_prepare_v2(db,
+                "SELECT run_id, user_turn_id FROM usage_request_runs WHERE request_id='scoped';", -1, &statement, nil)
+            #expect(status == SQLITE_OK)
+            guard status == SQLITE_OK, let statement else { return }
+            defer { sqlite3_finalize(statement) }
+            #expect(sqlite3_step(statement) == SQLITE_ROW)
+            if let run = sqlite3_column_text(statement, 0), let turn = sqlite3_column_text(statement, 1) {
+                #expect(String(cString: run) == "run")
+                #expect(String(cString: turn) == "turn")
+            } else { Issue.record("Native usage ownership was not preserved") }
+            #expect(sqlite3_step(statement) == SQLITE_DONE)
+            #expect(SQLiteStore.schemaVersion(db: db) == SQLiteStore.latestSchemaVersion)
+        }
+        let usage = await store.listTokenUsage(channelId: "channel", taskId: nil, from: nil, to: nil)
+        #expect(usage.count == 2)
+        #expect(usage.reduce(0) { $0 + $1.totalTokens } == 16)
+        #expect(SQLiteStore.prepareDatabase(path: path, schemaSQL: schema) == nil)
+        let reopened = SQLiteStore(path: path, schemaSQL: schema)
+        #expect(try await reopened.usageBreakdown(.init()).requestCount == 2)
+    }
+
     private func makeTemporaryDatabasePath() throws -> (root: URL, path: String) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

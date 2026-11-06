@@ -14,7 +14,7 @@ struct ClaudeCodeModelProviderFactory: ModelProviderFactory {
     }
 }
 
-struct ClaudeCodeModelProvider: ModelProvider {
+struct ClaudeCodeModelProvider: ModelProvider, ModelStepProviderFactory {
     let id = "claude-code"
     let supportedModels: [String]
     let systemInstructions: String?
@@ -25,6 +25,12 @@ struct ClaudeCodeModelProvider: ModelProvider {
     private let usage = TokenUsageCapture()
 
     func supports(modelName: String) -> Bool { modelName.hasPrefix("claude-code:") }
+    func supportsModelSteps(for modelName: String) -> Bool { !invalidConfiguration && supports(modelName: modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        guard supportsModelSteps(for: modelName) else { return nil }
+        try await transport.status()
+        return ClaudeCodeModelStepProvider(model: modelName, instructions: systemInstructions ?? "", transport: transport, usageContext: usageContext)
+    }
     func supportsUsageObservation(for modelName: String) -> Bool { supports(modelName: modelName) }
     func reasoningCapture(for modelName: String) -> ReasoningContentCapture? { supports(modelName: modelName) ? reasoning : nil }
     func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? { supports(modelName: modelName) ? usage : nil }

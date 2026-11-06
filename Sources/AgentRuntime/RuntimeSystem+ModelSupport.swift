@@ -122,7 +122,7 @@ extension RuntimeSystem {
     ) -> [any Tool] {
         guard includeTools else { return [] }
         let full = modelProvider.tools
-        if let allow = channelToolAllowList[channelId], !allow.isEmpty {
+        if let allow = channelToolAllowList[channelId] {
             // An explicit allow-list is authoritative and is never trimmed.
             return full.filter { allow.contains($0.name) }
         }
@@ -242,62 +242,6 @@ extension RuntimeSystem {
         )
     }
 
-    func makeToolExecutionDelegate(
-        for session: LanguageModelSession,
-        channelId: String? = nil,
-        model: String? = nil,
-        toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult,
-        loopTracker: StreamActivityTracker? = nil,
-        nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig()
-    ) -> SloppyToolExecutionDelegate {
-        var nameMap: [String: String] = [:]
-        for tool in session.tools {
-            if let sanitized = tool as? SanitizedLanguageModelTool {
-                nameMap[sanitized.name] = sanitized.originalName
-            } else {
-                nameMap[tool.name] = tool.name
-            }
-        }
-        let resolvedNameMap = nameMap
-        let emptyArgumentsAllowed = Set(session.tools.compactMap { tool -> String? in
-            ModelToolSchemaNormalizer.acceptsEmptyArguments(tool.parameters) ? tool.name : nil
-        })
-        return SloppyToolExecutionDelegate(
-            toolNameMap: resolvedNameMap,
-            emptyArgumentsAllowedTools: emptyArgumentsAllowed,
-            generatedToolCallsHandler: { calls in
-                let toolNames = calls.map { resolvedNameMap[$0.toolName] ?? $0.toolName }
-                await loopTracker?.recordToolBatch(toolNames: toolNames, config: nativeLoopConfig)
-            },
-            toolCallDecisionOverride: { toolCall in
-                let toolName = resolvedNameMap[toolCall.toolName] ?? toolCall.toolName
-                if await loopTracker?.toolLoopStopMessage != nil { return .stop }
-                if await loopTracker?.hitToolRoundLimit == true {
-                    return .stop
-                }
-                if let result = await loopTracker?.budgetExhaustedResult(for: toolName, config: nativeLoopConfig) {
-                    return .provideOutput([.text(.init(content: SloppyToolExecutionDelegate.encodedResult(result)))])
-                }
-                return nil
-            },
-            argumentDiagnosticsHandler: { diagnostic in
-                await self.logNativeToolArgumentDiagnostic(channelId: channelId, model: model, diagnostic: diagnostic)
-            },
-            malformedArgumentsHandler: { _, streak in
-                guard let channelId else { return }
-                await self.malformedToolCallObserversByChannel[channelId]?(streak)
-            },
-            executedToolCallHandler: { call, output in
-                await loopTracker?.recordExecuted(call, output)
-            },
-            toolCallHandler: { request in
-                let result = await toolCallHandler(request)
-                await loopTracker?.recordLoopBlock(result)
-                return result
-            }
-        )
-    }
-
     func logNativeToolCallDecoded(channelId: String, model: String?, request: ToolInvocationRequest) {
         logger.info(
             "Native tool call decoded",
@@ -375,53 +319,6 @@ extension RuntimeSystem {
 
     /// Returns cached session for channel, or creates a new one seeded with the bootstrap
     /// system message if present.
-    func getOrCreateSession(
-        channelId: String,
-        activeModel: String,
-        modelProvider: any ModelProvider,
-        includeTools: Bool = true
-    ) async throws -> LanguageModelSession {
-        if let existing = sessionsByChannel[channelId] {
-            if existing.model == activeModel {
-                return existing.session
-            }
-            sessionsByChannel.removeValue(forKey: channelId)
-        }
-
-        let languageModel = try await createUsageObservedModel(provider: modelProvider, model: activeModel, channelId: channelId)
-        let tools = sanitizedModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools, activeModel: activeModel)
-        let session: LanguageModelSession
-        if let recoveryTranscript = recoveryTranscriptByChannel[channelId] {
-            let providerSafeTranscript = transcriptWithProviderSafeToolNames(recoveryTranscript, tools: tools)
-            session = LanguageModelSession(
-                model: languageModel,
-                tools: tools,
-                transcript: transcriptWithInstructionsIfNeeded(
-                    providerSafeTranscript,
-                    channelId: channelId,
-                    modelProvider: modelProvider,
-                    tools: tools
-                )
-            )
-        } else if let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) {
-            session = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
-        } else {
-            session = LanguageModelSession(model: languageModel, tools: tools)
-        }
-
-        sessionsByChannel[channelId] = CachedLanguageModelSession(model: activeModel, session: session)
-        logger.info(
-            "LLM session created",
-            metadata: [
-                "channel_id": .string(channelId),
-                "model": .string(activeModel),
-                "has_bootstrap": .string(bootstrapByChannel[channelId] != nil ? "true" : "false"),
-                "has_recovery_transcript": .string(recoveryTranscriptByChannel[channelId] != nil ? "true" : "false"),
-            ]
-        )
-        return session
-    }
-
     func transcriptWithProviderSafeToolNames(
         _ transcript: Transcript,
         tools: [any Tool]
@@ -503,109 +400,6 @@ extension RuntimeSystem {
     }
 
     /// Rebuilds a model-visible session after safe compaction, retaining recent evidence.
-    /// Called when the previous session hit the context window limit.
-    func respondAfterContextReset(
-        channelId: String,
-        userMessage: String,
-        activeModel: String,
-        modelProvider: any ModelProvider,
-        reasoningEffort: ReasoningEffort?,
-        onResponseChunk: (@Sendable (String) async -> Bool)?,
-        toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?,
-        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?,
-        loopTracker: StreamActivityTracker? = nil,
-        nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig()
-    ) async -> String? {
-        let retainedTranscript = sessionsByChannel[channelId]?.session.transcript ?? recoveryTranscriptByChannel[channelId]
-        sessionsByChannel.removeValue(forKey: channelId)
-
-        let languageModel: any LanguageModel
-        do {
-            languageModel = try await createUsageObservedModel(provider: modelProvider, model: activeModel, channelId: channelId)
-        } catch {
-            return nil
-        }
-
-        let tools = sanitizedModelTools(
-            channelId: channelId,
-            modelProvider: modelProvider,
-            includeTools: toolInvoker != nil,
-            activeModel: activeModel
-        )
-        var freshSession: LanguageModelSession
-        if let retainedTranscript {
-            freshSession = LanguageModelSession(model: languageModel, tools: tools, transcript: retainedTranscript)
-        } else if let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) {
-            freshSession = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
-        } else {
-            freshSession = LanguageModelSession(model: languageModel, tools: tools)
-        }
-
-        do {
-            freshSession = try await prepareModelContext(channelId: channelId, session: freshSession, activeModel: activeModel, provider: modelProvider, userMessage: userMessage, maxOutputTokens: nativeLoopConfig.maxOutputTokens, forceSummary: true)
-        } catch { return nil }
-        sessionsByChannel[channelId] = CachedLanguageModelSession(model: activeModel, session: freshSession)
-
-        if let invoker = toolInvoker {
-            let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
-                if let observationHandler {
-                    await observationHandler(.toolCall(request))
-                }
-                let result = await invoker(request)
-                if let observationHandler {
-                    await observationHandler(.toolResult(result))
-                }
-                return result
-            }
-            freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
-                for: freshSession,
-                channelId: channelId,
-                model: activeModel,
-                toolCallHandler: observingHandler,
-                loopTracker: loopTracker,
-                nativeLoopConfig: nativeLoopConfig
-            )
-        }
-
-        let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
-        var latest = ""
-        let responseStream = freshSession.streamResponse(to: userMessage, images: imagesByChannel[channelId] ?? [], options: options)
-        do {
-            for try await snapshot in responseStream {
-                latest = snapshot.content
-                if let onResponseChunk {
-                    let shouldContinue = await onResponseChunk(latest)
-                    if !shouldContinue { break }
-                }
-            }
-        } catch {
-            return nil
-        }
-
-        if let message = await loopTracker?.toolLoopStopMessage {
-            sessionsByChannel.removeValue(forKey: channelId)
-            return message
-        }
-        if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let response = try? await freshSession.respond(to: userMessage, images: imagesByChannel[channelId] ?? [], options: options)
-            latest = response?.content ?? ""
-            if let onResponseChunk, !latest.isEmpty {
-                _ = await onResponseChunk(latest)
-            }
-        }
-
-        if let message = await loopTracker?.toolLoopStopMessage {
-            sessionsByChannel.removeValue(forKey: channelId)
-            return message
-        }
-        if let loopTracker, await loopTracker.hitToolRoundLimit {
-            sessionsByChannel.removeValue(forKey: channelId)
-            return Self.toolRoundLimitMessage
-        }
-
-        return latest.isEmpty ? nil : latest
-    }
-
     func elapsedMilliseconds(since start: Date) -> Int {
         let elapsed = Date().timeIntervalSince(start)
         return Int((elapsed * 1000).rounded())

@@ -238,10 +238,20 @@ final class AgentCatalogFileStore {
         let data = try Data(contentsOf: configURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try decoder.decode(AgentConfigFile.self, from: data).runtime) ?? summary.runtime
+        return (try decoder.decode(AgentConfigFile.self, from: AgentProfileStorageCodec.normalized(data)).runtime) ?? summary.runtime
     }
 
     func updateAgentConfig(
+        agentID: String,
+        request: AgentConfigUpdateRequest,
+        availableModels: [ProviderModelOption]
+    ) throws -> AgentConfigDetail {
+        try AgentProfileStorageCodec.withLock {
+            try updateAgentConfigLocked(agentID: agentID, request: request, availableModels: availableModels)
+        }
+    }
+
+    private func updateAgentConfigLocked(
         agentID: String,
         request: AgentConfigUpdateRequest,
         availableModels: [ProviderModelOption]
@@ -257,8 +267,18 @@ final class AgentCatalogFileStore {
             throw StoreError.invalidPayload
         }
 
-        let runtime = request.runtime
+        var runtime = request.runtime
         let existingConfig = try readAgentConfigFile(for: summary, availableModels: availableModels, persistedModelAllowed: nil)
+        if runtime.nativeEngine == nil {
+            runtime.nativeEngine = existingConfig.runtime?.nativeEngine ?? summary.runtime.nativeEngine
+        }
+        if runtime.planningPolicy == nil {
+            runtime.planningPolicy = existingConfig.runtime?.planningPolicy ?? summary.runtime.planningPolicy
+        }
+        if runtime.planningPolicyVersion == nil { runtime.planningPolicyVersion = existingConfig.runtime?.planningPolicyVersion }
+        if runtime.evidencePolicyVersion == nil { runtime.evidencePolicyVersion = existingConfig.runtime?.evidencePolicyVersion }
+        guard runtime.planningPolicyVersion == nil || runtime.planningPolicyVersion == 1,
+              [1, 2].contains(runtime.evidencePolicyVersion ?? 1) else { throw StoreError.invalidPayload }
         let automaticModelRouting = request.automaticModelRouting ?? existingConfig.automaticModelRouting ?? true
         let normalizedSelectedModel = request.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPlannerModel = request.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -355,10 +375,16 @@ final class AgentCatalogFileStore {
                 isSystem: summary.isSystem
             )
 
-            if newRole != summary.role {
+            if newRole != summary.role || runtime != summary.runtime {
                 var updatedSummary = summary
                 updatedSummary.role = newRole
+                updatedSummary.runtime = runtime
                 try writeAgentSummary(updatedSummary)
+            }
+            if runtime.effectiveNativeEngine == .unified {
+                try AgentProfileStorageCodec.verify(
+                    metadata: agentMetadataURL(for: summary.id, isSystem: summary.isSystem),
+                    config: agentConfigURL(for: summary.id, isSystem: summary.isSystem))
             }
 
             let agentDirectory = agentDirectoryURL(for: normalizedAgentID, isSystem: summary.isSystem)
@@ -554,6 +580,12 @@ final class AgentCatalogFileStore {
     }
 
     private func readAgentSummary(id: String, isSystem: Bool) throws -> AgentSummary {
+        try AgentProfileStorageCodec.withLock {
+            try readAgentSummaryLocked(id: id, isSystem: isSystem)
+        }
+    }
+
+    private func readAgentSummaryLocked(id: String, isSystem: Bool) throws -> AgentSummary {
         let metadataURL = agentMetadataURL(for: id, isSystem: isSystem)
         guard fileManager.fileExists(atPath: metadataURL.path) else {
             throw StoreError.notFound
@@ -562,11 +594,11 @@ final class AgentCatalogFileStore {
         let data = try Data(contentsOf: metadataURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(AgentSummary.self, from: data)
+        let decoded = try decoder.decode(AgentSummary.self, from: AgentProfileStorageCodec.normalized(data))
         return try hydratePetSummary(decoded, isSystem: isSystem)
     }
 
-    private func writeAgentSummary(_ summary: AgentSummary) throws {
+    private func writeAgentSummary(_ summary: AgentSummary, forceProtection: Bool = false, minimumJournalVersion: Int = 2) throws {
         let petMetadata = summary.pet.map {
             AgentPetMetadataFile(
                 petId: $0.petId,
@@ -593,8 +625,10 @@ final class AgentCatalogFileStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        let payload = try encoder.encode(payloadModel) + Data("\n".utf8)
-        try payload.write(to: agentMetadataURL(for: summary.id, isSystem: summary.isSystem), options: .atomic)
+        try AgentProfileStorageCodec.write(encoder.encode(payloadModel),
+            to: agentMetadataURL(for: summary.id, isSystem: summary.isSystem),
+            companion: agentConfigURL(for: summary.id, isSystem: summary.isSystem), forceProtection: forceProtection,
+            minimumJournalVersion: minimumJournalVersion)
     }
 
     private func writeAgentScaffoldFiles(for summary: AgentSummary, availableModels: [ProviderModelOption]) throws {
@@ -749,7 +783,7 @@ final class AgentCatalogFileStore {
         let data = try Data(contentsOf: configURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        var decoded = try decoder.decode(AgentConfigFile.self, from: data)
+        var decoded = try decoder.decode(AgentConfigFile.self, from: AgentProfileStorageCodec.normalized(data))
         let selectedModel = decoded.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let plannerModel = decoded.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let runtime = decoded.runtime ?? summary.runtime
@@ -848,12 +882,43 @@ final class AgentCatalogFileStore {
         return models
     }
 
-    private func writeAgentConfigFile(_ configFile: AgentConfigFile, isSystem: Bool) throws {
+    private func writeAgentConfigFile(_ configFile: AgentConfigFile, isSystem: Bool, forceProtection: Bool = false, minimumJournalVersion: Int = 2) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        let configPayload = try encoder.encode(configFile) + Data("\n".utf8)
-        try configPayload.write(to: agentConfigURL(for: configFile.id, isSystem: isSystem), options: .atomic)
+        try AgentProfileStorageCodec.write(encoder.encode(configFile),
+            to: agentConfigURL(for: configFile.id, isSystem: isSystem),
+            companion: agentMetadataURL(for: configFile.id, isSystem: isSystem), forceProtection: forceProtection,
+            minimumJournalVersion: minimumJournalVersion)
+    }
+
+    /// Install and verify both guards before a unified writer may append or start effects.
+    /// Partial installation never grants writer readiness.
+    func protectUnifiedJournalStorage(agentID: String, availableModels: [ProviderModelOption], minimumJournalVersion: Int = 2) throws {
+        let minimumJournalVersion = max(8, minimumJournalVersion)
+        try AgentProfileStorageCodec.withLock {
+            let summary = try getAgent(id: agentID)
+            do {
+                try AgentProfileStorageCodec.verify(
+                    metadata: agentMetadataURL(for: summary.id, isSystem: summary.isSystem),
+                    config: agentConfigURL(for: summary.id, isSystem: summary.isSystem), minimumJournalVersion: minimumJournalVersion)
+                return
+            } catch AgentProfileStorageCodec.CodecError.protectionMissing {
+                // Only initial or partial activation needs writes. Corruption and I/O
+                // failures remain failures; readiness never repairs them by overwriting.
+            }
+            let config = try readAgentConfigFile(for: summary, availableModels: availableModels, persistedModelAllowed: nil)
+            try writeAgentConfigFile(config, isSystem: summary.isSystem, forceProtection: true, minimumJournalVersion: minimumJournalVersion)
+            try writeAgentSummary(summary, forceProtection: true, minimumJournalVersion: minimumJournalVersion)
+            try verifyUnifiedJournalStorage(agentID: agentID, minimumJournalVersion: minimumJournalVersion)
+        }
+    }
+
+    func verifyUnifiedJournalStorage(agentID: String, minimumJournalVersion: Int = 2) throws {
+        let summary = try getAgent(id: agentID)
+        try AgentProfileStorageCodec.verify(
+            metadata: agentMetadataURL(for: summary.id, isSystem: summary.isSystem),
+            config: agentConfigURL(for: summary.id, isSystem: summary.isSystem), minimumJournalVersion: minimumJournalVersion)
     }
 
     private func readTextFile(at url: URL, fallback: String) throws -> String {

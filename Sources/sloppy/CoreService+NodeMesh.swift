@@ -642,7 +642,7 @@ extension CoreService {
             return []
         }
 
-        if object["kind"]?.asString == "models.inference" || meshModelStreams[streamID] != nil {
+        if ["models.inference", "models.step.v1"].contains(object["kind"]?.asString ?? "") || meshModelStreams[streamID] != nil {
             return await handleMeshModelStream(envelope)
         }
 

@@ -33,6 +33,39 @@ final class OllamaCloudContextLimits: @unchecked Sendable {
     private let lock = NSLock()
     private var limits: [String: ModelContextLimits] = [:]
     private var localModels: Set<String> = []
+    private struct ThinkingOptions { let values: [JSONValue]? }
+    private var thinkingOptions: [String: ThinkingOptions] = [:]
+
+    /// Native requests freeze declared controls once, independently of local/cloud window discovery.
+    func discoverThinking(modelName: String, resolved: String, baseURL: URL, session: URLSession) async -> [JSONValue]? {
+        if let cached = lock.withLock({ thinkingOptions[modelName] }) { return cached.values }
+        do {
+            var request = URLRequest(url: baseURL.appendingPathComponent("api/show"))
+            request.httpMethod = "POST"
+            request.timeoutInterval = 5
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(["model": resolved])
+            let (data, status) = try await load(request, session: session, nativeTransport: true)
+            guard status == 200,
+                  let object = try JSONDecoder().decode(JSONValue.self, from: data).asObject else { return nil }
+            let values: [JSONValue]?
+            if let thinking = object["thinking"] {
+                guard let declared = thinking.asObject?["values"]?.asArray,
+                      declared.allSatisfy({ value in
+                          switch value { case .bool, .string: return true; default: return false }
+                      }) else { return nil }
+                values = declared
+            } else if object["capabilities"]?.asArray?.contains(.string("thinking")) == true {
+                values = [.bool(false), .bool(true)]
+            } else { values = nil }
+            lock.withLock { thinkingOptions[modelName] = ThinkingOptions(values: values) }
+            return values
+        } catch {
+            // Inference without an effort override may use the serving model's default.
+            // Explicit effort is rejected by the codec unless controls were declared.
+            return nil
+        }
+    }
 
     func value(for model: String) -> ModelContextLimits? {
         lock.lock()
@@ -52,13 +85,13 @@ final class OllamaCloudContextLimits: @unchecked Sendable {
         if let value { limits[model] = value } else { localModels.insert(model) }
     }
 
-    func discover(modelName: String, resolved: String, baseURL: URL, session: URLSession) async {
+    func discover(modelName: String, resolved: String, baseURL: URL, session: URLSession, nativeTransport: Bool = false) async {
         guard !alreadyDiscovered(modelName) else { return }
         do {
             var tagsRequest = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
             tagsRequest.timeoutInterval = 5
-            let (tagsData, tagsResponse) = try await session.data(for: tagsRequest)
-            guard (tagsResponse as? HTTPURLResponse)?.statusCode == 200 else { return }
+            let (tagsData, tagsStatus) = try await load(tagsRequest, session: session, nativeTransport: nativeTransport)
+            guard tagsStatus == 200 else { return }
             let tags = try JSONDecoder().decode(Tags.self, from: tagsData)
             guard let model = tags.models.first(where: { $0.name == resolved }) else { return }
             guard model.remoteHost?.isEmpty == false, model.remoteModel?.isEmpty == false else {
@@ -70,8 +103,8 @@ final class OllamaCloudContextLimits: @unchecked Sendable {
             showRequest.timeoutInterval = 5
             showRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
             showRequest.httpBody = try JSONEncoder().encode(["model": resolved])
-            let (showData, showResponse) = try await session.data(for: showRequest)
-            guard (showResponse as? HTTPURLResponse)?.statusCode == 200 else { return }
+            let (showData, showStatus) = try await load(showRequest, session: session, nativeTransport: nativeTransport)
+            guard showStatus == 200 else { return }
             let info = try JSONDecoder().decode(Show.self, from: showData).modelInfo
             guard let architecture = info["general.architecture"]?.asString,
                   case .number(let number)? = info[architecture + ".context_length"],
@@ -80,5 +113,21 @@ final class OllamaCloudContextLimits: @unchecked Sendable {
         } catch {
             // Discovery failure must not disable inference. Retry on the next session creation.
         }
+    }
+
+    private func load(_ request: URLRequest, session: URLSession, nativeTransport: Bool) async throws -> (Data, Int) {
+        if !nativeTransport {
+            let (data, response) = try await session.data(for: request)
+            return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        var data = Data()
+        var status = 0
+        for try await event in ModelStepHTTPTransport(session: session).stream(request) {
+            switch event {
+            case .response(let code, _): status = code
+            case .data(let chunk): data.append(chunk)
+            }
+        }
+        return (data, status)
     }
 }

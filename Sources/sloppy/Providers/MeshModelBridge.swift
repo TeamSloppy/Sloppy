@@ -30,6 +30,35 @@ actor MeshModelBridge {
         return try JSONValueCoder.decode([ProviderModelOption].self, from: result)
     }
 
+    func inferStep(nodeID: String, request: SloppyModelStepRequest) async throws -> SloppyModelStepResponse {
+        guard let client else { throw BridgeError.notConnected }
+        let stream = try await client.openStream(to: nodeID, kind: "models.step.v1", params: JSONValueCoder.encode(request))
+        do {
+            return try await withThrowingTaskGroup(of: SloppyModelStepResponse.self) { group in
+                group.addTask {
+                    try await withTaskCancellationHandler {
+                        var complete: SloppyModelStepResponse?
+                        for try await value in stream.messages {
+                            try Task.checkCancellation()
+                            guard complete == nil, value.asObject?["event"] == .string("complete"),
+                                  let raw = value.asObject?["response"] else { throw BridgeError.invalidResponse }
+                            complete = try JSONValueCoder.decode(SloppyModelStepResponse.self, from: raw)
+                        }
+                        guard let complete else { throw BridgeError.invalidResponse }
+                        return complete
+                    } onCancel: { Task { try? await client.closeStream(streamID: stream.id, to: nodeID) } }
+                }
+                group.addTask { try await Task.sleep(for: .seconds(300)); throw BridgeError.remoteFailure }
+                defer { group.cancelAll() }
+                guard let result = try await group.next() else { throw BridgeError.invalidResponse }
+                return result
+            }
+        } catch {
+            try? await client.closeStream(streamID: stream.id, to: nodeID)
+            throw error
+        }
+    }
+
     func infer(nodeID: String, request: SloppyInferenceRequest, onSnapshot: (@Sendable (SloppyInferenceResponse) -> Void)?) async throws -> SloppyInferenceResponse {
         guard let client else { throw BridgeError.notConnected }
         let stream = try await client.openStream(to: nodeID, kind: "models.inference", params: JSONValueCoder.encode(request))

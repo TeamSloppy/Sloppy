@@ -17,14 +17,27 @@ extension RuntimeSystem {
         return nil
     }
 
-    func duplicateReadResult(channelId: String, request: ToolInvocationRequest) -> ToolInvocationResult? {
-        workLedgerByChannel[channelId]?.duplicateReadResult(for: request).map { result in
-            logger.info("Repeated read answered from session ledger", metadata: [
-                "channel_id": .string(channelId),
-                "tool": .string(request.tool),
-            ])
+    /// The same observation path is used by streaming, fallback and context-reset requests.
+    /// Access checks and approvals remain in the injected invoker.
+    func observedToolHandler(
+        channelId: String,
+        model: String,
+        tracker: StreamActivityTracker?,
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?,
+        invoker: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
+    ) -> @Sendable (ToolInvocationRequest) async -> ToolInvocationResult {
+        { request in
+            await self.logNativeToolCallDecoded(channelId: channelId, model: model, request: request)
+            let toolCallID = request.argumentDiagnostics?.toolCallId ?? UUID().uuidString
+            await tracker?.toolStarted(id: toolCallID)
+            await observationHandler?(.toolCall(request))
+            let result = await invoker(request)
+            await self.recordLedgerObservation(channelId: channelId, request: request, result: result)
+            await self.usageToolOutcomeHandler?(channelId, toolCallID, result.ok)
+            await observationHandler?(.toolResult(result))
+            await tracker?.toolFinished(id: toolCallID, result: result)
             return result
-        } ?? nil
+        }
     }
 
     func recordLedgerObservation(channelId: String, request: ToolInvocationRequest, result: ToolInvocationResult) {

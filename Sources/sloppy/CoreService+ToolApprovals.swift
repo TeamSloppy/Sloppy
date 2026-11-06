@@ -110,7 +110,8 @@ extension CoreService: ToolApprovalBridge {
         requireApproval: Bool,
         approvalSettings: AgentToolApprovalSettings? = nil,
         forcePerInvocation: Bool = false,
-        timeoutSeconds: TimeInterval = ToolApprovalService.defaultTimeoutSeconds
+        timeoutSeconds: TimeInterval = ToolApprovalService.defaultTimeoutSeconds,
+        binding: ToolApprovalBinding? = nil
     ) async -> ToolApprovalWaitResult? {
         guard sessionApprovalMode(agentID: agentID, sessionID: sessionID) != .fullAccess else { return nil }
         guard requireApproval, requiresHumanApproval(toolID: request.tool, arguments: request.arguments) else {
@@ -137,12 +138,18 @@ extension CoreService: ToolApprovalBridge {
             request: request,
             approvalKind: .riskyTool,
             timeoutSeconds: timeoutSeconds,
-            publishRequest: displaySessionID == nil && chatMode == nil
+            publishRequest: false,
+            binding: binding
         )
         return await waitForToolApproval(record, chatMode: chatMode, approvalSettings: approvalSettings)
     }
 
     func toolApprovalDeniedResult(tool: String, approval: ToolApprovalWaitResult) -> ToolInvocationResult? {
+        // Cancellation is a typed task signal and takes priority over a racing reviewer decision.
+        if Task.isCancelled {
+            return .init(tool: tool, ok: false, error: .init(code: "not_executed_cancelled",
+                message: "The invocation was cancelled while waiting for approval.", retryable: false))
+        }
         switch approval {
         case .approved:
             return nil
@@ -260,7 +267,7 @@ extension CoreService: ToolApprovalBridge {
         channelID: String?,
         topicID: String?,
         request: ToolInvocationRequest,
-        grants: [ToolApprovalGrant]
+        grants: [ToolApprovalGrant], binding: ToolApprovalBinding? = nil
     ) async -> ToolApprovalWaitResult {
         let reason = request.reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? request.reason
@@ -293,7 +300,8 @@ extension CoreService: ToolApprovalBridge {
             request: approvalRequest,
             approvalKind: .missingAccess,
             grants: grants,
-            publishRequest: displaySessionID == nil && chatMode == nil
+            publishRequest: false,
+            binding: binding
         )
         let approvalSettings = try? await toolsAuthorization.policy(agentID: agentID).approval
         return await waitForToolApproval(record, chatMode: chatMode, approvalSettings: approvalSettings)
@@ -325,19 +333,24 @@ extension CoreService: ToolApprovalBridge {
             if let parentID = expired.displaySessionId, parentID != expired.sessionId {
                 resumeSessionMessageInboxes(agentID: expired.agentId, sessionID: parentID)
             }
+        } else if Task.isCancelled {
+            switch result {
+            case .approved(let record), .rejected(let record), .timedOut(let record):
+                _ = await channelDelivery.updateToolApproval(record)
+            }
         }
         return result
     }
 
     private func revealToolApproval(_ record: ToolApprovalRecord) async {
         guard await toolApprovalService.claimPresentation(id: record.id) else { return }
-        await toolApprovalService.publishPendingRequest(id: record.id)
         await appendToolApprovalPausedStatusIfNeeded(agentID: record.agentId, sessionID: record.sessionId,
             displaySessionID: record.displaySessionId, record: record)
         if let sessionID = record.displaySessionId ?? record.sessionId {
             await markTaskWaitingInputForAgentSession(agentID: record.agentId, sessionID: sessionID,
                 reason: "Tool approval required for \(record.tool).", source: "agent")
         }
+        await toolApprovalService.publishPendingRequest(id: record.id)
         _ = await channelDelivery.presentToolApproval(record)
     }
 

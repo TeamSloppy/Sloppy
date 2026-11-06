@@ -58,7 +58,9 @@ public extension RuntimeSystem {
         observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)? = nil,
         forceInlineResponse: Bool = false,
         nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig(),
-        nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)? = nil
+        nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)? = nil,
+        runState: RunState? = nil,
+        agentLoopServices: AgentLoopServices? = nil
     ) async -> ChannelRouteDecision {
         let ingest = await channels.ingest(channelId: channelId, request: request)
         let decision = forceInlineResponse
@@ -70,6 +72,14 @@ public extension RuntimeSystem {
             let taskID = UUID()
             let responseTask = Task { [weak self] in
                 guard let self else { return }
+                if nativeLoopConfig.engine == .unified {
+                    await self.respondUsingAgentLoop(channelId: channelId,
+                        userMessage: Self.contentForModel(content: request.content, attachments: request.attachments),
+                        model: request.model, reasoningEffort: request.reasoningEffort, onResponseChunk: onResponseChunk,
+                        observationHandler: observationHandler, config: nativeLoopConfig,
+                        outcomeHandler: nativeLoopOutcomeHandler, runState: runState, services: agentLoopServices)
+                    return
+                }
                 await self.respondInline(
                     channelId: channelId,
                     userMessage: Self.contentForModel(content: request.content, attachments: request.attachments),
@@ -79,7 +89,9 @@ public extension RuntimeSystem {
                     toolInvoker: toolInvoker,
                     observationHandler: observationHandler,
                     nativeLoopConfig: nativeLoopConfig,
-                    nativeLoopOutcomeHandler: nativeLoopOutcomeHandler
+                    nativeLoopOutcomeHandler: nativeLoopOutcomeHandler,
+                    runState: runState,
+                    agentLoopServices: agentLoopServices
                 )
             }
             activeResponseTasks[channelId] = ActiveResponseTask(id: taskID, task: responseTask)

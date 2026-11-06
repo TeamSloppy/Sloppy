@@ -429,6 +429,30 @@ struct AgentsAPIRouter: APIRouter {
 
         router.get("/v1/agents/:agentId/sessions/:sessionId/attachments/:attachmentId", metadata: RouteMetadata(summary: "Read session attachment", description: "Returns a bounded attachment belonging to this session", tags: ["Agents"])) { request in
             do {
+                if let range = request.header("Range") {
+                    let parts = range.hasPrefix("bytes=") ? String(range.dropFirst(6)).split(separator: "-", omittingEmptySubsequences: false) : []
+                    guard parts.count == 2, let start = Int(parts[0]), start >= 0,
+                          parts[1].isEmpty || Int(parts[1]) != nil else {
+                        return CoreRouterResponse(status: 416, body: Data())
+                    }
+                    let requestedEnd = Int(parts[1])
+                    let limit: Int
+                    if let requestedEnd {
+                        guard requestedEnd >= start, requestedEnd - start < 1_048_576 else {
+                            return CoreRouterResponse(status: 416, body: Data())
+                        }
+                        limit = requestedEnd - start + 1
+                    } else { limit = 1_048_576 }
+                    if let chunk = try await service.getAgentSessionAttachmentChunk(agentID: request.pathParam("agentId") ?? "",
+                        sessionID: request.pathParam("sessionId") ?? "", attachmentID: request.pathParam("attachmentId") ?? "",
+                        offset: start, limit: limit) {
+                        guard !chunk.data.isEmpty else {
+                            return CoreRouterResponse(status: 416, body: Data(), headers: ["Content-Range": "bytes */\(chunk.totalBytes)"])
+                        }
+                        return CoreRouterResponse(status: 206, body: chunk.data, contentType: "application/json",
+                            headers: ["Accept-Ranges": "bytes", "Content-Range": "bytes \(chunk.offset)-\(chunk.offset + chunk.data.count - 1)/\(chunk.totalBytes)"])
+                    }
+                }
                 let attachment = try await service.getAgentSessionAttachment(
                     agentID: request.pathParam("agentId") ?? "",
                     sessionID: request.pathParam("sessionId") ?? "",

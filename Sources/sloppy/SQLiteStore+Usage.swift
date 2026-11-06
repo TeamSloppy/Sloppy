@@ -22,6 +22,7 @@ enum UsageCallCursor {
 
 extension SQLiteStore {
     public func persistUsageRequest(_ record: UsageRequestRecord) async throws {
+        try record.validateRunIdentity()
 #if canImport(CSQLite3)
         guard db != nil else { await usageMemoryLedger.persist(record); return }
         try usageExecute("BEGIN IMMEDIATE")
@@ -34,6 +35,10 @@ extension SQLiteStore {
                        u.map { String($0.cachedInput) }, u.map { String($0.cacheCreationInput) }, u.map { String($0.reasoning) },
                        record.failed ? "1" : "0", record.complete ? "1" : "0"])
             guard let db, sqlite3_changes(db) > 0 else { try usageExecute("COMMIT"); return }
+            if let run = record.runId, let turn = record.userTurnId {
+                try usageExecute("INSERT INTO usage_request_runs(request_id,run_id,user_turn_id) VALUES(?,?,?)",
+                    [record.id, run, turn])
+            }
             for call in record.calls {
                 if call.generated {
                     try usageExecute("""
@@ -88,6 +93,12 @@ extension SQLiteStore {
         var conditions = ["1=1"], values: [String?] = []
         for (column, value) in [("channel_id",q.channelId),("session_id",q.sessionId),("provider",q.provider),("model",q.model)] {
             if let value { conditions.append("r.\(column)=?"); values.append(value) }
+        }
+        for (column, value) in [("run_id", q.runId), ("user_turn_id", q.userTurnId)] {
+            if let value {
+                conditions.append("EXISTS(SELECT 1 FROM usage_request_runs ur WHERE ur.request_id=r.id AND ur.\(column)=?)")
+                values.append(value)
+            }
         }
         if let date = q.from { conditions.append("r.created_at>=?"); values.append(usageDate(date)) }
         if let date = q.to { conditions.append("r.created_at<=?"); values.append(usageDate(date)) }

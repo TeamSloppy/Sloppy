@@ -28,7 +28,11 @@ extension CoreService {
     public func getAgent(id: String) throws -> AgentSummary {
         do {
             return try agentCatalogStore.getAgent(id: id)
+        } catch AgentCatalogFileStore.StoreError.notFound {
+            throw mapAgentStorageError(AgentCatalogFileStore.StoreError.notFound)
         } catch {
+            logger.error("agent.read.failed", metadata: ["agent_id": .string(id),
+                "error": .string(String(describing: error))])
             throw mapAgentStorageError(error)
         }
     }
@@ -1136,6 +1140,8 @@ extension CoreService {
             return .sessionNotFound
         case .invalidPayload:
             return .invalidPayload
+        case .unsupportedJournalVersion, .unsupportedRuntimeVersion:
+            return .storageFailure
         }
     }
 

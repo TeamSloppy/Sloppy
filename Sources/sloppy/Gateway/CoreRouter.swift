@@ -1500,6 +1500,8 @@ public actor CoreRouter {
 
     static func agentSessionErrorResponse(_ error: CoreService.AgentSessionError, fallback: String) -> CoreRouterResponse {
         switch error {
+        case .workspaceUnavailable:
+            return json(status: 409, payload: ["error": "workspace_unavailable", "message": "The workspace has another active Core owner or its approval storage is unavailable."])
         case .invalidAgentID:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
         case .invalidSessionID:

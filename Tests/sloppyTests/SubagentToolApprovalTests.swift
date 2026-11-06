@@ -95,8 +95,7 @@ struct SubagentToolApprovalTests {
         defer { Task { await service.stop() } }
         let worker = try await service.prepareApprovalWorker(readOnly: true)
         await service.setSessionToolApprovalBypass(sessionID: worker.childID, enabled: true)
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try makeApprovalTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         var request = echoRequest("directory")
         request.arguments["cwd"] = .string(directory.path)

@@ -181,6 +181,24 @@ extension CoreService {
         }
 
         let detail = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        if let recorded = detail.events.last(where: {
+            !$0.isHistorical && $0.inputResponse?.requestId == normalizedRequestID && $0.runtimeMetadata?.runState != nil
+        }), let saved = recorded.inputResponse, let metadata = recorded.runtimeMetadata,
+           let question = detail.events.compactMap(\.inputRequest).first(where: { $0.id == normalizedRequestID }) {
+            let expected: PlanInputResponse
+            if automatically {
+                guard saved.autoApproved == true else { throw AgentSessionError.invalidPayload }
+                expected = Self.automaticPlanInputResponse(question)
+            } else {
+                guard let payload else { throw AgentSessionError.invalidPayload }
+                expected = try validatedPlanInputResponse(payload: payload, request: question)
+            }
+            guard saved.status == expected.status, saved.answers == expected.answers, saved.userId == expected.userId else {
+                throw AgentSessionError.invalidPayload
+            }
+            return try await postAgentSessionMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID,
+                request: nativeInputRequest(metadata: metadata, detail: detail), userMessageAlreadyPersisted: true)
+        }
         let inputRequest = try pendingPlanInputRequest(
             requestID: normalizedRequestID,
             events: detail.events.compactMap { event in
@@ -203,16 +221,27 @@ extension CoreService {
             response = try validatedPlanInputResponse(payload: payload, request: inputRequest)
         }
         let summaryText = answerSummaryText(request: inputRequest, response: response)
+        let resume = try await prepareNativeInputResolution(detail: detail, response: response,
+            prompt: resumePromptText(request: inputRequest, response: response))
         let responseEvent = AgentSessionEvent(
+            version: resume == nil ? 1 : 2,
             agentId: normalizedAgentID,
             sessionId: normalizedSessionID,
             type: .inputResponse,
+            runtimeMetadata: resume?.metadata,
             inputResponse: response
         )
+        var summaryMetadata = resume?.metadata
+        summaryMetadata?.presentationOnly = true
+        summaryMetadata?.runState = nil
+        summaryMetadata?.admissionInstructions = nil
+        summaryMetadata?.requestFingerprint = nil
         let summaryEvent = AgentSessionEvent(
+            version: resume == nil ? 1 : 2,
             agentId: normalizedAgentID,
             sessionId: normalizedSessionID,
             type: .message,
+            runtimeMetadata: summaryMetadata,
             message: AgentSessionMessage(
                 role: .user,
                 segments: [.init(kind: .text, text: summaryText)],
@@ -234,9 +263,11 @@ extension CoreService {
 
         guard response.status == .answered else {
             let pausedEvent = AgentSessionEvent(
+                version: resume == nil ? 1 : 2,
                 agentId: normalizedAgentID,
                 sessionId: normalizedSessionID,
                 type: .runStatus,
+                runtimeMetadata: summaryMetadata,
                 runStatus: AgentRunStatusEvent(stage: .interrupted, label: "Cancelled", details: "Plan input was cancelled.")
             )
             let cancelledSummary = try sessionStore.appendEvents(agentID: normalizedAgentID, sessionID: normalizedSessionID, events: [pausedEvent])
@@ -244,6 +275,11 @@ extension CoreService {
             let result = AgentSessionMessageResponse(summary: cancelledSummary, appendedEvents: [responseEvent, summaryEvent, pausedEvent], routeDecision: nil)
             await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, response: result)
             return result
+        }
+
+        if let resume {
+            return try await postAgentSessionMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID,
+                request: resume.request, userMessageAlreadyPersisted: true)
         }
 
         return try await postAgentSessionMessage(

@@ -14,8 +14,31 @@ extension CoreService {
             do { try await self.store.updateUsageToolOutcome(channelId: channel, callId: call, ok: ok) }
             catch { self.logger.warning("Failed to persist tool usage outcome: \(error)") }
         })
+        await recoverCanonicalUsage()
     }
-    private func persistMeasuredUsage(_ record: UsageRequestRecord) async {
+
+    func persistCanonicalUsage(_ events: [AgentSessionEvent]) async {
+        for event in events where !event.isHistorical {
+            guard let record = event.runtimeMetadata?.usageRequest,
+                  record.agentId == event.agentId, record.sessionId == event.sessionId,
+                  record.channelId == "agent:\(event.agentId):session:\(event.sessionId)" else { continue }
+            await persistMeasuredUsage(record)
+        }
+    }
+
+    private func recoverCanonicalUsage() async {
+        do {
+            for agent in try agentCatalogStore.listAgents() {
+                for session in try sessionStore.listSessions(agentID: agent.id, includeHeartbeat: true) {
+                    let detail = try sessionStore.loadSession(agentID: agent.id, sessionID: session.id)
+                    await persistCanonicalUsage(detail.events)
+                }
+            }
+        } catch {
+            logger.warning("usage.canonical_recovery_failed", metadata: ["error": .string(String(describing: error))])
+        }
+    }
+    func persistMeasuredUsage(_ record: UsageRequestRecord) async {
         do { try await store.persistUsageRequest(record) }
         catch { logger.warning("Failed to persist request usage", metadata: ["request_id": .string(record.id), "error": .string(String(describing:error))]) }
     }

@@ -1,7 +1,38 @@
 import AnyLanguageModel
 import Foundation
+import PluginSDK
 
 extension RuntimeSystem {
+    /// Capture typed single-step input without retaining image bytes or another history owner.
+    func captureModelStepContext(channelId: String, request: ModelStepRequest) async {
+        let limit = 500
+        let retained = request.messages.count <= limit ? request.messages
+            : Array(request.messages.prefix(1)) + Array(request.messages.suffix(limit - 1))
+        let previewLimit = min(16_000, 128_000 / max(1, retained.count))
+        func text(_ message: ModelStepMessage) -> String {
+            var text = message.text
+            if !message.toolCalls.isEmpty { text += "\n" + message.toolCalls.map { $0.name + ":" + $0.rawArguments }.joined(separator: "\n") }
+            if let output = message.toolOutput { text += "\n" + output.content }
+            if !message.images.isEmpty { text += "\n[Images: \(message.images.count)]" }
+            return text
+        }
+        let previews = retained.map { message in
+            let content = text(message)
+            return ModelContextEntryDiagnostic(id: message.id,
+                kind: message.role == .system ? "instructions" : message.role == .tool ? "tool_output" : message.role.rawValue,
+                content: String(content.prefix(previewLimit)), characters: content.count,
+                estimatedTokens: TokenPressureEstimator().estimateTextTokens(content) + message.images.count * 768,
+                truncated: content.count > previewLimit)
+        }
+        await memoryDiagnostics.recordContext(channelId: channelId, context: ModelContextDiagnostic(
+            recordedAt: Date(), model: request.model, entries: previews, entryCount: request.messages.count,
+            characters: request.messages.reduce(0) { $0 + text($1).count },
+            estimatedTokens: (try? ModelStepContextBudget.estimate(request)) ?? 0,
+            imageCount: request.messages.reduce(0) { $0 + $1.images.count }, toolNames: request.tools.map(\.name),
+            truncated: request.messages.count > limit || previews.contains { $0.truncated },
+            memoryInjection: memoryInjectionByChannel[channelId]))
+    }
+
     /// Captures the prepared transcript plus the pending prompt exactly once, before streaming.
     /// Text previews are bounded; image bytes are represented by metadata rather than copied.
     func captureModelContext(

@@ -30,7 +30,17 @@ private final class UsageStubProtocol: URLProtocol {
             client?.urlProtocolDidFinishLoading(self)
             return
         }
-        let content = request.url?.path == "/first" ? #"{"usage":{"input_tokens":10,"output_tokens":5},"output":[{"type":"function_call","call_id":"one","name":"lookup","arguments":"{}"}]}"# : #"{"usage":{"input_tokens":25,"output_tokens":6}}"#
+        let content: String
+        if request.url?.path == "/isolation" {
+            let value: [String: Any] = ["usage": ["input_tokens": 25, "output_tokens": 6],
+                "callerHeader": request.value(forHTTPHeaderField: "x-fixture-transport") ?? "missing",
+                "observerHeader": request.value(forHTTPHeaderField: UsageObservedURLSession.header) ?? "absent",
+                "legacyHeader": request.value(forHTTPHeaderField: TokenUsageCaptureRegistry.headerField) ?? "absent"]
+            guard let bytes = try? JSONSerialization.data(withJSONObject: value), let text = String(data: bytes, encoding: .utf8) else { return }
+            content = text
+        } else {
+            content = request.url?.path == "/first" ? #"{"usage":{"input_tokens":10,"output_tokens":5},"output":[{"type":"function_call","call_id":"one","name":"lookup","arguments":"{}"}]}"# : #"{"usage":{"input_tokens":25,"output_tokens":6}}"#
+        }
         client?.urlProtocol(self,didReceive:response,cacheStoragePolicy:.notAllowed)
         client?.urlProtocol(self,didLoad:Data(content.utf8))
         client?.urlProtocolDidFinishLoading(self)
@@ -38,13 +48,82 @@ private final class UsageStubProtocol: URLProtocol {
     override func stopLoading() {}
 }
 @Suite struct UsageObservedSessionTests {
+    @Test func wrappingAndForwardingOwnTheirConfigurationWithoutMutatingTheInjectedSession() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [UsageStubProtocol.self]
+        config.httpAdditionalHeaders = ["x-fixture-transport": "preserved", TokenUsageCaptureRegistry.headerField: "base-sentinel"]
+        config.timeoutIntervalForRequest = 37
+        config.timeoutIntervalForResource = 71
+        config.connectionProxyDictionary = ["HTTPEnable": 0, "HTTPSEnable": 0]
+        let base = URLSession(configuration: config)
+        let expectedProtocols = (base.configuration.protocolClasses ?? []).map(ObjectIdentifier.init)
+        let expectedHeaders = NSDictionary(dictionary: base.configuration.httpAdditionalHeaders ?? [:])
+        let expectedProxy = NSDictionary(dictionary: base.configuration.connectionProxyDictionary ?? [:])
+        let box = UsageRecordBox()
+        let observed = try UsageObservedURLSession.make(wrapping: base, context: .init(
+            channelId: "agent:a:session:isolation", provider: "openai-api", model: "gpt-4o",
+            onRequest: { await box.append($0) }))
+        defer { observed.invalidateAndCancel(); base.invalidateAndCancel() }
+        func assertBaseUnchanged() {
+            #expect((base.configuration.protocolClasses ?? []).map(ObjectIdentifier.init) == expectedProtocols)
+            #expect(NSDictionary(dictionary: base.configuration.httpAdditionalHeaders ?? [:]) == expectedHeaders)
+            #expect(NSDictionary(dictionary: base.configuration.connectionProxyDictionary ?? [:]) == expectedProxy)
+            #expect(base.configuration.timeoutIntervalForRequest == 37)
+            #expect(base.configuration.timeoutIntervalForResource == 71)
+        }
+        assertBaseUnchanged()
+        // Freeze a separate value after creation so a forwarding mutation fails independently.
+        let beforeForwarding = NSDictionary(dictionary: base.configuration.httpAdditionalHeaders ?? [:])
+        #expect(observed.configuration.httpAdditionalHeaders?[UsageObservedURLSession.header] != nil)
+        #expect(observed.configuration.httpAdditionalHeaders?[TokenUsageCaptureRegistry.headerField] == nil)
+        var request = URLRequest(url: try #require(URL(string: "https://usage.invalid/isolation")))
+        request.httpMethod = "POST"
+        request.httpBody = Data(#"{"input":[],"model":"gpt-4o"}"#.utf8)
+        let (bytes, _) = try await observed.data(for: request)
+        let payload = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        #expect(payload["callerHeader"] as? String == "preserved")
+        #expect(payload["observerHeader"] as? String == "absent")
+        #expect(payload["legacyHeader"] as? String == "absent")
+        assertBaseUnchanged()
+        #expect(NSDictionary(dictionary: base.configuration.httpAdditionalHeaders ?? [:]) == beforeForwarding)
+        let records = await box.snapshot()
+        #expect(records.count == 1)
+        #expect(records.first?.channelId == "agent:a:session:isolation")
+        #expect(records.first?.usage?.total == 31)
+        #expect(records.first?.complete == true)
+    }
+
+    @Test func observedSessionOwnsAReusedRequestEvenWithAnotherScopeHeader() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [UsageStubProtocol.self]
+        let base = URLSession(configuration: config)
+        let box = UsageRecordBox()
+        let first = try UsageObservedURLSession.make(wrapping: base, context: .init(
+            channelId: "agent:a:session:first", provider: "openai-api", model: "gpt-4o",
+            onRequest: { await box.append($0) }))
+        let second = try UsageObservedURLSession.make(wrapping: base, context: .init(
+            channelId: "agent:a:session:second", provider: "openai-api", model: "gpt-4o",
+            onRequest: { await box.append($0) }))
+        defer { first.invalidateAndCancel(); second.invalidateAndCancel(); base.invalidateAndCancel() }
+        let staleHeader = try #require(first.configuration.httpAdditionalHeaders?[UsageObservedURLSession.header] as? String)
+        var request = URLRequest(url: try #require(URL(string: "https://usage.invalid/second")))
+        request.httpMethod = "POST"
+        request.httpBody = Data(#"{"input":[],"model":"gpt-4o"}"#.utf8)
+        request.setValue(staleHeader, forHTTPHeaderField: UsageObservedURLSession.header)
+        _ = try await second.data(for: request)
+        let records = await box.snapshot()
+        #expect(records.count == 1)
+        #expect(records.first?.channelId == "agent:a:session:second")
+        #expect(records.first?.usage?.total == 31)
+    }
+
     @Test func actualRequestsCompleteOnlyAfterAccountingAndRemainSessionScoped() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [UsageStubProtocol.self]
         let base = URLSession(configuration:config)
         let box = UsageRecordBox()
-        let observed = UsageObservedURLSession.make(wrapping:base,context:.init(channelId:"agent:a:session:one",provider:"openai-api",model:"gpt-4o",onRequest:{ await box.append($0) }))
-        let other = UsageObservedURLSession.make(wrapping:base,context:.init(channelId:"agent:a:session:two",provider:"openai-api",model:"gpt-4o",onRequest:{ await box.append($0) }))
+        let observed = try UsageObservedURLSession.make(wrapping:base,context:.init(channelId:"agent:a:session:one",provider:"openai-api",model:"gpt-4o",onRequest:{ await box.append($0) }))
+        let other = try UsageObservedURLSession.make(wrapping:base,context:.init(channelId:"agent:a:session:two",provider:"openai-api",model:"gpt-4o",onRequest:{ await box.append($0) }))
         defer { observed.invalidateAndCancel(); other.invalidateAndCancel(); base.invalidateAndCancel() }
         func request(_ path: String) throws -> URLRequest {
             var request = URLRequest(url:try #require(URL(string:"https://usage.invalid/"+path)))

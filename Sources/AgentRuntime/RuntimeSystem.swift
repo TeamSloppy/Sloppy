@@ -63,13 +63,20 @@ public enum RuntimeResponseObservation: Sendable {
     case usage(TokenUsage)
 }
 
-public struct NativeAgentLoopConfig: Sendable, Equatable {
+public enum NativeCompletionContract: String, Codable, Sendable { case session, worker, coordinator, background }
+
+public struct NativeAgentLoopConfig: Codable, Sendable, Equatable {
+    public var engine: AgentNativeEngine
     public var maxOutputTokens: Int
     public var maxToolRounds: Int
     public var enforceToolRoundLimit: Bool
     public var finalizerToolNames: Set<String>
     public var overBudgetRecoveryBatches: Int
     public var budgetExhaustedMessage: String
+    public var requiresExplicitCompletion: Bool?
+    public var completionRecoveryLimit: Int?
+    public var activeMode: AgentChatMode? = nil
+    public var completionContract: NativeCompletionContract? = nil
 
     public init(
         maxToolRounds: Int = 60,
@@ -77,13 +84,19 @@ public struct NativeAgentLoopConfig: Sendable, Equatable {
         finalizerToolNames: Set<String> = [],
         overBudgetRecoveryBatches: Int = 0,
         budgetExhaustedMessage: String = "Agent reached the tool turn limit before producing a final answer.",
-        maxOutputTokens: Int = 1024
+        maxOutputTokens: Int = 1024,
+        engine: AgentNativeEngine = .legacy,
+        requiresExplicitCompletion: Bool? = nil,
+        completionRecoveryLimit: Int? = nil
     ) {
         self.maxToolRounds = max(0, maxToolRounds)
+        self.engine = engine
         self.maxOutputTokens = max(128, min(16_384, maxOutputTokens))
         self.enforceToolRoundLimit = enforceToolRoundLimit
         self.finalizerToolNames = finalizerToolNames
         self.overBudgetRecoveryBatches = max(0, overBudgetRecoveryBatches)
+        self.requiresExplicitCompletion = requiresExplicitCompletion
+        self.completionRecoveryLimit = completionRecoveryLimit.map { max(0, $0) }
         self.budgetExhaustedMessage = budgetExhaustedMessage
     }
 }
@@ -106,6 +119,7 @@ public enum NativeAgentLoopTurnExitReason: String, Sendable, Equatable {
 }
 
 public struct NativeAgentLoopOutcome: Sendable, Equatable {
+    public var terminalToolStop: ToolRunStop?
     public var toolRoundsUsed: Int
     public var maxToolRounds: Int
     public var finishedNaturally: Bool
@@ -121,7 +135,8 @@ public struct NativeAgentLoopOutcome: Sendable, Equatable {
         hitTurnLimit: Bool = false,
         toolErrors: [ToolInvocationResult] = [],
         lastAssistantText: String = "",
-        turnExitReason: NativeAgentLoopTurnExitReason = .completed
+        turnExitReason: NativeAgentLoopTurnExitReason = .completed,
+        terminalToolStop: ToolRunStop? = nil
     ) {
         self.toolRoundsUsed = toolRoundsUsed
         self.maxToolRounds = maxToolRounds
@@ -130,6 +145,7 @@ public struct NativeAgentLoopOutcome: Sendable, Equatable {
         self.toolErrors = toolErrors
         self.lastAssistantText = lastAssistantText
         self.turnExitReason = turnExitReason
+        self.terminalToolStop = terminalToolStop
     }
 }
 
@@ -213,12 +229,16 @@ public actor RuntimeSystem {
     var observedUsageChannels: Set<String> = []
     var pendingRequestUsage: [String: TokenUsage] = [:]
     var contextLedgerByChannel: [String: ContextLedgerSnapshot] = [:]
+    // Presentation only; retry authority stays in the turn-owned snapshot.
+    var retryPresentationByChannel: [String: (runID: String, count: Int)] = [:]
 
     /// Durable transcript seed per channel, rebuilt from persisted session events
     /// by the owner layer when the cached in-memory LLM session is gone.
     var recoveryTranscriptByChannel: [String: Transcript] = [:]
     let contextConfiguration: CompactorConfiguration
     var workLedgerByChannel: [String: SessionWorkLedger] = [:]
+    /// Ephemeral text-only API consumers; durable agent sessions will supply journal projection instead.
+    var modelStepHistoryByChannel: [String: [ModelStepMessage]] = [:]
     /// Tool calls and outputs of the latest streamed turn; the stream only records the final reply in the
     /// session transcript, so these are merged in before the next turn.
     var pendingToolTranscriptByChannel: [String: (session: ObjectIdentifier, entries: [Transcript.Entry])] = [:]
@@ -305,6 +325,7 @@ public actor RuntimeSystem {
         self.modelProvider = modelProvider
         catalogContextLimitsByModel.removeAll()
         sessionsByChannel.removeAll()
+        modelStepHistoryByChannel.removeAll()
         channelToolAllowList.removeAll()
         contextLedgerByChannel.removeAll()
 
@@ -331,6 +352,13 @@ public actor RuntimeSystem {
         channelToolAllowList[channelId] = toolIDs
     }
 
+    /// Delegated authority: an empty set permits no tools; nil removes the restriction.
+    public func channelToolScope(channelId: String) -> Set<String>? { channelToolAllowList[channelId] }
+
+    public func setChannelToolScope(channelId: String, toolIDs: Set<String>?) {
+        channelToolAllowList[channelId] = toolIDs
+    }
+
     /// Withholds tools the owner's policy forbids: they could never run, so their schemas only cost context and
     /// invite failed calls. Returns true when the set changed, in which case a cached session is stale.
     @discardableResult
@@ -351,6 +379,7 @@ public actor RuntimeSystem {
 
     /// Removes a cached `LanguageModelSession` so the next turn builds a fresh session (e.g. after tool allowlist changes).
     public func invalidateChannelSession(channelId: String) {
+        modelStepHistoryByChannel.removeValue(forKey: channelId)
         sessionsByChannel.removeValue(forKey: channelId)
     }
 
@@ -366,7 +395,7 @@ public actor RuntimeSystem {
 
     /// Returns whether the channel currently has an in-memory LLM session.
     public func hasCachedChannelSession(channelId: String) -> Bool {
-        sessionsByChannel[channelId] != nil
+        sessionsByChannel[channelId] != nil || modelStepHistoryByChannel[channelId] != nil
     }
 
     /// Runs a one-shot text generation outside channel transcript state. Tools are never attached.

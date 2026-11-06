@@ -10,9 +10,11 @@ func mobileExplicitSessionSelection() async throws {
     let agentsRoot = project.appendingPathComponent(".ada/workspace/agents")
     try FileManager.default.createDirectory(at: agentsRoot.appendingPathComponent("mobile"), withIntermediateDirectories: true)
     let store = AgentSessionFileStore(agentsRootURL: agentsRoot)
-    let previous = try store.createSession(agentID: "mobile", request: .init(title: "Forest adventure"))
+    // Keep the old conversation strictly older; JSONL timestamps have whole-second precision.
+    let previousDate = Date(timeIntervalSince1970: 1_700_000_000)
+    let previous = try store.createSession(agentID: "mobile", request: .init(title: "Forest adventure"), createdAt: previousDate)
     try store.appendEvents(agentID: "mobile", sessionID: previous.id, events: [
-        .init(agentId: "mobile", sessionId: previous.id, type: .message,
+        .init(agentId: "mobile", sessionId: previous.id, type: .message, createdAt: previousDate,
               message: .init(role: .user, segments: [.init(kind: .text, text: "Create a forest game")]))
     ])
     let freshID = "session-\(UUID().uuidString.lowercased())"

@@ -1,6 +1,7 @@
 import Foundation
 import AgentRuntime
 import Protocols
+import SloppyRuntime
 
 // MARK: - Agent memory checkpoint (shadow)
 
@@ -38,7 +39,7 @@ extension CoreService {
         guard let parsed = Self.parseAgentSessionChannelId(event.channelId) else { return }
         guard let agentID = normalizedAgentID(parsed.agentID),
               let sessionID = normalizedSessionID(parsed.sessionID) else { return }
-        scheduleAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: "compaction_threshold")
+        await scheduleAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: "compaction_threshold")
     }
 
     func handleGatewayChannelClosedForMemoryCheckpoint(_ summary: ChannelSessionSummary) async {
@@ -46,7 +47,7 @@ extension CoreService {
         guard let parsed = Self.parseAgentSessionChannelId(summary.channelId) else { return }
         guard let agentID = normalizedAgentID(parsed.agentID),
               let sessionID = normalizedSessionID(parsed.sessionID) else { return }
-        scheduleAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: "gateway_session_timeout")
+        await scheduleAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: "gateway_session_timeout")
     }
 
     public func requestAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String?) async throws -> AgentMemoryCheckpointResponse {
@@ -69,15 +70,15 @@ extension CoreService {
             message: "Compacting context..."
         )
         do {
-            await runAgentMemoryCheckpoint(agentID: normalizedAgentID, sessionID: normalizedSessionID, reason: resolvedReason)
+            let succeeded = await runAgentMemoryCheckpoint(agentID: normalizedAgentID, sessionID: normalizedSessionID, reason: resolvedReason)
             try appendAgentMemoryCheckpointEvent(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
-                status: .succeeded,
+                status: succeeded ? .succeeded : .failed,
                 reason: resolvedReason,
-                message: "Compact success."
+                message: succeeded ? "Compact success." : "Compact failed."
             )
-            return AgentMemoryCheckpointResponse(ok: true, reason: reason)
+            return AgentMemoryCheckpointResponse(ok: succeeded, reason: reason)
         } catch {
             try? appendAgentMemoryCheckpointEvent(
                 agentID: normalizedAgentID,
@@ -111,7 +112,8 @@ extension CoreService {
         publishLiveSessionEvents(agentID: agentID, sessionID: sessionID, summary: summary, events: [event])
     }
 
-    func scheduleAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String) {
+    @discardableResult
+    func scheduleAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String) async -> Bool {
         guard let normalizedAgentID = normalizedAgentID(agentID),
               let normalizedSessionID = normalizedSessionID(sessionID)
         else {
@@ -124,8 +126,21 @@ extension CoreService {
                     "error": .string("invalid_identifier"),
                 ]
             )
-            return
+            return false
         }
+
+        let source: NativeDerivedWorkSource?
+        do {
+            switch try nativeDerivedWorkSource(agentID: normalizedAgentID, sessionID: normalizedSessionID) {
+            case .legacy: source = nil
+            case .blocked: return false
+            case .owned(let owner):
+                let pending = await toolApprovalService.listPending(includeUnpublished: true)
+                guard !pending.contains(where: { $0.agentId == normalizedAgentID && $0.sessionId == normalizedSessionID }),
+                      nativeDerivedWorkSourceIsCurrent(owner) else { return false }
+                source = owner
+            }
+        } catch { return false }
 
         logger.info(
             "memory.checkpoint.background_scheduled",
@@ -143,9 +158,10 @@ extension CoreService {
             await self.runScheduledAgentMemoryCheckpoint(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
-                reason: reason
+                reason: reason, source: source
             )
         }
+        return true
     }
 
     func scheduleProjectMemoryCheckpointFromWorkerEvent(
@@ -153,7 +169,7 @@ extension CoreService {
         taskID: String,
         status: String,
         event: EventEnvelope
-    ) {
+    ) async {
         guard let parsed = Self.parseAgentSessionChannelId(event.channelId) else {
             logger.debug(
                 "memory.checkpoint.project_skipped_no_agent_session",
@@ -166,14 +182,16 @@ extension CoreService {
             )
             return
         }
-        scheduleAgentMemoryCheckpoint(
+        await scheduleAgentMemoryCheckpoint(
             agentID: parsed.agentID,
             sessionID: parsed.sessionID,
             reason: "project_task_\(status):\(projectID):\(taskID)"
         )
     }
 
-    private func runScheduledAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String) async {
+    private func runScheduledAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String,
+        source: NativeDerivedWorkSource? = nil) async {
+        if let source, !nativeDerivedWorkSourceIsCurrent(source) { return }
         logger.info(
             "memory.checkpoint.background_started",
             metadata: [
@@ -182,7 +200,11 @@ extension CoreService {
                 "reason": .string(reason),
             ]
         )
-        await runAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: reason)
+        let succeeded = await runAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: reason, source: source)
+        guard succeeded else {
+            logger.warning("memory.checkpoint.background_failed", metadata: ["agent_id": .string(agentID), "session_id": .string(sessionID)])
+            return
+        }
         logger.info(
             "memory.checkpoint.background_completed",
             metadata: [
@@ -193,9 +215,23 @@ extension CoreService {
         )
     }
 
-    func runAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String, modelOverride: String? = nil) async {
-        guard let normalizedAgentID = normalizedAgentID(agentID) else { return }
-        guard let normalizedSessionID = normalizedSessionID(sessionID) else { return }
+    @discardableResult
+    func runAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String, modelOverride: String? = nil,
+        source: NativeDerivedWorkSource? = nil) async -> Bool {
+        var resolvedSource = source
+        if resolvedSource == nil {
+            do {
+                switch try nativeDerivedWorkSource(agentID: agentID, sessionID: sessionID) {
+                case .legacy: break
+                case .blocked: return false
+                case .owned(let value): resolvedSource = value
+                }
+            } catch { return false }
+        }
+        let source = resolvedSource
+        if let source, !nativeDerivedWorkSourceIsCurrent(source) { return false }
+        guard let normalizedAgentID = normalizedAgentID(agentID) else { return false }
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else { return false }
 
         let lockKey = memoryCheckpointLockKey(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         guard !memoryCheckpointLocks.contains(lockKey) else {
@@ -206,7 +242,7 @@ extension CoreService {
                     "session_id": .string(normalizedSessionID),
                 ]
             )
-            return
+            return false
         }
         memoryCheckpointLocks.insert(lockKey)
         defer { memoryCheckpointLocks.remove(lockKey) }
@@ -223,7 +259,7 @@ extension CoreService {
                     "error": .string(error.localizedDescription),
                 ]
             )
-            return
+            return false
         }
 
         let models = availableAgentModels()
@@ -236,14 +272,14 @@ extension CoreService {
             )
         } catch {
             logger.warning("memory.checkpoint.no_agent_config", metadata: ["agent_id": .string(normalizedAgentID)])
-            return
+            return false
         }
 
         let selectedModel = config.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOverride = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         let modelForRequest = (trimmedOverride?.isEmpty == false)
             ? trimmedOverride
-            : ((selectedModel?.isEmpty == false) ? selectedModel : nil)
+            : ((selectedModel?.isEmpty == false) ? selectedModel : source?.model)
 
         let checkpointDetail = try? sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         let checkpointUserID = checkpointDetail?.events.reversed().compactMap { event -> String? in
@@ -268,7 +304,7 @@ extension CoreService {
             detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         } catch {
             logger.warning("memory.checkpoint.load_detail_failed", metadata: ["error": .string(error.localizedDescription)])
-            return
+            return false
         }
 
         let transcript = Self.formattedCheckpointTranscript(from: detail, maxUTF16Scalars: 90_000)
@@ -322,7 +358,8 @@ extension CoreService {
         let actionRecorder = MemoryCheckpointActionRecorder()
 
         await runtime.setChannelToolAllowList(channelId: ephemeralChannelId, toolIDs: Self.memoryCheckpointToolAllowlist)
-        await runtime.setChannelBootstrap(channelId: ephemeralChannelId, content: bootstrap)
+        await runtime.setChannelBootstrap(channelId: ephemeralChannelId, content: source == nil ? bootstrap :
+            "Perform the internal memory checkpoint described in the saved turn context. Do not address the end user.")
 
         let toolInvoker: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
             guard Self.memoryCheckpointToolAllowlist.contains(request.tool) else {
@@ -336,12 +373,12 @@ extension CoreService {
                     )
                 )
             }
-            let result = await self.invokeToolFromRuntime(
-                agentID: normalizedAgentID,
-                sessionID: normalizedSessionID,
-                request: request,
-                recordSessionEvents: false
-            )
+            let result: ToolInvocationResult
+            if let source { result = await self.invokeToolFromDerivedRuntime(source: source, request: request) }
+            else {
+                result = await self.invokeToolFromRuntime(agentID: normalizedAgentID,
+                    sessionID: normalizedSessionID, request: request, recordSessionEvents: false)
+            }
             await actionRecorder.record(result)
             return result
         }
@@ -354,6 +391,16 @@ extension CoreService {
         Never save secrets, credentials, private tokens, speculative guesses, transient task status, or duplicate facts.
         """
 
+        if let source, !nativeDerivedWorkSourceIsCurrent(source) {
+            await runtime.discardEphemeralCheckpointChannel(channelId: ephemeralChannelId)
+            return false
+        }
+        if let source {
+            let succeeded = await runNativeMemoryCheckpoint(source: source, channelID: ephemeralChannelId, model: modelForRequest,
+                bootstrap: bootstrap, prompt: userPrompt, recorder: actionRecorder)
+            await runtime.discardEphemeralCheckpointChannel(channelId: ephemeralChannelId)
+            guard succeeded else { return false }
+        } else {
         _ = await runtime.postMessage(
             channelId: ephemeralChannelId,
             request: ChannelMessageRequest(
@@ -368,6 +415,8 @@ extension CoreService {
         )
 
         await runtime.discardEphemeralCheckpointChannel(channelId: ephemeralChannelId)
+        }
+        if let source, !nativeDerivedWorkSourceIsCurrent(source) { return false }
 
         if let review = await actionRecorder.review(reason: reason) {
             await appendMemoryCheckpointReviewSummary(
@@ -394,6 +443,7 @@ extension CoreService {
                 "reason": .string(reason),
             ]
         )
+        return true
     }
 
     private func memoryCheckpointLockKey(agentID: String, sessionID: String) -> String {
@@ -406,9 +456,9 @@ extension CoreService {
     }
 
     static func formattedCheckpointTranscript(from detail: AgentSessionDetail, maxUTF16Scalars: Int) -> String {
-        let sorted = detail.events.sorted { $0.createdAt < $1.createdAt }
+        let events = SessionInputLifecycle.modelContextEvents(detail.events)
         var lines: [String] = []
-        for event in sorted {
+        for event in events {
             guard event.type == .message, let msg = event.message else { continue }
             let role = msg.role.rawValue
             let text = msg.segments.map { seg -> String in

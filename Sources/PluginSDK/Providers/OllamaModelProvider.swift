@@ -6,7 +6,7 @@ import FoundationNetworking
 import Protocols
 
 /// Model provider for Ollama backends.
-public struct OllamaModelProvider: ModelProvider {
+public struct OllamaModelProvider: ModelProvider, ModelStepProviderFactory {
     public let id: String
     public let supportedModels: [String]
     public let systemInstructions: String?
@@ -50,9 +50,23 @@ public struct OllamaModelProvider: ModelProvider {
     }
 
     public func supportsUsageObservation(for modelName: String) -> Bool { supports(modelName: modelName) }
+    public func supportsModelSteps(for modelName: String) -> Bool { supports(modelName: modelName) }
+
+    public func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        guard supportsModelSteps(for: modelName) else { return nil }
+        let resolved = modelName.hasPrefix("ollama:") ? String(modelName.dropFirst(7)) : modelName
+        let baseSession = session ?? .shared
+        await contextCache.discover(modelName: modelName, resolved: resolved, baseURL: baseURL, session: baseSession, nativeTransport: true)
+        let thinking = await contextCache.discoverThinking(modelName: modelName, resolved: resolved, baseURL: baseURL, session: baseSession)
+        let observed = try usageContext.map { try UsageObservedURLSession.make(wrapping: baseSession, context: $0) } ?? baseSession
+        return NativeHTTPModelStepProvider(providerID: id + "/ollama/" + ModelStepHTTPTransport.cacheKeyDigest(baseURL.absoluteString),
+            model: resolved, baseURL: baseURL, token: { "" }, refresh: nil, session: observed,
+            instructions: systemInstructions ?? "", format: .ollama, thinkingValues: thinking)
+    }
+
     public func createLanguageModel(for modelName: String, usageContext: ModelUsageContext) async throws -> any LanguageModel {
         await discoverContextLimits(for: modelName)
-        let observed = UsageObservedURLSession.make(wrapping: session, context: usageContext)
+        let observed = try UsageObservedURLSession.make(wrapping: session, context: usageContext)
         let scoped = OllamaModelProvider(copying: self, session: observed)
         return scoped.makeLanguageModel(for: modelName)
     }

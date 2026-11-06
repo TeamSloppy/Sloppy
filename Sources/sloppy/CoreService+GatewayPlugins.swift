@@ -156,7 +156,7 @@ extension CoreService {
             }
         }
         await selfImprovementCuratorRunner?.start()
-        
+
         if cronRunner == nil {
             cronRunner = makeCronRunner()
         }
@@ -251,6 +251,8 @@ extension CoreService {
         await shutdownACPMCPServers()
         await launches.shutdown()
         await acpSessionManager.shutdown()
+        // CLI/TUI shutdown is also the lifecycle boundary for durable native ownership.
+        await stop()
     }
 
     func seedBuiltInPluginRecord(
@@ -360,6 +362,16 @@ extension CoreService {
     }
 
     public func stop() async {
+        sessionMessageIsStopping = true
+        let inboxRunners = Array(sessionMessageRunners.values)
+        for task in inboxRunners { task.cancel() }
+        nativeDerivedWorkIsStopping = true
+        await sessionOrchestrator.stopNativeWork()
+        nativeDerivedRecoveryTask?.cancel()
+        for task in nativeDerivedReservations.values { task.cancel() }
+        for sessionID in Array(nativeDerivedRunsBySession.keys) {
+            await cancelNativeDerivedRuns(sessionID: sessionID)
+        }
         await textSearch.stop()
         stopPlanInputAutoApprovals()
         longChatIsStopping = true
@@ -376,6 +388,8 @@ extension CoreService {
         eventTask?.cancel()
         eventTask = nil
         await memoryOutboxIndexer?.stop()
+        for task in inboxRunners { await task.value }
+        await toolApprovalService.closePersistence()
     }
 
 
