@@ -4,6 +4,7 @@ description: Creates and maintains project-board tasks with correct dedupe, umbr
 userInvocable: false
 allowedTools:
   - project.current
+  - project.update
   - project.task_list
   - project.task_get
   - project.task_create
@@ -24,6 +25,14 @@ Use this skill whenever you create, save, track, decompose, link, assign, retag,
 4. For multi-step work, create one umbrella/root task for the whole objective, then create or update child tasks with `parentTaskId`.
 5. Use `dependsOnTaskIds` only when execution order truly matters. Keep independent child tasks dependency-free so parallel or capacity-based execution can work.
 6. For task descriptions, use `task-spec-writer` guidance for the canonical brief. This skill owns board placement, links, tags, authors, assignments, and autopilot eligibility.
+
+## Autopilot Configuration
+
+- Autopilot defaults to enabled in assistive mode; inspect the actual project because an explicitly saved disabled setting is preserved.
+- When the user requests automatic project work or Autopilot configuration, use `project.update` with a partial `autopilotSettings` object to configure `enabled`, `mode` (assistive/sequential/parallel), `defaultAgentId`, `reviewerAgentId`, tag/author filters, `pickupRules`, `maxParallelTasks`, and action permissions within the authorized scope.
+- Omitted/null fields preserve saved values. Arrays replace their values; an empty agent ID clears its assignment. Read `project.current` first and preserve unrelated settings.
+- `automaticTaskPickupEnabled` controls the pickup switch; `taskLoopMode` accepts human/agent independently. Enabled alone does not grant web, file, command, localhost, commit or push permissions, or select a default agent.
+- Verify the returned settings before claiming automatic execution is configured. Workflow execution and project Autopilot are separate mechanisms.
 
 ## Tags
 

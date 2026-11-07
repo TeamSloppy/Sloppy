@@ -15,12 +15,15 @@ public struct LongChatTaskRequest: Codable, Sendable, Equatable {
     public var dependsOn: [String]
     public var projectId: String?
     public var readOnly: Bool?
+    /// Explicitly continue a worker owned by this conversation.
+    public var reuseSessionId: String?
 
     public init(
         key: String, title: String, objective: String, resourceKeys: [String] = [], dependsOn: [String] = [],
-        projectId: String? = nil, readOnly: Bool? = nil
+        projectId: String? = nil, readOnly: Bool? = nil, reuseSessionId: String? = nil
     ) {
         self.readOnly = readOnly
+        self.reuseSessionId = reuseSessionId
         self.key = key
         self.title = title
         self.objective = objective
@@ -48,6 +51,8 @@ public struct LongChatAttempt: Codable, Sendable, Equatable, Identifiable {
     public var number: Int
     public var workerId: String?
     public var sessionId: String?
+    /// First journal event belonging to this iteration; older results cannot complete it.
+    public var eventOffset: Int?
     public var status: LongChatTaskStatus
     public var summary: String?
     public var evidence: [String]
@@ -80,12 +85,15 @@ public struct LongChatTask: Codable, Sendable, Equatable, Identifiable {
     public var dependsOn: [String]
     public var attempts: [LongChatAttempt]
     public var readOnly: Bool?
+    /// Explicitly continue a worker owned by this conversation.
+    public var reuseSessionId: String?
     public var status: LongChatTaskStatus { attempts.last?.status ?? .queued }
     public init(
         id: String, key: String, title: String, objective: String, projectId: String?, resourceKeys: [String],
-        dependsOn: [String], attempts: [LongChatAttempt], readOnly: Bool? = nil
+        dependsOn: [String], attempts: [LongChatAttempt], readOnly: Bool? = nil, reuseSessionId: String? = nil
     ) {
         self.readOnly = readOnly
+        self.reuseSessionId = reuseSessionId
         self.id = id
         self.key = key
         self.title = title

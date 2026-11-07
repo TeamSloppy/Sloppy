@@ -3,6 +3,8 @@ import Protocols
 import SloppyRuntime
 
 protocol SessionToolService: Sendable {
+    func delegatedSubagentSessionID(agentID: String, parentSessionID: String, taskID: String) async throws -> String?
+    func continueSubagentTask(agentID: String, parentSessionID: String, sessionID: String, objective: String) async throws -> JSONValue
     func reportSessionRunStatus(agentID: String, sessionID: String, status: AgentRunStatusEvent) async
     func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool?
     func linkCurrentSessionToCodeReview(providerID: String, reviewID: String, agentID: String, sessionID: String) async throws -> AgentSessionSummary
@@ -13,6 +15,10 @@ protocol SessionToolService: Sendable {
 }
 
 extension SessionToolService {
+    func delegatedSubagentSessionID(agentID: String, parentSessionID: String, taskID: String) async throws -> String? { nil }
+    func continueSubagentTask(agentID: String, parentSessionID: String, sessionID: String, objective: String) async throws -> JSONValue {
+        throw CoreService.SubagentReuseError.unavailable
+    }
     func reportSessionRunStatus(agentID: String, sessionID: String, status: AgentRunStatusEvent) async {}
     func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool? { nil }
 }

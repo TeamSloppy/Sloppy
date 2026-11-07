@@ -17,6 +17,16 @@ struct WorkspaceSourceFileTests {
         let origin = ChatScreenViewModel(apiClient: originAPI, cacheStore: ClientCacheStore(path: ":memory:"), settings: ClientSettings(),
             connectionMonitor: ConnectionMonitor(baseURL: originAPI.baseURL), responseNotificationScheduler: notifications, onOpenSettings: { _ in })
         defer { main.chatViewModel.closeSession(); origin.closeSession() }
+        main.openSourceFile(.init(path: "/projects/project/workflows/flow"), from: origin)
+        let workflow = try #require(main.workspaceDockState.selectedTab)
+        #expect(workflow.workflowReference?.workflowID == "flow")
+        #expect(workflow.workflowReference?.projectID == "project")
+        #expect(workflow.workflowEndpoint == originAPI.endpoint)
+        #expect(workflow.sourceFile == nil)
+        main.openSourceFile(.init(path: "/projects/project/workflows/flow"), from: origin)
+        #expect(main.workspaceDockState.selectedTab === workflow)
+        #expect(main.workspaceDockState.tabs.count == 1)
+        #expect(main.workspaceDockState.open(.files) !== workflow)
         main.openSourceFile(.init(path: "/remote/File.swift", line: 42), from: origin)
         let file = try #require(main.workspaceDockState.selectedTab?.sourceFile)
         #expect(file.apiClient.endpoint == originAPI.endpoint)

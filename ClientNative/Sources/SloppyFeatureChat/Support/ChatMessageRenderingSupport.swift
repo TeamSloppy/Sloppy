@@ -96,9 +96,27 @@ enum ChatTranscriptGrouping {
         var entries: [ChatTranscriptEntry] = []
         var pendingSystemMessages: [ChatMessage] = []
 
-        func flushSystemMessages() {
+        func flushSystemMessages(reorderLateReasoning: Bool = false) {
             guard !pendingSystemMessages.isEmpty else { return }
-            entries.append(.systemGroup(pendingSystemMessages))
+            // Providers can persist their accumulated reasoning after the final
+            // text. Keep that typed thinking-only block with the preceding work,
+            // so the reply remains the last visible part of the turn.
+            if reorderLateReasoning, pendingSystemMessages.allSatisfy({ message in
+                !message.segments.isEmpty && message.longChatTask == nil && message.workerSession == nil
+                    && message.segments.allSatisfy { $0.kind == .thinking }
+            }), let last = entries.last, case .message(let response) = last,
+               response.role == .assistant, response.segments.contains(where: { $0.kind == .text }) {
+                entries.removeLast()
+                if let previous = entries.last, case .systemGroup(let activity) = previous {
+                    entries.removeLast()
+                    entries.append(.systemGroup(activity + pendingSystemMessages))
+                } else {
+                    entries.append(.systemGroup(pendingSystemMessages))
+                }
+                entries.append(last)
+            } else {
+                entries.append(.systemGroup(pendingSystemMessages))
+            }
             pendingSystemMessages.removeAll(keepingCapacity: true)
         }
 
@@ -131,12 +149,12 @@ enum ChatTranscriptGrouping {
                     entries.append(.message(response))
                 }
             } else {
-                flushSystemMessages()
+                flushSystemMessages(reorderLateReasoning: message.role == .user)
                 entries.append(.message(message))
             }
         }
 
-        flushSystemMessages()
+        flushSystemMessages(reorderLateReasoning: true)
         return entries
     }
 

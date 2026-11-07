@@ -62,6 +62,38 @@ Autodream periodically reviews recent agent sessions through the same hidden mem
 | `visor.autodream.sessionLimitPerRun` | `10` | Maximum number of changed chat sessions to checkpoint in one pass. |
 | `visor.autodream.model` | `null` | Optional small model for autodream checkpoints. When `null`, autodream falls back to `visor.model`, then normal agent/default model selection. |
 
+## Project Autopilot
+
+Autopilot is enabled by default for new projects and settings without an `enabled` field.
+An explicitly saved `enabled: false` remains disabled. The default mode is `assistive`,
+with one task at a time and all action permissions disabled. Configure the default agent
+and required permissions before expecting automatic implementation.
+
+Agents can inspect settings with `project.current` and change them with `project.update`:
+
+```json
+{
+  "projectId": "my-project",
+  "autopilotSettings": {
+    "enabled": true,
+    "mode": "sequential",
+    "defaultAgentId": "builder",
+    "canEditFiles": true,
+    "canRunCommands": true
+  },
+  "automaticTaskPickupEnabled": true,
+  "taskLoopMode": "agent"
+}
+```
+
+`autopilotSettings` is a partial object update. Omitted or null fields keep their saved
+values, including within `pickupRules`. Arrays replace their saved values; empty arrays
+clear them. An empty `defaultAgentId` or `reviewerAgentId` clears that assignment.
+Available settings include mode (`assistive`, `sequential`, `parallel`), agent assignments,
+include/exclude tags, trusted authors, pickup rules, maximum parallel tasks and individual
+web, file, command, localhost, commit and push permissions. Invalid settings reject the
+whole project update. `taskLoopMode` accepts `human` or `agent` independently of Autopilot.
+
 ## Supervision tick
 
 The supervision tick loop is the heartbeat of Visor's health monitoring. It runs continuously in the background.

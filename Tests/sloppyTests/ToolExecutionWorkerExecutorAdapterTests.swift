@@ -7,12 +7,14 @@ import Testing
 func workerExecutorAdapterPassesSpecToolsToAgentRunner() async throws {
     final class Captured: @unchecked Sendable {
         var toolIDs: [String] = []
+        var channelID: String?
     }
 
     let captured = Captured()
     let adapter = ToolExecutionWorkerExecutorAdapter(
-        agentRunner: { _, _, _, _, _, toolIDs in
+        agentRunner: { _, _, _, _, _, toolIDs, channelID in
             captured.toolIDs = toolIDs
+            captured.channelID = channelID
             return ToolExecutionWorkerExecutorAdapter.AgentRunnerResult(
                 summary: "done",
                 payload: [:]
@@ -21,7 +23,7 @@ func workerExecutorAdapterPassesSpecToolsToAgentRunner() async throws {
     )
     let spec = WorkerTaskSpec(
         taskId: "task-tools",
-        channelId: "channel",
+        channelId: sessionChannelID(agentID: "builder", sessionID: "parent"),
         title: "Tool restricted worker",
         objective: "Use only selected tools",
         agentID: "builder",
@@ -31,5 +33,6 @@ func workerExecutorAdapterPassesSpecToolsToAgentRunner() async throws {
 
     _ = try await adapter.execute(workerId: "worker", spec: spec)
 
+    #expect(captured.channelID == spec.channelId)
     #expect(captured.toolIDs == ["files.read", "mcp.github.create_issue"])
 }

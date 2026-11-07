@@ -43,7 +43,7 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
     public var canPush: Bool
 
     public init(
-        enabled: Bool = false,
+        enabled: Bool = true,
         mode: ProjectAutopilotMode = .assistive,
         defaultAgentId: String? = nil,
         reviewerAgentId: String? = nil,
@@ -96,7 +96,7 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         mode = try container.decodeIfPresent(ProjectAutopilotMode.self, forKey: .mode) ?? .assistive
         defaultAgentId = try container.decodeIfPresent(String.self, forKey: .defaultAgentId)
         reviewerAgentId = try container.decodeIfPresent(String.self, forKey: .reviewerAgentId)

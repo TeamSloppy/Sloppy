@@ -20,10 +20,10 @@ struct ChatApprovalModePicker: View {
             } label: {
                 Label(labelTitle, systemImage: viewModel.selectedApprovalMode.symbol)
                 .font(.caption)
-                .foregroundStyle(theme.colors.textMuted)
+                .foregroundStyle(modeColor)
             }
             .menuStyle(.borderlessButton)
-            .tint(theme.colors.textMuted)
+            .tint(modeColor)
             .fixedSize()
             .disabled(viewModel.isSavingApprovalMode || viewModel.isLoadingApprovalMode || viewModel.isSending || viewModel.selectedAgent == nil)
             .help(viewModel.selectedApprovalMode.detail)
@@ -41,6 +41,10 @@ struct ChatApprovalModePicker: View {
                     .font(.caption)
             }
         }
+    }
+
+    private var modeColor: Color {
+        viewModel.selectedApprovalMode == .fullAccess ? .orange : theme.colors.textMuted
     }
 
     private var labelTitle: String {

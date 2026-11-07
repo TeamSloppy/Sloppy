@@ -67,6 +67,28 @@ struct ChatMessageRenderingSupportTests {
         ])
     }
 
+    @Test("late accumulated reasoning stays before the final reply")
+    func lateReasoningJoinsEarlierActivity() {
+        let tool = ChatMessage(id: "tool", role: .system, segments: [.init(kind: .toolResult, title: "project.workflow")])
+        let reply = ChatMessage(id: "reply", role: .assistant, segments: [.init(kind: .text, text: "Saved")])
+        let reasoning = ChatMessage(id: "reasoning", role: .assistant, segments: [.init(kind: .thinking, text: "Verified graph")])
+        #expect(ChatTranscriptGrouping.entries(from: [tool, reply, reasoning]) == [
+            .systemGroup([tool, reasoning]), .message(reply),
+        ])
+        let next = ChatMessage(id: "next", role: .user, segments: [.init(kind: .text, text: "Continue")])
+        #expect(ChatTranscriptGrouping.entries(from: [reply, reasoning, next]) == [
+            .systemGroup([reasoning]), .message(reply), .message(next),
+        ])
+        let laterReply = ChatMessage(id: "later", role: .assistant, segments: [.init(kind: .text, text: "Next reply")])
+        #expect(ChatTranscriptGrouping.entries(from: [reply, reasoning, laterReply]) == [
+            .message(reply), .systemGroup([reasoning]), .message(laterReply),
+        ])
+        // Real tool work after commentary must keep its chronological position.
+        #expect(ChatTranscriptGrouping.entries(from: [reply, tool, reasoning]) == [
+            .message(reply), .systemGroup([tool, reasoning]),
+        ])
+    }
+
     @Test("compact duration formatter renders seconds and minutes")
     func compactDurationFormatterRendersDurations() {
         #expect(ChatCompactDurationFormatter.string(for: 12) == "12s")

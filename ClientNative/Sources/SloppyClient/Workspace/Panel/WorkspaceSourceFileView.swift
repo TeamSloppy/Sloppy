@@ -4,11 +4,11 @@ import SloppyClientUI
 @MainActor
 struct WorkspaceSourceFileView: View {
     let viewModel: WorkspaceSourceFileViewModel
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.theme) private var theme
 
-    private var foreground: Color { Color.fromHex(colorScheme == .dark ? 0xf5f2e9 : 0x242521) }
-    private var background: Color { Color.fromHex(colorScheme == .dark ? 0x20261e : 0xf5f2e9) }
-    private var muted: Color { Color.fromHex(colorScheme == .dark ? 0xb5bfad : 0x6d7066) }
+    private var foreground: Color { theme.colors.textPrimary }
+    private var background: Color { theme.colors.background }
+    private var muted: Color { theme.colors.textMuted }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -89,7 +89,7 @@ struct WorkspaceSourceFileView: View {
                                 .padding(.vertical, 3)
                                 .frame(minWidth: geometry.size.width, alignment: .leading)
                                 .background(index + 1 == viewModel.targetLine && viewModel.reference.line != nil
-                                    ? Color.fromHex(0xc8e2ae).opacity(colorScheme == .dark ? 0.18 : 0.6) : .clear)
+                                    ? theme.colors.surfaceRaised : .clear)
                                 .id(index + 1)
                                 .accessibilityElement(children: .contain)
                                 .accessibilityIdentifier("workspace.source-file.line.\(index + 1)")

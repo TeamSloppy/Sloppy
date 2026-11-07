@@ -31,6 +31,7 @@ extension CoreService {
                 where session.projectId == projectID && session.parentSessionId == nil
                     && session.taskId == nil && session.workspaceId == nil
                     && session.kind == .chat && !separate.contains(session.id) {
+                if storage.state.workerOnlySessionIds?.contains(session.id) == true { continue }
                 // Reserve ownership before promotion; an interrupted migration is repaired on reopening.
                 if !storage.state.conversations.contains(where: { $0.sessionId == session.id }) {
                     try storage.transaction {
@@ -43,6 +44,7 @@ extension CoreService {
         }
         if let existing = storage.state.conversations.first(where: {
             $0.agentId == agentID && $0.userId == userID && $0.projectId == projectID
+                && storage.state.workerOnlySessionIds?.contains($0.sessionId) != true
         }) {
             return try getAgentSession(agentID: agentID, sessionID: existing.sessionId).summary
         }
@@ -70,7 +72,7 @@ extension CoreService {
     }
 
     /// Receipts are immediate; model turns are serialized in a durable inbox.
-    func enqueueLongChatMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest, peerOrigin: AgentSessionPeerOrigin? = nil) throws
+    func enqueueLongChatMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest, peerOrigin: AgentSessionPeerOrigin? = nil, goalID: String? = nil) throws
         -> AgentSessionMessageResponse
     {
         let conversation = try getLongChat(agentID: agentID, sessionID: sessionID)
@@ -90,7 +92,7 @@ extension CoreService {
         } else {
             try storage.transaction {
                 $0.turns.append(
-                    .init(id: id, agentId: agentID, sessionId: sessionID, request: request, isNotification: false, peerOrigin: peerOrigin))
+                    .init(id: id, agentId: agentID, sessionId: sessionID, request: request, isNotification: false, peerOrigin: peerOrigin, goalId: goalID))
             }
         }
         let event = try persistLongChatTurnIfNeeded(
@@ -123,6 +125,21 @@ extension CoreService {
     }
 
     func scheduleLongChatTurns(sessionID: String) {
+        if (try? longChats().state.workerOnlySessionIds?.contains(sessionID)) == true {
+            do {
+                let storage = try longChats()
+                for turn in storage.state.turns where turn.sessionId == sessionID && !turn.delivered {
+                    guard let messageID = turn.inboxMessageID else { continue }
+                    var request = turn.request
+                    request.clientMessageId = messageID
+                    _ = try enqueueSessionInboxMessage(agentID: turn.agentId, sessionID: sessionID, request: request)
+                    try storage.transaction { state in
+                        if let i = state.turns.firstIndex(where: { $0.id == turn.id }) { state.turns[i].delivered = true }
+                    }
+                }
+            } catch { logger.error("subagent.notification_failed", metadata: ["error": .string(String(describing: error))]) }
+            return
+        }
         guard !longChatIsStopping, longChatTurnRunners.insert(sessionID).inserted else { return }
         longChatTurnTasks[sessionID] = Task { [weak self] in await self?.drainLongChatTurns(sessionID: sessionID) }
     }
@@ -139,6 +156,15 @@ extension CoreService {
             while !longChatIsStopping, !Task.isCancelled,
                 let turn = nextLongChatTurn(storage: storage, sessionID: sessionID)
             {
+                if let goalID = turn.goalId {
+                    let goal = try await getAgentSessionGoal(agentID: turn.agentId, sessionID: sessionID)
+                    if goal?.id != goalID || goal?.status != .active {
+                        try storage.transaction { state in
+                            if let i = state.turns.firstIndex(where: { $0.id == turn.id }) { state.turns[i].delivered = true }
+                        }
+                        continue
+                    }
+                }
                 let currentDetail = try getAgentSession(agentID: turn.agentId, sessionID: sessionID)
                 if sessionHasPendingInput(currentDetail) { break }
                 let pendingApprovals = await toolApprovalService.listPending(includeUnpublished: true)
@@ -174,14 +200,20 @@ extension CoreService {
                                 LongChatCoordinatorPolicy.managementTools.union(SessionCommunicationPolicy.tools)
                             ).union(["memory.save", "agent.documents.set_memory_markdown"]).union(
                                 await readOnlyLongChatMCPTools()))
-                        _ = try await sessionOrchestrator.postMessage(
+                        let executingGoal = try await getAgentSessionGoal(agentID: turn.agentId, sessionID: sessionID)
+                        let response = try await sessionOrchestrator.postMessage(
                             agentID: turn.agentId, sessionID: sessionID, request: request,
                             userMessageAlreadyPersisted: true,
                             additionalContext: SessionCommunicationPolicy.instructions + "\n" + LongChatCoordinatorPolicy.instructions
-                                + "\n[Current assignments — authoritative persisted state]\n" + snapshot + "\n" + actionLedger,
+                                + "\n[Current assignments — authoritative persisted state]\n" + snapshot + "\n" + actionLedger
+                                + (turn.peerOrigin == nil ? (await sessionGoalContext(agentID: turn.agentId, sessionID: sessionID)) : ""),
                             responseMessageID: responseID, peerOrigin: turn.peerOrigin,
                             isWorkerNotification: turn.isNotification)
                         try recordLongChatModel(agentID: turn.agentId, sessionID: sessionID, turnID: turn.id)
+                        if turn.peerOrigin == nil, let executingGoal {
+                            await scheduleGoalContinuationIfNeeded(agentID: turn.agentId, sessionID: sessionID,
+                                request: request, response: response, expectedGoalID: executingGoal.id)
+                        }
                     } catch {
                         if longChatIsStopping { return }
                         let event = AgentSessionEvent(
@@ -240,6 +272,8 @@ extension CoreService {
                             "resourceKeys": .array(task.resourceKeys.prefix(32).map(JSONValue.string)),
                             "readOnly": .bool(task.readOnly ?? task.resourceKeys.isEmpty),
                             "attempt": .number(Double(task.attempts.last?.number ?? 0)),
+                            "sessionId": task.attempts.last?.sessionId.map(JSONValue.string) ?? .null,
+                            "reuseSessionId": task.reuseSessionId.map(JSONValue.string) ?? .null,
                             "summary": .string(String((task.attempts.last?.summary ?? "").prefix(1000))),
                             "automaticRetryAllowed": .bool(task.attempts.last?.automaticRetryAllowed != false),
                         ])
@@ -272,7 +306,7 @@ extension CoreService {
                     agentID: agentID, sessionID: sessionID, sourceID: sourceID, request: payload)
                 result = try longChatJSON(assignment)
             case "long_chat.status":
-                if let taskID = request.arguments["taskId"]?.asString {
+                if let taskID = LongChatDelegationDecoder.optionalID(request.arguments["taskId"]?.asString) {
                     result = try longChatJSON(currentLongChatTask(sessionID: sessionID, taskID: taskID))
                 } else {
                     result = .string(longChatContext(try getLongChat(agentID: agentID, sessionID: sessionID)))
@@ -301,6 +335,12 @@ extension CoreService {
             return .init(tool: request.tool, ok: false, error: .init(
                 code: "invalid_arguments", message: error.message, retryable: false,
                 hint: error.hint, argumentRecovery: .init(invalidFields: ["assignment"])))
+        } catch let error as SubagentReuseError {
+            return .init(tool: request.tool, ok: false, error: .init(
+                code: "invalid_arguments", message: "The requested reuseSessionId cannot be continued: \(error).",
+                retryable: false,
+                hint: "Inspect the worker session and its original parent/project/resource scope. Supply a valid reuseSessionId owned by this conversation. For an explicitly chosen fresh worker, omit reuseSessionId. No worker was started.",
+                argumentRecovery: .init(invalidFields: ["assignment.tasks.reuseSessionId"])))
         } catch let error as DecodingError {
             return .init(tool: request.tool, ok: false, error: .init(
                 code: "invalid_arguments", message: String(describing: error), retryable: false,
@@ -326,7 +366,7 @@ extension CoreService {
         async throws -> LongChatAssignment
     {
         let conversation = try getLongChat(agentID: agentID, sessionID: sessionID)
-        var request = request
+        var request = LongChatDelegationDecoder.normalized(request)
         for i in request.tasks.indices {
             request.tasks[i].projectId = request.tasks[i].projectId ?? conversation.projectId
             var repositoryPath: String?
@@ -337,6 +377,7 @@ extension CoreService {
             request.tasks[i].resourceKeys = try LongChatResourceLocks.canonicalKeys(
                 request.tasks[i].resourceKeys, projectID: request.tasks[i].projectId, repositoryPath: repositoryPath)
             request.tasks[i].readOnly = request.tasks[i].readOnly ?? request.tasks[i].resourceKeys.isEmpty
+            try validateSubagentReuse(agentID: agentID, parentSessionID: sessionID, task: request.tasks[i])
             guard !request.tasks[i].resourceKeys.contains(""),
                 request.tasks[i].readOnly != false || !request.tasks[i].resourceKeys.isEmpty
             else { throw AgentSessionError.invalidPayload }
@@ -446,6 +487,7 @@ extension CoreService {
             let storage = try longChats()
             // A crash may have persisted migration ownership before the journal metadata write.
             for conversation in storage.state.conversations {
+                if storage.state.workerOnlySessionIds?.contains(conversation.sessionId) == true { continue }
                 if try sessionStore.loadSession(agentID: conversation.agentId, sessionID: conversation.sessionId).summary.kind == .chat {
                     try sessionStore.promoteToLongChat(agentID: conversation.agentId, sessionID: conversation.sessionId)
                 }

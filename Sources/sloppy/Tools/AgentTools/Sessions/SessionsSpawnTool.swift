@@ -8,18 +8,18 @@ struct SessionsSpawnTool: CoreTool {
     let title = "Spawn session"
     let status = "fully_functional"
     let name = "sessions.spawn"
-    let description = "Create child or standalone session."
+    let description = "Create a child session that inherits the parent chat approval mode."
 
     var parameters: GenerationSchema {
         .objectSchema([
             .init(name: "title", description: "Optional session title", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "parentSessionId", description: "Optional parent session ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
+            .init(name: "parentSessionId", description: "Optional parent session ID; defaults to the current session", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])
     }
 
     func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
         let title = arguments["title"]?.asString
-        let parent = arguments["parentSessionId"]?.asString
+        let parent = SessionToolQuery.nonempty(arguments["parentSessionId"]?.asString) ?? context.sessionID
 
         context.logger.info(
             "Tool requested session spawn",

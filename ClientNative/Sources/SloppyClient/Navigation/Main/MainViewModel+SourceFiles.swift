@@ -65,6 +65,11 @@ extension MainViewModel {
     }
 
     func openSourceFile(_ reference: SourceFileReference, from chat: ChatScreenViewModel) {
+        if reference.line == nil, reference.column == nil,
+           let workflow = ProjectWorkflowReference(path: reference.path) {
+            workspaceDockState.openWorkflow(workflow, apiClient: SloppyAPIClient(endpoint: chat.sessionEndpoint))
+            return
+        }
         let scope: WorkspaceSourceFileViewModel.Scope
         if let projectID = chat.activeProjectIdForWorkspacePanel {
             scope = .project(projectID)

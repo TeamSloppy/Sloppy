@@ -106,7 +106,9 @@ extension MainView {
 #endif
             }
         case .review, .files:
-            if let preview = tab.referencePreview {
+            if let workflow = tab.workflow, let reference = tab.workflowReference {
+                ProjectWorkflowView(viewModel: workflow, projectId: reference.projectID)
+            } else if let preview = tab.referencePreview {
                 WorkspaceReferencePreview(viewModel: preview)
             } else if let sourceFile = tab.sourceFile {
                 WorkspaceSourceFileView(viewModel: sourceFile)

@@ -19,6 +19,7 @@ public struct ProjectWorkflowView: View {
     public var body: some View {
         VStack(spacing: 0) {
             controls
+                .fixedSize(horizontal: false, vertical: true)
             Divider()
             if let error = viewModel.errorMessage {
                 errorBanner(error)
@@ -39,8 +40,10 @@ public struct ProjectWorkflowView: View {
                         ? "Workflows created by your agents for this project appear here."
                         : "Refresh to try loading this project's workflows again.")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.colors.background)
         .task(id: projectId) { await poll() }
         .sheet(item: $inspection) { item in

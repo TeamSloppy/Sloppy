@@ -12,18 +12,37 @@ final class LongChatFileStore {
         var request: AgentSessionPostMessageRequest
         var isNotification: Bool
         var peerOrigin: AgentSessionPeerOrigin?
+        var goalId: String?
         var deliveryError: String?
         /// The validated executor for an explicit model choice, before the turn delegates work.
         var resolvedModel: String?
+        /// Durable UUID for forwarding notifications to an ordinary chat's inbox.
+        var inboxMessageID: String?
         var processing = false
         var delivered = false
     }
 
-    struct State: Codable {
+    struct State: Codable, Sendable {
         var conversations: [LongChatConversation] = []
         var turns: [Turn] = []
         var cancelledSourceMessageIds: [String]?
         var separateSessionIds: [String]?
+        /// Ordinary chats using the worker queue, without becoming coordinators.
+        var workerOnlySessionIds: [String]?
+        var workerContexts: [String: WorkerContext]?
+        var sessionGoals: [String: AgentSessionGoalRecord]?
+    }
+
+    struct WorkerContext: Codable, Sendable {
+        var agentId: String
+        var parentSessionId: String
+        var projectId: String?
+        var workingDirectory: String?
+        var extraRoots: [String]
+        var toolIDs: Set<String>
+        var resourceKeys: [String]
+        var readOnly: Bool
+        var sourceTaskId: String?
     }
 
     private let url: URL
@@ -100,10 +119,27 @@ final class LongChatFileStore {
                         && Set($0.dependsOn).isSubset(of: keys) && !$0.dependsOn.contains($0.key)
                 })
             else { throw StoreError.invalidPayload }
+            for task in request.tasks {
+                if let sessionID = task.reuseSessionId {
+                    guard let saved = state.workerContexts?[sessionID], saved.parentSessionId == sessionId,
+                          saved.agentId == state.conversations[index].agentId,
+                          saved.projectId == task.projectId, Set(saved.resourceKeys) == Set(task.resourceKeys),
+                          !saved.readOnly || (task.readOnly ?? task.resourceKeys.isEmpty) else { throw StoreError.invalidPayload }
+                }
+            }
             var resolved = Set<String>()
+            var predecessors: [String: String] = [:]
+            var previousBySession: [String: String] = [:]
+            for task in request.tasks {
+                if let sessionID = task.reuseSessionId {
+                    predecessors[task.key] = previousBySession[sessionID]
+                    previousBySession[sessionID] = task.key
+                }
+            }
             while resolved.count < keys.count {
                 let ready = request.tasks.filter {
                     !resolved.contains($0.key) && Set($0.dependsOn).isSubset(of: resolved)
+                        && (predecessors[$0.key].map(resolved.contains) ?? true)
                 }
                 guard !ready.isEmpty else { throw StoreError.invalidPayload }
                 resolved.formUnion(ready.map(\.key))
@@ -115,7 +151,8 @@ final class LongChatFileStore {
                     LongChatTask(
                         id: UUID().uuidString, key: task.key, title: task.title, objective: task.objective,
                         projectId: task.projectId, resourceKeys: task.resourceKeys, dependsOn: task.dependsOn,
-                        attempts: [LongChatAttempt(number: 1)], readOnly: task.readOnly ?? task.resourceKeys.isEmpty)
+                        attempts: [LongChatAttempt(number: 1)], readOnly: task.readOnly ?? task.resourceKeys.isEmpty,
+                        reuseSessionId: task.reuseSessionId)
                 }, createdAt: Date()
             )
             state.conversations[index].assignments.append(assignment)
@@ -179,7 +216,7 @@ final class LongChatFileStore {
     }
 
     /// Resource locks are global; concurrency is bounded per conversation.
-    func runnableTasks(sessionId: String) throws -> [(assignment: LongChatAssignment, task: LongChatTask)] {
+    func runnableTasks(sessionId: String, busySessionIDs: Set<String> = []) throws -> [(assignment: LongChatAssignment, task: LongChatTask)] {
         let conversation = try conversation(sessionId: sessionId)
         let all = state.conversations.flatMap(\.assignments).flatMap(\.tasks)
         let occupied = Set(
@@ -193,9 +230,16 @@ final class LongChatFileStore {
                 || ($0.status.isTerminal && $0.attempts.last?.executionStopped == false)
         }.count
         var locks = occupied
+        var sessions = busySessionIDs.union(all.filter {
+            $0.status == .running || $0.status == .waitingInput || $0.attempts.last?.executionStopped == false
+        }.compactMap { $0.attempts.last?.sessionId })
         var result: [(LongChatAssignment, LongChatTask)] = []
         for assignment in conversation.assignments {
             for task in assignment.tasks where task.status == .queued {
+                // Reserve even a dependency-blocked head so later iterations cannot overtake it.
+                if let sessionID = task.reuseSessionId {
+                    guard sessions.insert(sessionID).inserted else { continue }
+                }
                 guard result.count < max(0, 3 - active),
                     task.readOnly == true || !LongChatResourceLocks.conflicts(task.resourceKeys, with: locks),
                     task.dependsOn.allSatisfy({ key in

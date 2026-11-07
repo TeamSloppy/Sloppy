@@ -123,7 +123,7 @@ private func taskSyncLinkedProjectJSONValue(_ linkedProject: ProjectTaskSyncLink
     ])
 }
 
-private func autopilotSettingsJSONValue(_ settings: ProjectAutopilotSettings) -> JSONValue {
+func autopilotSettingsJSONValue(_ settings: ProjectAutopilotSettings) -> JSONValue {
     .object([
         "enabled": .bool(settings.enabled),
         "mode": .string(settings.mode.rawValue),
@@ -132,6 +132,13 @@ private func autopilotSettingsJSONValue(_ settings: ProjectAutopilotSettings) ->
         "includedTags": .array(settings.includedTags.map { .string($0) }),
         "ignoredTags": .array(settings.ignoredTags.map { .string($0) }),
         "trustedAuthors": .array(settings.trustedAuthors.map { .string($0) }),
+        "pickupRules": .object([
+            "matchMode": .string(settings.pickupRules.matchMode.rawValue),
+            "conditions": .array(settings.pickupRules.conditions.map { condition in
+                .object(["id": .string(condition.id), "field": .string(condition.field.rawValue),
+                         "operation": .string(condition.operation.rawValue), "values": .array(condition.values.map { .string($0) })])
+            })
+        ]),
         "maxParallelTasks": .number(Double(settings.maxParallelTasks)),
         "canUseWeb": .bool(settings.canUseWeb),
         "canEditFiles": .bool(settings.canEditFiles),

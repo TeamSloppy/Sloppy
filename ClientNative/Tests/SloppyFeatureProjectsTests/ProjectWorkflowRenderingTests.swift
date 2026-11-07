@@ -59,18 +59,21 @@ struct ProjectWorkflowRenderingTests {
     }
 
     private func renderState(_ model: ProjectWorkflowViewModel, projectID: String, name: String) async throws {
-        let host = NSHostingView(rootView: ProjectWorkflowView(viewModel: model, projectId: projectID)
-            .environment(\.theme, .sloppyDark).preferredColorScheme(.dark))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = host
-        window.orderFront(nil)
-        defer { window.orderOut(nil); window.contentView = nil }
-        try await Task.sleep(for: .milliseconds(150))
-        host.layoutSubtreeIfNeeded()
-        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
-        try save(bitmap, name: name)
+        for size in [CGSize(width: 600, height: 500), CGSize(width: 1400, height: 1000), CGSize(width: 390, height: 700)] {
+            let host = NSHostingView(rootView: ProjectWorkflowView(viewModel: model, projectId: projectID)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(\.theme, .sloppyDark).preferredColorScheme(.dark))
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = host
+            window.orderFront(nil)
+            defer { window.orderOut(nil); window.contentView = nil }
+            try await Task.sleep(for: .milliseconds(150))
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            try save(bitmap, name: "\(Int(size.width))-\(name)")
+        }
     }
 
     private func save(_ bitmap: NSBitmapImageRep, name: String) throws {

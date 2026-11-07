@@ -4,6 +4,17 @@ import SloppyClientCore
 
 @Suite("Source file references")
 struct SourceFileReferenceTests {
+    @Test func recognizesDashboardWorkflowRoutes() throws {
+        let workflow = try #require(ProjectWorkflowReference(path: "/projects/project/workflows/wf_saved"))
+        #expect(workflow.projectID == "project")
+        #expect(workflow.workflowID == "wf_saved")
+        for path in ["/projects/project/workflows", "/projects/project/files/wf_saved",
+                     "/projects/project/workflows/wf_saved/file.swift", "/Users/me/workflow.swift",
+                     "https://example.com/projects/project/workflows/wf_saved"] {
+            #expect(ProjectWorkflowReference(path: path) == nil)
+        }
+    }
+
     @Test(arguments: [
         ("/Users/vlad/Project/File.swift:42", "/Users/vlad/Project/File.swift", 42, nil),
         ("Sources/File.swift:42:7", "Sources/File.swift", 42, 7),

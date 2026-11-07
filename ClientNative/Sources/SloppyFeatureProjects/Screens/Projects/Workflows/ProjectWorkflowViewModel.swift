@@ -15,12 +15,14 @@ public final class ProjectWorkflowViewModel {
     public private(set) var errorMessage: String?
     public private(set) var detailErrorMessage: String?
 
+    @ObservationIgnored private let initialWorkflowID: String?
     @ObservationIgnored private let apiClient: SloppyAPIClient
     @ObservationIgnored private var projectID: String?
     @ObservationIgnored private var loadID = UUID()
     @ObservationIgnored private var detailLoadID = UUID()
 
-    public init(apiClient: SloppyAPIClient) {
+    public init(apiClient: SloppyAPIClient, initialWorkflowID: String? = nil) {
+        self.initialWorkflowID = initialWorkflowID
         self.apiClient = apiClient
     }
 
@@ -64,7 +66,7 @@ public final class ProjectWorkflowViewModel {
             projectID = projectId
             workflows = []
             runs = []
-            selectedWorkflowID = nil
+            selectedWorkflowID = initialWorkflowID
             selectRun(nil)
             errorMessage = nil
         }
@@ -79,6 +81,12 @@ public final class ProjectWorkflowViewModel {
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             runs = snapshot.1.filter { $0.projectId == projectId }
                 .sorted { $0.startedAt > $1.startedAt }
+            if let initialWorkflowID, selectedWorkflowID == initialWorkflowID,
+               !workflows.contains(where: { $0.id == initialWorkflowID }) {
+                selectRun(nil)
+                errorMessage = "The linked workflow is unavailable in this project."
+                return
+            }
             if !workflows.contains(where: { $0.id == selectedWorkflowID }) {
                 selectedWorkflowID = runs.first(where: { run in workflows.contains { $0.id == run.workflowId } })?.workflowId
                     ?? workflows.first?.id

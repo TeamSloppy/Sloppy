@@ -602,10 +602,19 @@ extension CoreService {
         }
 
         _ = try getAgent(id: normalizedAgentID)
-        if try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID).summary.kind == .longChat {
-            return try enqueueLongChatMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID, request: effectiveRequest)
-        }
         let workerSummary = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID).summary
+        var goalTurnID: String?
+        if !longChatWorkerDelivery, !inboxDelivery, !peerConversation, peerOrigin == nil,
+           workerSummary.parentSessionId == nil, workerSummary.kind != .longChatWorker {
+            let command = try await handleSessionGoalCommand(
+                agentID: normalizedAgentID, sessionID: normalizedSessionID, request: effectiveRequest)
+            if let response = command.response { return response }
+            goalTurnID = command.goalID
+        }
+        if workerSummary.kind == .longChat {
+            return try enqueueLongChatMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID,
+                request: effectiveRequest, goalID: goalTurnID)
+        }
         let hasLongChatParent = workerSummary.parentSessionId.map {
             (try? getAgentSession(agentID: normalizedAgentID, sessionID: $0).summary.kind) == .longChat
         } ?? false
@@ -637,6 +646,7 @@ extension CoreService {
             if !inboxDelivery {
                 activeSessionMessageRuns.remove(normalizedSessionID)
                 scheduleSessionInbox(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+                Task { [weak self] in await self?.dispatchLongChatWorkers() }
             }
         }
         if effectiveRequest.userId == "onboarding" {
@@ -684,12 +694,14 @@ extension CoreService {
                     throw CancellationError()
                 }
             }
+            let executingGoal = try? await getAgentSessionGoal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
             let response = try await sessionOrchestrator.postMessage(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
                 request: effectiveRequest,
                 userMessageAlreadyPersisted: userMessageAlreadyPersisted,
-                additionalContext: SessionCommunicationPolicy.instructions + (peerConversation
+                additionalContext: SessionCommunicationPolicy.instructions
+                    + (peerConversation ? "" : (await sessionGoalContext(agentID: normalizedAgentID, sessionID: normalizedSessionID))) + (peerConversation
                     ? "\n[Communication turn] The delegated task is closed. Discuss evidence only; do not change resources or call agent_delegate.finish."
                     : ""),
                 peerOrigin: peerOrigin
@@ -724,12 +736,11 @@ extension CoreService {
                     response: response,
                     userID: effectiveRequest.userId
                 )
-                await scheduleGoalContinuationIfNeeded(
-                    agentID: normalizedAgentID,
-                    sessionID: normalizedSessionID,
-                    request: effectiveRequest,
-                    response: response
-                )
+                if let executingGoal {
+                    await scheduleGoalContinuationIfNeeded(
+                        agentID: normalizedAgentID, sessionID: normalizedSessionID, request: effectiveRequest,
+                        response: response, expectedGoalID: executingGoal.id)
+                }
             }
             await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, response: response)
             return response
@@ -758,23 +769,27 @@ extension CoreService {
             throw AgentSessionError.invalidPayload
         }
 
+        let owner = (try? getLongChat(agentID: normalizedAgentID, sessionID: normalizedSessionID))?.userId
+        let requestedUserID = request.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let owner, !requestedUserID.isEmpty, requestedUserID != "goal", requestedUserID != owner {
+            throw AgentSessionError.invalidPayload
+        }
         let goal = await sessionGoalController.start(
             agentID: normalizedAgentID,
             sessionID: normalizedSessionID,
             objective: objective,
             maxAttempts: request.maxAttempts ?? 8
         )
-        let userID = request.userId.trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try await postAgentSessionMessage(
-            agentID: normalizedAgentID,
-            sessionID: normalizedSessionID,
-            request: AgentSessionPostMessageRequest(
-                userId: userID.isEmpty ? "goal" : userID,
-                content: SloppyTUIGoalPromptFormatter.initialPrompt(objective: objective),
-                reasoningEffort: request.reasoningEffort,
-                mode: request.mode
-            )
-        )
+        try persistSessionGoal(goal, sessionID: normalizedSessionID)
+        let message = AgentSessionPostMessageRequest(
+            userId: owner ?? (requestedUserID.isEmpty ? "goal" : requestedUserID),
+            content: SloppyTUIGoalPromptFormatter.initialPrompt(objective: objective),
+            reasoningEffort: request.reasoningEffort, mode: request.mode)
+        if owner != nil {
+            _ = try enqueueLongChatMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID, request: message, goalID: goal.id)
+        } else {
+            _ = try await postAgentSessionMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID, request: message)
+        }
         return (await sessionGoalController.goal(agentID: normalizedAgentID, sessionID: normalizedSessionID)) ?? goal
     }
 
@@ -785,6 +800,10 @@ extension CoreService {
         guard let normalizedSessionID = normalizedSessionID(sessionID) else {
             throw AgentSessionError.invalidSessionID
         }
+        if let current = await sessionGoalController.goal(agentID: normalizedAgentID, sessionID: normalizedSessionID) { return current }
+        guard let saved = try longChats().state.sessionGoals?[normalizedSessionID], saved.agentId == normalizedAgentID else { return nil }
+        _ = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        await sessionGoalController.restore(saved)
         return await sessionGoalController.goal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
     }
 
@@ -795,7 +814,10 @@ extension CoreService {
         guard let normalizedSessionID = normalizedSessionID(sessionID) else {
             throw AgentSessionError.invalidSessionID
         }
-        return await sessionGoalController.pause(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        _ = try await getAgentSessionGoal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        let goal = await sessionGoalController.pause(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        try persistSessionGoal(goal, sessionID: normalizedSessionID)
+        return goal
     }
 
     public func resumeAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
@@ -805,18 +827,20 @@ extension CoreService {
         guard let normalizedSessionID = normalizedSessionID(sessionID) else {
             throw AgentSessionError.invalidSessionID
         }
+        _ = try await getAgentSessionGoal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         guard let goal = await sessionGoalController.resume(agentID: normalizedAgentID, sessionID: normalizedSessionID) else {
             return nil
         }
+        try persistSessionGoal(goal, sessionID: normalizedSessionID)
         if goal.status == .active {
-            _ = try await postAgentSessionMessage(
-                agentID: normalizedAgentID,
-                sessionID: normalizedSessionID,
-                request: AgentSessionPostMessageRequest(
-                    userId: "goal_loop",
-                    content: SloppyTUIGoalPromptFormatter.continuationPrompt(goal: goal)
-                )
-            )
+            let owner = (try? getLongChat(agentID: normalizedAgentID, sessionID: normalizedSessionID))?.userId
+            let message = AgentSessionPostMessageRequest(userId: owner ?? "goal_loop",
+                content: SloppyTUIGoalPromptFormatter.continuationPrompt(goal: goal))
+            if owner != nil {
+                _ = try enqueueLongChatMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID, request: message, goalID: goal.id)
+            } else {
+                _ = try await postAgentSessionMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID, request: message)
+            }
         }
         return await sessionGoalController.goal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
     }
@@ -828,43 +852,61 @@ extension CoreService {
         guard let normalizedSessionID = normalizedSessionID(sessionID) else {
             throw AgentSessionError.invalidSessionID
         }
-        return await sessionGoalController.clear(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        _ = try await getAgentSessionGoal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        let goal = await sessionGoalController.clear(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        try persistSessionGoal(nil, sessionID: normalizedSessionID)
+        return goal
     }
 
-    private func scheduleGoalContinuationIfNeeded(
+    func scheduleGoalContinuationIfNeeded(
         agentID: String,
         sessionID: String,
         request: AgentSessionPostMessageRequest,
-        response: AgentSessionMessageResponse
+        response: AgentSessionMessageResponse,
+        expectedGoalID: String? = nil
     ) async {
-        let userID = request.userId.lowercased()
-        guard userID == "goal" || userID == "goal_loop" else {
-            return
-        }
+        guard let goal = try? await getAgentSessionGoal(agentID: agentID, sessionID: sessionID), goal.status == .active
+        else { return }
+        guard expectedGoalID == nil || goal.id == expectedGoalID else { return }
+        let conversation = try? getLongChat(agentID: agentID, sessionID: sessionID)
+        let hasPendingWork = conversation?.assignments.contains { assignment in
+            assignment.tasks.contains { !$0.status.isTerminal || $0.attempts.last?.executionStopped == false }
+        } ?? false
         guard let evaluation = await sessionGoalController.evaluateTurn(
             agentID: agentID,
             sessionID: sessionID,
-            events: response.appendedEvents
-        ),
-              evaluation.shouldContinue,
-              let prompt = evaluation.continuationPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !prompt.isEmpty
-        else {
+            events: response.appendedEvents,
+            hasPendingWork: hasPendingWork,
+            expectedGoalID: goal.id
+        ) else { return }
+        do {
+            try persistSessionGoal(await sessionGoalController.goal(agentID: agentID, sessionID: sessionID), sessionID: sessionID)
+        } catch {
+            logger.warning("session.goal.persist_failed", metadata: ["error": .string(error.localizedDescription)])
             return
         }
+        guard evaluation.shouldContinue,
+              let prompt = evaluation.continuationPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty else { return }
 
         Task { [weak self] in
             do {
-                _ = try await self?.postAgentSessionMessage(
-                    agentID: agentID,
-                    sessionID: sessionID,
-                    request: AgentSessionPostMessageRequest(
-                        userId: "goal_loop",
-                        content: prompt,
-                        reasoningEffort: request.reasoningEffort,
-                        mode: request.mode
-                    )
-                )
+                guard let self,
+                      let current = await self.sessionGoalController.goal(agentID: agentID, sessionID: sessionID),
+                      current.id == goal.id, current.status == .active else { return }
+                var continuation = request
+                continuation.content = prompt
+                continuation.attachments = []
+                continuation.clientMessageId = UUID().uuidString
+                continuation.sessionReferences = nil
+                continuation.spawnSubSession = false
+                if let conversation {
+                    continuation.userId = conversation.userId
+                    _ = try await self.enqueueLongChatMessage(agentID: agentID, sessionID: sessionID,
+                        request: continuation, goalID: goal.id)
+                } else {
+                    continuation.userId = "goal_loop"
+                    _ = try await self.postAgentSessionMessage(agentID: agentID, sessionID: sessionID, request: continuation)
+                }
             } catch {
                 self?.logger.warning(
                     "session.goal.continuation_failed",

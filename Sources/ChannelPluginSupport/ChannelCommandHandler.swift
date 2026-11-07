@@ -47,6 +47,7 @@ public struct ChannelCommandHandler: Sendable {
         BotCommand(name: "status", description: "Check plugin connectivity"),
         BotCommand(name: "new", description: "Start a new session with the agent"),
         BotCommand(name: "whoami", description: "Show channel and user info"),
+        BotCommand(name: "goal", description: "Set, inspect, pause, resume, or clear an autonomous goal", argument: "objective|status|pause|resume|clear", surfaces: [.dashboard, .tui]),
         BotCommand(name: "task", description: "Create a task via Sloppy", argument: "description"),
         BotCommand(name: "model", description: "Show or switch model", argument: "model_id"),
         BotCommand(name: "ask", description: "Ask a question without code changes", argument: "message", surfaces: [.telegram, .discord]),

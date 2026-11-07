@@ -19,11 +19,14 @@ struct AgentsDelegateTaskTool: CoreTool {
 
     Optional `context` is shared background prepended to every subagent (paths, errors, locale, constraints). Optional `toolsets` narrows tools (e.g. terminal, file, web, skills, lsp, mcp, project, visor, system). If omitted, the subagent inherits your allowed tools minus a fixed safety denylist (no recursive delegation, no shared memory writes, no session messaging). Terminal execution is available according to the inherited policy; required approvals are reviewed by the configured semantic provider or presented to the user.
 
-    Subagents have no memory of this chat—put everything they need in `context` and/or each goal string.
+    Before creating a replacement for follow-up work, inspect sessions.list for a suitable child of THIS chat. Explicitly set sessionId plus goal to continue it with its existing history. Do not reuse workers from other chats. Omit tasks and toolsets when continuing. Continuations return an accepted assignment immediately, queue behind current work, and deliver separate status/results to this chat; accepted is not completed. A missing session or original execution scope is an error, never an automatic replacement. Omit sessionId when an independent fresh review is needed.
+
+    New subagents have no memory of this chat—put everything they need in `context` and/or each goal string. Continued subagents retain their own previous conversation.
     """
 
     var parameters: GenerationSchema {
         .objectSchema([
+            .init(name: "sessionId", description: "Explicit existing child session from sessions.list to continue. Use only with goal and optional context. Queues a separate assignment with the original tools and scope; returns immediately.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(
                 name: "goal",
                 description: "One standalone task for a single subagent. Omit `tasks` entirely (or pass `tasks: []`). Never combine with a non-empty `tasks` array.",
@@ -52,6 +55,26 @@ struct AgentsDelegateTaskTool: CoreTool {
     }
 
     func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
+        if let target = arguments["sessionId"] {
+            guard let sessionID = target.asString?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionID.isEmpty,
+                  let goal = trimmedArg("goal", from: arguments), !goal.isEmpty,
+                  arguments["tasks"] == nil || arguments["tasks"]?.asArray?.isEmpty == true,
+                  arguments["toolsets"] == nil else {
+                return toolFailure(tool: name, code: "invalid_arguments", message: "Continuation requires a nonempty sessionId and goal; omit tasks and toolsets.", retryable: false)
+            }
+            guard let service = context.sessionService else {
+                return toolFailure(tool: name, code: "delegation_unavailable", message: "Subagent continuation is unavailable.", retryable: false)
+            }
+            let background = trimmedArg("context", from: arguments).map { "[Context]\n\($0)\n\n" } ?? ""
+            do {
+                let assignment = try await service.continueSubagentTask(
+                    agentID: context.agentID, parentSessionID: context.sessionID, sessionID: sessionID,
+                    objective: background + "[Goal]\n" + goal)
+                return toolSuccess(tool: name, data: .object(["accepted": .bool(true), "sessionId": .string(sessionID), "assignment": assignment]))
+            } catch {
+                return toolFailure(tool: name, code: "subagent_reuse_failed", message: "Could not continue the selected subagent: \(error). No replacement was created.", retryable: false)
+            }
+        }
         guard let runner = context.delegateSubagent else {
             return toolFailure(
                 tool: name,
@@ -125,6 +148,7 @@ struct AgentsDelegateTaskTool: CoreTool {
             let taskId = UUID().uuidString
             let summary = await runner(agentID, taskId, objective, workingDirectory, toolsets, nil, context.sessionID)
                 ?? ""
+            let sessionID = try? await context.sessionService?.delegatedSubagentSessionID(agentID: agentID, parentSessionID: context.sessionID, taskID: taskId)
             return toolSuccess(
                 tool: name,
                 data: .object([
@@ -132,6 +156,7 @@ struct AgentsDelegateTaskTool: CoreTool {
                         .object([
                             "goal": .string(singleGoal),
                             "summary": .string(summary),
+                            "sessionId": sessionID.map(JSONValue.string) ?? .null,
                         ]),
                     ]),
                 ])
@@ -148,9 +173,11 @@ struct AgentsDelegateTaskTool: CoreTool {
                     objective += "[Goal]\n\(goal)"
                     let taskId = UUID().uuidString
                     let summary = await runner(agentID, taskId, objective, workingDirectory, toolsets, nil, context.sessionID) ?? ""
+                    let sessionID = try? await context.sessionService?.delegatedSubagentSessionID(agentID: agentID, parentSessionID: context.sessionID, taskID: taskId)
                     return .object([
                         "goal": .string(goal),
                         "summary": .string(summary),
+                        "sessionId": sessionID.map(JSONValue.string) ?? .null,
                     ])
                 }
             }

@@ -426,6 +426,116 @@ func taskUpdateCanSetDoneWithCompletionEvidence() async throws {
     #expect(result.data?.asObject?["status"]?.asString == ProjectTaskStatus.done.rawValue)
 }
 
+@Test
+func projectUpdateConfiguresAutopilotWithoutResettingOtherSettings() async throws {
+    let fixture = try await makeTaskUpdateFixture()
+    _ = try await fixture.service.updateProject(projectID: fixture.projectID, request: .init(
+        autopilotSettings: .init(enabled: false, reviewerAgentId: "reviewer", ignoredTags: ["manual"], canCommit: true)
+    ))
+    let result = await ProjectUpdateTool().invoke(arguments: [
+        "projectId": .string(fixture.projectID),
+        "autopilotSettings": .object([
+            "enabled": .bool(true), "mode": .string("parallel"),
+            "defaultAgentId": .string("builder"), "includedTags": .array([.string("work")]),
+            "trustedAuthors": .array([.string("agent:test-agent")]), "maxParallelTasks": .number(3),
+            "canUseWeb": .bool(true), "canEditFiles": .bool(true), "canRunCommands": .bool(true),
+            "canStartLocalhost": .bool(true), "canPush": .bool(false),
+            "pickupRules": .object(["conditions": .array([.object([
+                "id": .string("source"), "field": .string("source"), "operation": .string("one_of"),
+                "values": .array([.string("local")])
+            ])])])
+        ]),
+        "taskLoopMode": .string("agent"), "automaticTaskPickupEnabled": .bool(true)
+    ], context: fixture.context)
+    #expect(result.ok)
+    let project = try await fixture.service.getProject(id: fixture.projectID)
+    let settings = project.autopilotSettings
+    #expect(settings.enabled && settings.mode == .parallel)
+    #expect(settings.defaultAgentId == "builder" && settings.reviewerAgentId == "reviewer")
+    #expect(settings.includedTags == ["work"] && settings.ignoredTags == ["manual"])
+    #expect(settings.trustedAuthors == ["agent:test-agent"] && settings.maxParallelTasks == 3)
+    #expect(settings.canUseWeb && settings.canEditFiles && settings.canRunCommands && settings.canStartLocalhost)
+    #expect(settings.canCommit && !settings.canPush)
+    #expect(settings.pickupRules.conditions.first?.field == .source)
+    #expect(project.taskLoopMode == .agent && project.automaticTaskPickupEnabled)
+    #expect(result.data?.asObject?["autopilotSettings"]?.asObject?["pickupRules"] != nil)
+
+    let disabled = await ProjectUpdateTool().invoke(arguments: [
+        "projectId": .string(fixture.projectID),
+        "autopilotSettings": .object(["enabled": .bool(false), "reviewerAgentId": .string("")]),
+        "taskLoopMode": .string("human"), "automaticTaskPickupEnabled": .bool(false)
+    ], context: fixture.context)
+    #expect(disabled.ok)
+    let updated = try await fixture.service.getProject(id: fixture.projectID)
+    #expect(!updated.autopilotSettings.enabled && updated.autopilotSettings.reviewerAgentId == nil)
+    #expect(updated.autopilotSettings.defaultAgentId == "builder")
+    #expect(updated.autopilotSettings.canCommit)
+    #expect(updated.taskLoopMode == .human && !updated.automaticTaskPickupEnabled)
+}
+
+@Test
+func projectUpdateRejectsInvalidAutopilotSettingsAtomically() async throws {
+    let fixture = try await makeTaskUpdateFixture()
+    let before = try await fixture.service.getProject(id: fixture.projectID)
+    let invalid: [[String: JSONValue]] = [
+        ["autopilotSettings": .string("null")],
+        ["autopilotSettings": .object(["mode": .string("invalid")])],
+        ["autopilotSettings": .object(["enabled": .string("true")])],
+        ["autopilotSettings": .object(["canPuhs": .bool(true)])],
+        ["autopilotSettings": .object(["pickupRules": .object(["conditions": .array([.object([
+            "id": .string("bad"), "field": .string("tag"), "operation": .string("contains"),
+            "values": .array([.string("work")])
+        ])])])])],
+        ["taskLoopMode": .string("invalid")],
+        ["automaticTaskPickupEnabled": .string("true")]
+    ]
+    for patch in invalid {
+        var arguments = patch
+        arguments["projectId"] = .string(fixture.projectID)
+        arguments["name"] = .string("Must not save")
+        let result = await ProjectUpdateTool().invoke(arguments: arguments, context: fixture.context)
+        #expect(!result.ok && result.error?.code == "invalid_arguments")
+        #expect(try await fixture.service.getProject(id: fixture.projectID) == before)
+    }
+}
+
+@Test
+func projectUpdateMetadataPreservesAutopilotAndNewProjectDefaultIsEnabled() async throws {
+    let fixture = try await makeTaskUpdateFixture()
+    #expect(try await fixture.service.getProject(id: fixture.projectID).autopilotSettings.enabled)
+    _ = try await fixture.service.updateProject(projectID: fixture.projectID, request: .init(autopilotSettings: .init(enabled: false)))
+    let result = await ProjectUpdateTool().invoke(arguments: [
+        "projectId": .string(fixture.projectID), "name": .string("Renamed")
+    ], context: fixture.context)
+    #expect(result.ok)
+    #expect(try await !fixture.service.getProject(id: fixture.projectID).autopilotSettings.enabled)
+}
+
+@Test
+func projectUpdateAutopilotPatchPreservesNullsAndNestedRules() throws {
+    let current = ProjectAutopilotSettings(enabled: false, defaultAgentId: "builder", canCommit: true,
+        pickupRules: .init(matchMode: .any, conditions: [.init(id: "tag", field: .tag, values: ["work"])]))
+    let updated = try ProjectAutopilotToolSettings.applying(.object([
+        "enabled": .null, "defaultAgentId": .null, "canCommit": .null,
+        "pickupRules": .object(["conditions": .array([])])
+    ]), to: current)
+    #expect(!updated.enabled && updated.defaultAgentId == "builder" && updated.canCommit)
+    #expect(updated.pickupRules.matchMode == .any && updated.pickupRules.conditions.isEmpty)
+}
+
+@Test
+func projectUpdateAdvertisesTypedAutopilotSettings() throws {
+    let data = try JSONEncoder().encode(ProjectUpdateTool().parameters)
+    let schema = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let properties = try #require(schema["properties"] as? [String: Any])
+    let autopilot = try #require(properties["autopilotSettings"] as? [String: Any])
+    #expect(autopilot["type"] as? String == "object")
+    let settings = try #require(autopilot["properties"] as? [String: Any])
+    #expect((settings["enabled"] as? [String: Any])?["type"] as? String == "boolean")
+    #expect(settings["pickupRules"] != nil && settings["canPush"] != nil)
+    #expect(properties["taskLoopMode"] != nil && properties["automaticTaskPickupEnabled"] != nil)
+}
+
 // MARK: - Helper
 
 private func makeTaskUpdateFixture() async throws -> (service: CoreService, context: ToolContext, projectID: String, taskID: String) {

@@ -75,6 +75,27 @@ func workflowToolRejectsInvalidGraphWithValidationIssues() async throws {
 }
 
 @Test
+func workflowToolAcceptsUnconditionalEdgePlaceholders() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    for value in [JSONValue.null, .string(""), .string(" \n "), .string("null"), .string(" null ")] {
+        var arguments = starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID)
+        var edges = try #require(arguments["edges"]?.asArray)
+        for index in edges.indices {
+            var edge = try #require(edges[index].asObject)
+            edge["condition"] = value
+            edge["conditionKey"] = .string("")
+            edges[index] = .object(edge)
+        }
+        arguments["edges"] = .array(edges)
+        let result = await WorkflowTool().invoke(arguments: arguments, context: fixture.context)
+        #expect(result.ok)
+        let id = try #require(result.data?.asObject?["workflowId"]?.asString)
+        let saved = try await fixture.service.getWorkflowDefinition(projectID: fixture.projectID, workflowID: id)
+        #expect(saved.edges.allSatisfy { $0.condition == nil && $0.conditionKey == nil })
+    }
+}
+
+@Test
 func workflowToolPreservesTypedConditionsAndRejectsMalformedOnes() async throws {
     let fixture = try await makeWorkflowToolFixture()
     let condition: JSONValue = .object(["path": .string("status"), "equals": .bool(false)])
@@ -303,9 +324,9 @@ func workflowToolDocumentsExamplesThroughActualParserAndValidator() throws {
 }
 
 @Test
-func workflowToolIncidentEmptyConditionReportsPrecisePathWithoutSaving() async throws {
+func workflowToolMalformedConditionReportsPrecisePathWithoutSaving() async throws {
     let fixture = try await makeWorkflowToolFixture()
-    for value in [JSONValue.string(""), .string("{broken"), .object([:]), .object(["path": .string("status")])] {
+    for value in [JSONValue.string("{}"), .string("false"), .string("{broken"), .bool(false), .array([]), .object([:]), .object(["path": .string("status")])] {
         var args = starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID)
         var edges = try #require(args["edges"]?.asArray)
         var edge = try #require(edges[0].asObject)
@@ -318,19 +339,6 @@ func workflowToolIncidentEmptyConditionReportsPrecisePathWithoutSaving() async t
         #expect(result.data?.asObject?["hint"]?.asString?.isEmpty == false)
         #expect(try await fixture.service.listWorkflowDefinitions(projectID: fixture.projectID).isEmpty)
     }
-}
-
-@Test
-func workflowToolNullConditionIsUnconditionalButEmptyKeyIsGraphError() async throws {
-    let fixture = try await makeWorkflowToolFixture()
-    var args = starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID)
-    var edges = try #require(args["edges"]?.asArray)
-    var edge = try #require(edges[0].asObject)
-    edge["condition"] = .null; edges[0] = .object(edge); args["edges"] = .array(edges)
-    #expect((await WorkflowTool().invoke(arguments: args, context: fixture.context)).ok)
-    edge["conditionKey"] = .string(""); edges[0] = .object(edge); args["edges"] = .array(edges)
-    let invalid = await WorkflowTool().invoke(arguments: args, context: fixture.context)
-    #expect(invalid.error?.code == "validation_failed")
 }
 
 @Test

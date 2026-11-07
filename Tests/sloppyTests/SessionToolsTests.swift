@@ -88,6 +88,21 @@ struct SessionToolsTests {
         )
     }
 
+    @Test("sessions.spawn defaults to the caller and preserves an explicit parent")
+    func spawnedSessionsKeepTheirParent() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent("spawn-parent-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let (store, sessionID) = try setupAgentWithSession(rootURL: rootURL)
+        let other = try store.createSession(agentID: "test-agent", request: .init())
+        let context = makeContext(sessionID: sessionID, sessionStore: store, rootURL: rootURL)
+        for explicitParent in [nil, "", other.id] as [String?] {
+            let arguments = explicitParent.map { ["parentSessionId": JSONValue.string($0)] } ?? [:]
+            let result = await SessionsSpawnTool().invoke(arguments: arguments, context: context)
+            #expect(result.ok)
+            #expect(result.data?.asObject?["parentSessionId"]?.asString == (explicitParent == other.id ? other.id : sessionID))
+        }
+    }
+
     @Test("createSession default title includes UUID suffix")
     func createSessionDefaultTitleIncludesUUIDSuffix() throws {
         let rootURL = FileManager.default.temporaryDirectory

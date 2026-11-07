@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SloppyClientCore
 import SloppyFeatureChat
+import SloppyFeatureProjects
 
 /// UI state belongs to a project (and server), not to the panel's visibility.
 @Observable
@@ -25,7 +26,7 @@ final class WorkspaceDockState {
             if present { select(tab) }
             return tab
         }
-        if kind == .files || kind == .review, let tab = tabs.first(where: { $0.kind == kind && $0.sourceFile == nil && $0.referencePreview == nil }) {
+        if kind == .files || kind == .review, let tab = tabs.first(where: { $0.kind == kind && $0.sourceFile == nil && $0.referencePreview == nil && $0.workflowReference == nil }) {
             if present { select(tab) }
             return tab
         }
@@ -45,6 +46,25 @@ final class WorkspaceDockState {
         let tab = WorkspaceDockTab(kind: .files, number: (tabs.filter { $0.kind == .files }.map(\.number).max() ?? 0) + 1)
         tab.referencedObject = reference
         tab.referencePreview = WorkspaceReferencePreviewModel(reference: reference, apiClient: apiClient)
+        tabs.append(tab)
+        select(tab)
+        return tab
+    }
+
+    @discardableResult
+    func openWorkflow(_ reference: ProjectWorkflowReference, apiClient: SloppyAPIClient) -> WorkspaceDockTab {
+        if let tab = tabs.first(where: { $0.workflowReference == reference && $0.workflowEndpoint == apiClient.endpoint }) {
+            if tab.workflow?.selectedWorkflowID != reference.workflowID {
+                tab.workflow?.selectWorkflow(reference.workflowID)
+                tab.workflow?.selectRun(nil)
+            }
+            select(tab)
+            return tab
+        }
+        let tab = WorkspaceDockTab(kind: .files, number: (tabs.filter { $0.kind == .files }.map(\.number).max() ?? 0) + 1)
+        tab.workflowReference = reference
+        tab.workflowEndpoint = apiClient.endpoint
+        tab.workflow = ProjectWorkflowViewModel(apiClient: apiClient, initialWorkflowID: reference.workflowID)
         tabs.append(tab)
         select(tab)
         return tab
@@ -144,6 +164,9 @@ final class WorkspaceDockTab: Identifiable {
     var chat: ChatScreenViewModel?
     var terminal: WorkspaceTerminalSession?
     var panel: WorkspacePanelViewModel?
+    var workflowReference: ProjectWorkflowReference?
+    var workflowEndpoint: SloppyInstanceEndpoint?
+    var workflow: ProjectWorkflowViewModel?
     var sourceFile: WorkspaceSourceFileViewModel?
     var referencedObject: ChatComposerReference?
     var referencePreview: WorkspaceReferencePreviewModel?
@@ -151,7 +174,10 @@ final class WorkspaceDockTab: Identifiable {
     var devices: WorkspaceDeviceSession?
 #endif
 
-    var systemImage: String { referencedObject?.systemImage ?? (sourceFile == nil ? kind.systemImage : "chevron.left.forwardslash.chevron.right") }
+    var systemImage: String {
+        if workflow != nil { return "arrow.triangle.branch" }
+        return referencedObject?.systemImage ?? (sourceFile == nil ? kind.systemImage : "chevron.left.forwardslash.chevron.right")
+    }
 
     init(kind: WorkspaceSidePanelItem, number: Int, browser: WorkspaceWebViewModel? = nil) {
         self.kind = kind
@@ -162,6 +188,7 @@ final class WorkspaceDockTab: Identifiable {
     var title: String {
         if let referencedObject { return referencedObject.title }
         if let reviewDisplayTitle { return reviewDisplayTitle }
+        if let workflowReference { return workflow?.selectedWorkflow?.name ?? workflowReference.workflowID }
         if let sourceFile { return sourceFile.title }
         if let browser {
             if let title = browser.pageTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {

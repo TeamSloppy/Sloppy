@@ -303,6 +303,8 @@ public actor CoreService {
     var longChatIsStopping = false
     var longChatCurrentTurns: [String: String] = [:]
     var longChatWorkerRuns: [String: Task<Void, Never>] = [:]
+    /// Covers ordinary delegated execution, including finalization after its model turn returns.
+    var ordinarySubagentRuns: Set<String> = []
     var sessionExtraRoots: [String: [String]] = [:]
     var workflowTaskOwners: [String: String] = [:]
     var workflowWaitingChildren: [String: Set<String>] = [:]
@@ -733,20 +735,26 @@ public actor CoreService {
             await self.runtime.updateWorkerExecutor(
                 ToolExecutionWorkerExecutorAdapter(
                     toolExecutionService: self.toolExecution,
-                    agentRunner: { [weak self] agentID, taskID, objective, workingDirectory, selectedModel, toolIDs in
+                    agentRunner: { [weak self] agentID, taskID, objective, workingDirectory, selectedModel, toolIDs, channelID in
                         guard let self else { return nil }
                         let knownToolIDs = await ToolCatalog.knownToolIDs(mcpRegistry: self.mcpRegistry)
                         let explicitToolIDs = SubagentDelegation.explicitToolIDs(
                             forWorkerTools: toolIDs,
                             knownToolIDs: knownToolIDs
                         )
+                        let parent = Self.parseAgentSessionChannelId(channelID)
+                        let parentSessionID = parent.flatMap {
+                            $0.agentID == agentID && channelID == sessionChannelID(agentID: agentID, sessionID: $0.sessionID)
+                                ? $0.sessionID : nil
+                        }
                         guard let result = await self.runAgentTaskResult(
                             agentID: agentID,
                             taskID: taskID,
                             objective: objective,
                             workingDirectory: workingDirectory,
                             selectedModel: selectedModel,
-                            explicitToolIDs: explicitToolIDs
+                            explicitToolIDs: explicitToolIDs,
+                            parentSessionID: parentSessionID
                         ) else {
                             return nil
                         }

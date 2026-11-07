@@ -1622,7 +1622,8 @@ extension CoreService {
         objective: String,
         workingDirectory: String?,
         selectedModel: String? = nil,
-        explicitToolIDs: [String]? = nil
+        explicitToolIDs: [String]? = nil,
+        parentSessionID: String? = nil
     ) async -> AgentTaskRunResult? {
         let autopilotContext = await autopilotWorkerContext(taskID: taskID)
         return await runSubagentTaskResult(
@@ -1632,6 +1633,7 @@ extension CoreService {
             workingDirectory: workingDirectory,
             toolsetNames: autopilotContext?.toolsets,
             selectedModel: selectedModel,
+            parentSessionID: parentSessionID,
             bypassToolApproval: autopilotContext?.bypassToolApproval == true,
             explicitToolIDs: explicitToolIDs
         )
@@ -1750,6 +1752,12 @@ extension CoreService {
             return AgentTaskRunResult(text: "[failed] Failed to create worker session for agent \(agentID).\nError: \(error.localizedDescription)", executionOutcome: .init(state: .failed, category: .unavailable, code: "worker_launch_failed"))
         }
 
+        ordinarySubagentRuns.insert(session.id)
+        defer {
+            ordinarySubagentRuns.remove(session.id)
+            Task { [weak self] in await self?.dispatchLongChatWorkers() }
+        }
+
         if let parentSessionID = parentSessionID.flatMap(normalizedSessionID) {
             let event = AgentSessionEvent(
                 agentId: agentID,
@@ -1795,6 +1803,14 @@ extension CoreService {
         sessionSubagentToolAllowList[session.id] = effectiveTools
         do {
             try sessionMessageInbox().rememberScope(sessionID: session.id, toolIDs: effectiveTools)
+            if let parentSessionID {
+                try rememberSubagentContext(
+                    session: session, parentSessionID: parentSessionID,
+                    workingDirectory: inheritedContext.workingDirectory, extraRoots: inheritedContext.extraRoots,
+                    tools: effectiveTools,
+                    resourceKeys: inheritedContext.workingDirectory.map { ["workspace:" + $0] } ?? ["session:" + parentSessionID],
+                    readOnly: false, sourceTaskID: taskID)
+            }
         } catch {
             logger.warning("session_messages.worker_scope_unavailable", metadata: ["error": .string(String(describing: error))])
         }

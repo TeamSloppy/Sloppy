@@ -62,6 +62,9 @@ do not supply an output. Array elements can be addressed by index, such as `resu
 A whole-value template in tool arguments retains its JSON type; interpolation inside
 text produces text. The `project.workflow` tool accepts `condition` as an object or JSON
 object string, preserving boolean, null and numeric values.
+For unconditional edges, omit `condition` or pass JSON `null`. The tool also accepts
+empty/whitespace strings and the JSON string `"null"` as unused optional placeholders.
+Nonempty values must contain both `path` and `equals`; malformed conditions never save a graph.
 
 The Dashboard exposes output format/schema and transition-rule controls. Invalid JSON
 in these controls prevents Save and Run until corrected.

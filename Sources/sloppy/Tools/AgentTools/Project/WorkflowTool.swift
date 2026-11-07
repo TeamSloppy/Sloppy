@@ -31,7 +31,7 @@ struct WorkflowTool: CoreTool {
             .init(name: "sourceNodeId", description: "Source node ID.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "targetNodeId", description: "Target node ID.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "conditionKey", description: "Optional branch label matched against step output.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "condition", description: "Optional JSON object with path and equals, e.g. {\"path\":\"result.verdict\",\"equals\":\"approved\"}. Do not combine with conditionKey.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "condition", description: "Optional JSON-encoded condition with path and equals, e.g. {\"path\":\"result.verdict\",\"equals\":\"approved\"}. For an unconditional edge omit this field, use an empty string, or the string null. Do not combine with conditionKey.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "sourceSocket", description: "Optional source socket: top, right, bottom, or left.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "targetSocket", description: "Optional target socket: top, right, bottom, or left.", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])
@@ -120,7 +120,7 @@ struct WorkflowTool: CoreTool {
         } catch let error as WorkflowToolParseError {
             return ToolInvocationResult(tool: name, ok: false,
                 data: .object(["fieldPath": .string(error.path), "reason": .string(error.reason),
-                    "hint": .string("Omit unused optional conditions and conditionKey. Config must be a JSON object; do not retry a failed save until list/read confirms its state.")]),
+                    "hint": .string("Omit unused condition and conditionKey, or use an empty string or null. A nonempty condition must be a JSON object string with path and equals. Config must be a JSON object; do not retry a failed save until list/read confirms its state.")]),
                 error: .init(code: "invalid_arguments", message: "Invalid workflow proposal payload at \(error.path): \(error.reason)", retryable: false))
         } catch let error as CoreService.WorkflowError {
             if case .validationFailed(let issues) = error {
@@ -325,7 +325,11 @@ struct WorkflowTool: CoreTool {
                 throw WorkflowToolParseError.invalidPayload(path: "$", reason: "Expected workflow fields with valid types and enum values.")
             }
             var condition: WorkflowEdgeCondition?
-            if let value = object["condition"], value != .null {
+            if let value = object["condition"], value != .null,
+               value.asString.map({
+                   let text = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                   return !text.isEmpty && text != "null"
+               }) ?? true {
                 let fieldPath = "$.edges[\(index)].condition"
                 let fields: [String: JSONValue]
                 do { fields = try workflowConfig(from: value) }
@@ -339,7 +343,7 @@ struct WorkflowTool: CoreTool {
                 id: id,
                 sourceNodeId: sourceNodeID,
                 targetNodeId: targetNodeID,
-                conditionKey: object["conditionKey"]?.asString,
+                conditionKey: trimmedStringArgument(object, "conditionKey"),
                 condition: condition,
                 sourceSocket: object["sourceSocket"]?.asString,
                 targetSocket: object["targetSocket"]?.asString

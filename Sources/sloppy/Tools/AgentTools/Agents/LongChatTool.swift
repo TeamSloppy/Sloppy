@@ -12,7 +12,7 @@ struct LongChatTool: CoreTool {
         switch action {
         case "delegate":
             return
-                "Delegate tasks asynchronously; independent tasks run in parallel, up to three per conversation. Use disjoint path: file/directory scopes for parallel changes in one checkout. Supply a typed assignment object. acceptanceCriteria is one string describing all criteria. Stable requestKey deduplicates within the originating user turn. Include context, attachment paths and exact scope in objectives. Validation failures include correction guidance: fix the specified fields and call again with the same requestKey. Never wait for completion."
+                "Delegate tasks asynchronously; independent tasks run in parallel, up to three per conversation. For follow-up work prefer an existing worker: explicitly set task.reuseSessionId from status or sessions.list. Its history and original tool scope are preserved; each task has separate status/results and queues behind earlier work for that session. Use the original projectId/resourceKeys and do not widen readOnly. Missing sessions/scopes fail without creating replacements. Omit reuseSessionId for a fresh independent worker. Use disjoint path: file/directory scopes for parallel changes in one checkout. Supply a typed assignment object. acceptanceCriteria is one string describing all criteria. Stable requestKey deduplicates within the originating user turn. Include context, attachment paths and exact scope in objectives. Validation failures include correction guidance: fix the specified fields and call again with the same requestKey. Never wait for completion."
         case "status": return "Read persisted assignments, tasks and attempts in this long chat."
         case "message":
             return "Send a clarification to an existing task. Do not use this to expand the user's authorization."
@@ -63,6 +63,7 @@ struct LongChatTool: CoreTool {
                 .init(name: "dependsOn", description: "Other task keys that must finish first.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self))),
                 .init(name: "projectId", description: "Optional project ID.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
                 .init(name: "readOnly", description: "True for inspection, false for authorized changes.", schema: DynamicGenerationSchema(type: Bool.self)),
+                .init(name: "reuseSessionId", description: "Optional explicit worker session in this chat to continue. Keeps history, queues a separate task, preserves original project/resource/tool scope. No automatic replacement on failure.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             ]))),
         ])
     }

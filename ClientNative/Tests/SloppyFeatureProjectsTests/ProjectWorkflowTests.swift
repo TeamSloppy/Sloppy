@@ -5,6 +5,24 @@ import SloppyClientCore
 
 @Suite("Project workflows")
 struct ProjectWorkflowTests {
+    @Test @MainActor func opensTheLinkedDefinitionAndKeepsItAcrossRefresh() async throws {
+        let (model, session) = try makeModel(initialWorkflowID: "other")
+        defer { session.invalidateAndCancel() }
+        await model.load(projectId: "project")
+        #expect(model.selectedWorkflow?.id == "other")
+        #expect(model.selectedRunID == nil)
+        await model.load(projectId: "project")
+        #expect(model.selectedWorkflow?.id == "other")
+    }
+
+    @Test @MainActor func missingLinkedWorkflowDoesNotShowAnotherGraph() async throws {
+        let (model, session) = try makeModel(initialWorkflowID: "missing")
+        defer { session.invalidateAndCancel() }
+        await model.load(projectId: "project")
+        #expect(model.selectedWorkflow == nil)
+        #expect(model.errorMessage != nil)
+    }
+
     @Test @MainActor func loadsProjectGraphRunsAndRecordedStepData() async throws {
         let (model, session) = try makeModel()
         defer { session.invalidateAndCancel() }
@@ -143,13 +161,13 @@ struct ProjectWorkflowTests {
     }
 
     @MainActor
-    private func makeModel() throws -> (ProjectWorkflowViewModel, URLSession) {
+    private func makeModel(initialWorkflowID: String? = nil) throws -> (ProjectWorkflowViewModel, URLSession) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [WorkflowFixtureURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let client = SloppyAPIClient(baseURL: try #require(URL(string: "https://workflow.test")), session: session,
                                      authSessionStore: AuthSessionStore(persistence: .memory))
-        return (ProjectWorkflowViewModel(apiClient: client), session)
+        return (ProjectWorkflowViewModel(apiClient: client, initialWorkflowID: initialWorkflowID), session)
     }
 }
 

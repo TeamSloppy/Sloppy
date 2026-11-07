@@ -3,14 +3,19 @@ import Protocols
 
 actor AgentSessionGoalController {
     private var goals: [String: AgentSessionGoalRecord] = [:]
+    private var startRequestIDs: [String: String] = [:]
 
     func start(
         agentID: String,
         sessionID: String,
         objective: String,
         maxAttempts: Int = 8,
+        requestID: String? = nil,
         now: Date = Date()
     ) -> AgentSessionGoalRecord {
+        let storageKey = key(agentID: agentID, sessionID: sessionID)
+        if let requestID, startRequestIDs[storageKey] == requestID, let existing = goals[storageKey] { return existing }
+        startRequestIDs[storageKey] = requestID
         let normalizedMaxAttempts = max(1, maxAttempts)
         let record = AgentSessionGoalRecord(
             agentId: agentID,
@@ -24,6 +29,11 @@ actor AgentSessionGoalController {
         )
         goals[key(agentID: agentID, sessionID: sessionID)] = record
         return record
+    }
+
+    func restore(_ goal: AgentSessionGoalRecord) {
+        let storageKey = key(agentID: goal.agentId, sessionID: goal.sessionId)
+        if goals[storageKey] == nil { goals[storageKey] = goal }
     }
 
     func goal(agentID: String, sessionID: String) -> AgentSessionGoalRecord? {
@@ -58,17 +68,20 @@ actor AgentSessionGoalController {
         agentID: String,
         sessionID: String,
         events: [AgentSessionEvent],
+        hasPendingWork: Bool = false,
+        expectedGoalID: String? = nil,
         now: Date = Date()
     ) -> AgentSessionGoalEvaluation? {
         let storageKey = key(agentID: agentID, sessionID: sessionID)
         guard var goal = goals[storageKey],
-              goal.status == .active
+              goal.status == .active,
+              expectedGoalID == nil || goal.id == expectedGoalID
         else {
             return nil
         }
 
-        goal.attemptCount += 1
-        let evaluation = evaluation(for: goal, events: events)
+        if !hasPendingWork { goal.attemptCount += 1 }
+        let evaluation = evaluation(for: goal, events: events, hasPendingWork: hasPendingWork)
         goal.status = evaluation.status
         goal.lastEvaluation = evaluation
         goal.updatedAt = now
@@ -78,7 +91,8 @@ actor AgentSessionGoalController {
 
     private func evaluation(
         for goal: AgentSessionGoalRecord,
-        events: [AgentSessionEvent]
+        events: [AgentSessionEvent],
+        hasPendingWork: Bool
     ) -> AgentSessionGoalEvaluation {
         if events.contains(where: { $0.type == .inputRequest }) {
             return AgentSessionGoalEvaluation(
@@ -113,6 +127,10 @@ actor AgentSessionGoalController {
                 reason: interrupted.details ?? "The turn was interrupted before the goal could be completed.",
                 shouldContinue: false
             )
+        }
+
+        if hasPendingWork {
+            return AgentSessionGoalEvaluation(status: .active, reason: "Waiting for delegated tasks.", shouldContinue: false)
         }
 
         if let completion = successfulSessionCompletion(in: events),

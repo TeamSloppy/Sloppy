@@ -25,7 +25,8 @@ final class ToolExecutionWorkerExecutorAdapter: @unchecked Sendable, WorkerExecu
         _ objective: String,
         _ workingDirectory: String?,
         _ selectedModel: String?,
-        _ toolIDs: [String]
+        _ toolIDs: [String],
+        _ channelID: String
     ) async -> AgentRunnerResult?
 
     private let fallback: any WorkerExecutor
@@ -49,7 +50,7 @@ final class ToolExecutionWorkerExecutorAdapter: @unchecked Sendable, WorkerExecu
 
     func execute(workerId: String, spec: WorkerTaskSpec) async throws -> WorkerExecutionResult {
         if let agentID = spec.agentID, let runner = agentRunner {
-            let result = await runner(agentID, spec.taskId, spec.objective, spec.workingDirectory, spec.selectedModel, spec.tools)
+            let result = await runner(agentID, spec.taskId, spec.objective, spec.workingDirectory, spec.selectedModel, spec.tools, spec.channelId)
             guard let result else {
                 throw AgentRunnerModelError(detail: "Worker runner unavailable.", outcome: .init(state: .failed, category: .unavailable, code: "worker_runner_unavailable"))
             }

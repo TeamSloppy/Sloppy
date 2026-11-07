@@ -21,6 +21,11 @@ extension CoreService {
             // Preserve legacy project histories until their owner opens and migrates them.
             let separate = Set(try longChats().state.separateSessionIds ?? [])
             var protected = Set<String>()
+            for (sessionID, context) in try longChats().state.workerContexts ?? [:] {
+                if (try? sessionStore.loadSession(agentID: context.agentId, sessionID: context.parentSessionId)) != nil {
+                    protected.insert(sessionID)
+                }
+            }
             for agentID in agentIDs where try agentCatalogStore.getAgentRuntimeConfig(agentID: agentID).type == .native {
                 for session in try sessionStore.listSessions(agentID: agentID)
                     where session.projectId != nil && session.parentSessionId == nil

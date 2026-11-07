@@ -6,13 +6,20 @@ import Testing
 func projectAutopilotSettingsDefaultsAreSafe() {
     let settings = ProjectAutopilotSettings()
 
-    #expect(settings.enabled == false)
+    #expect(settings.enabled == true)
     #expect(settings.mode == .assistive)
     #expect(settings.includedTags == [])
     #expect(settings.ignoredTags == [])
     #expect(settings.maxParallelTasks == 1)
     #expect(settings.canCommit == false)
     #expect(settings.canPush == false)
+}
+
+@Test
+func projectAutopilotDecodingDefaultsOnButPreservesExplicitDisable() throws {
+    let decoder = JSONDecoder()
+    #expect(try decoder.decode(ProjectAutopilotSettings.self, from: Data("{}".utf8)).enabled)
+    #expect(try !decoder.decode(ProjectAutopilotSettings.self, from: Data(#"{"enabled":false}"#.utf8)).enabled)
 }
 
 @Test

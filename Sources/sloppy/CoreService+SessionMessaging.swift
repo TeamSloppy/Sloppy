@@ -5,7 +5,7 @@ import SloppyRuntime
 extension CoreService: SessionToolService {
     func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool? {
         activeSessionMessageRuns.contains(sessionID) || longChatTurnRunners.contains(sessionID)
-            || longChatWorkerRuns[sessionID] != nil
+            || longChatWorkerRuns[sessionID] != nil || ordinarySubagentRuns.contains(sessionID)
     }
 
     func pendingSessionMessageIDs(agentID: String, sessionID: String) -> Set<String> {
@@ -137,7 +137,10 @@ extension CoreService: SessionToolService {
     }
 
     private func drainSessionInbox(agentID: String, sessionID: String) async {
-        defer { sessionMessageRunners.removeValue(forKey: sessionID) }
+        defer {
+            sessionMessageRunners.removeValue(forKey: sessionID)
+            Task { [weak self] in await self?.dispatchLongChatWorkers() }
+        }
         do {
             let storage = try sessionMessageInbox()
             while !sessionMessageIsStopping, !Task.isCancelled,

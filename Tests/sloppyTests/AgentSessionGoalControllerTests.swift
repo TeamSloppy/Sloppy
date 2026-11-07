@@ -168,3 +168,31 @@ private func toolResultEvent(tool: String, ok: Bool, data: JSONValue?) -> AgentS
         toolResult: AgentToolResultEvent(tool: tool, ok: ok, data: data)
     )
 }
+
+@Test
+func goalControllerWaitsForDelegatedWorkBeforeAcceptingCoordinatorCompletion() async {
+    let controller = AgentSessionGoalController()
+    _ = await controller.start(agentID: "agent", sessionID: "session", objective: "finish the workflow", maxAttempts: 1)
+    let events = [toolResultEvent(tool: "session.complete", ok: true, data: .object([
+        "completed": .bool(true), "status": .string("completed"),
+    ]))]
+    let waiting = await controller.evaluateTurn(agentID: "agent", sessionID: "session", events: events, hasPendingWork: true)
+    #expect(waiting?.status == .active)
+    #expect(waiting?.shouldContinue == false)
+    #expect(await controller.goal(agentID: "agent", sessionID: "session")?.attemptCount == 0)
+    let completed = await controller.evaluateTurn(agentID: "agent", sessionID: "session", events: events)
+    #expect(completed?.status == .completed)
+}
+
+@Test
+func goalControllerDoesNotCompleteReplacementUsingAnOlderTurnsResult() async {
+    let controller = AgentSessionGoalController()
+    let old = await controller.start(agentID: "agent", sessionID: "session", objective: "first")
+    let current = await controller.start(agentID: "agent", sessionID: "session", objective: "replacement")
+    let evaluation = await controller.evaluateTurn(agentID: "agent", sessionID: "session", events: [
+        toolResultEvent(tool: "session.complete", ok: true, data: .object(["completed": .bool(true), "status": .string("completed")])),
+    ], expectedGoalID: old.id)
+    #expect(evaluation == nil)
+    #expect(await controller.goal(agentID: "agent", sessionID: "session")?.id == current.id)
+    #expect(await controller.goal(agentID: "agent", sessionID: "session")?.status == .active)
+}

@@ -80,7 +80,7 @@ struct ExecutionRecoveryTests {
 
     @Test("Normal prose that resembles an error cannot change worker execution state")
     func textIsNotControlFlow() async throws {
-        let adapter = ToolExecutionWorkerExecutorAdapter(agentRunner: { _, _, _, _, _, _ in
+        let adapter = ToolExecutionWorkerExecutorAdapter(agentRunner: { _, _, _, _, _, _, _ in
             .init(summary: "Model provider error: this is a quotation in the solution.", payload: [:], executionOutcome: .completed)
         })
         let result = try await adapter.execute(workerId: "worker", spec: .init(taskId: "task", channelId: "channel", title: "Task", objective: "Implement", agentID: "agent", tools: [], mode: .fireAndForget))
@@ -89,7 +89,7 @@ struct ExecutionRecoveryTests {
 
     @Test("A structured failure blocks completion even when its summary looks successful")
     func structuredFailure() async throws {
-        let adapter = ToolExecutionWorkerExecutorAdapter(agentRunner: { _, _, _, _, _, _ in
+        let adapter = ToolExecutionWorkerExecutorAdapter(agentRunner: { _, _, _, _, _, _, _ in
             .init(summary: "Everything is ready", payload: [:], executionOutcome: .init(state: .failed, category: .provider, code: "provider_unavailable", retryable: true))
         })
         do {
