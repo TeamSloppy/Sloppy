@@ -36,14 +36,14 @@ func agentSessionStoreDecodedEventsStayCurrentAcrossAppendsAndForeignWrites() th
     _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [message("one", at: 1)])
     #expect(texts(try store.loadSession(agentID: agentID, sessionID: session.id)) == ["one"])
 
-    // Appends through the same instance keep the cached journal in sync, in createdAt order.
+    // Appends through the same instance keep the cached journal in sync, in physical append order, independent of event clocks.
     _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [message("three", at: 3)])
     _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [message("two", at: 2)])
-    #expect(texts(try store.loadSession(agentID: agentID, sessionID: session.id)) == ["one", "two", "three"])
+    #expect(texts(try store.loadSession(agentID: agentID, sessionID: session.id)) == ["one", "three", "two"])
 
     // A write from another instance must invalidate the first instance's cache.
     _ = try otherInstance.appendEvents(agentID: agentID, sessionID: session.id, events: [message("four", at: 4)])
-    #expect(texts(try store.loadSession(agentID: agentID, sessionID: session.id)) == ["one", "two", "three", "four"])
+    #expect(texts(try store.loadSession(agentID: agentID, sessionID: session.id)) == ["one", "three", "two", "four"])
 
     // So must a write that bypasses the store entirely.
     let path = try store.sessionFilePath(agentID: agentID, sessionID: session.id)
@@ -55,5 +55,5 @@ func agentSessionStoreDecodedEventsStayCurrentAcrossAppendsAndForeignWrites() th
     try handle.seekToEnd()
     try handle.write(contentsOf: line)
     try handle.close()
-    #expect(texts(try store.loadSession(agentID: agentID, sessionID: session.id)) == ["one", "two", "three", "four", "five"])
+    #expect(texts(try store.loadSession(agentID: agentID, sessionID: session.id)) == ["one", "three", "two", "four", "five"])
 }

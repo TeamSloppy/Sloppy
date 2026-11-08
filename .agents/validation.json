@@ -1,0 +1,531 @@
+{
+  "version": 1,
+  "timeout_seconds": 1800,
+  "profiles": {
+    "python": {
+      "paths": [
+        "*.py",
+        "scripts/contribution-requirements.txt",
+        ".agents/ruff.toml"
+      ]
+    },
+    "swift": {
+      "paths": [
+        "Sources/*",
+        "Tests/*",
+        "Packages/*",
+        "Plugins/*",
+        "Package.swift",
+        "Package.resolved",
+        ".swiftlint.yml"
+      ]
+    },
+    "client": {
+      "paths": [
+        "Apps/Client/*",
+        "Sources/Protocols/*",
+        "Sources/PluginSDK/*",
+        "Sources/SloppySDK/*",
+        "Packages/SloppyComputerControl/*",
+        "Package.swift",
+        "Package.resolved",
+        ".swiftlint.yml"
+      ]
+    },
+    "dashboard": {
+      "paths": [
+        "Dashboard/*",
+        "Sources/Protocols/API/*"
+      ]
+    },
+    "docs": {
+      "paths": [
+        "docs/*"
+      ]
+    },
+    "platform": {
+      "paths": [
+        "Sources/*",
+        "Packages/*",
+        "Plugins/*",
+        "Package.swift",
+        "Package.resolved",
+        "Apps/Client/*",
+        "ClientNative/*"
+      ]
+    },
+    "documentation": {
+      "paths": [
+        "*.md",
+        ".agents/skills/*"
+      ]
+    },
+    "workflow": {
+      "paths": [
+        ".agents/validation.json",
+        ".agents/ruff.toml",
+        ".agents/secret-exceptions.json",
+        ".swiftlint.yml",
+        "scripts/contribution/*",
+        "scripts/check_contribution.py",
+        "scripts/test_contribution.py",
+        "scripts/test_publication.py",
+        "scripts/contribution-requirements.txt",
+        ".github/workflows/contributor-validation.yml"
+      ]
+    },
+    "native_client": {
+      "paths": [
+        "ClientNative/*",
+        "Packages/*",
+        ".swiftlint.yml"
+      ]
+    }
+  },
+  "python_suites": {
+    "scripts/contribution/*": [
+      "scripts/test_contribution.py",
+      "scripts/test_publication.py"
+    ],
+    "scripts/check_contribution.py": [
+      "scripts/test_contribution.py",
+      "scripts/test_publication.py"
+    ]
+  },
+  "runtime_paths": [
+    "Dashboard/src/*",
+    "Sources/sloppy/Gateway/*",
+    "Sources/NodeCore/*",
+    "Apps/Client/Sources/*",
+    "ClientNative/Sources/*"
+  ],
+  "dependency_paths": [
+    "*Package.swift",
+    "*Package.resolved",
+    "*package.json",
+    "*package-lock.json",
+    "*requirements*.txt"
+  ],
+  "swift_scratch": ".artifacts/contribution/swift-build",
+  "user_documentation_roots": [
+    "docs/*.md"
+  ],
+  "internal_documentation_roots": [
+    "docs/designs/*",
+    "docs/plans/*",
+    "docs/specs/*",
+    "docs/product/*",
+    "docs/architecture/*",
+    "docs/superpowers/*",
+    "docs/tbd/*",
+    "docs/legal/*",
+    "Apps/docs/*"
+  ],
+  "commands": {
+    "runtime": null,
+    "platform": null,
+    "dependency": null
+  },
+  "pre_push": {
+    "base_ref": "refs/remotes/origin/main",
+    "ci_checks": {
+      "swift-lint": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "swift-analysis": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "sloppy-release": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "node-release": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "swift-tests": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "client-build": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "client"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "client-tests": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "client"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "swift-build": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "platform-matrix": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          },
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "client"
+          },
+          {
+            "workflow": ".github/workflows/windows.yml",
+            "job": "windows"
+          },
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift-linux"
+          },
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "native-client"
+          }
+        ],
+        "reason": "Cross-platform validation is required in the configured native CI jobs"
+      },
+      "client-lint": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "client"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "client-analysis": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "client"
+          }
+        ],
+        "reason": "Native checks unavailable on this host remain required in contributor CI"
+      },
+      "native-lint": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "native-client"
+          }
+        ],
+        "reason": "Native SwiftUI client requires macOS 26/Xcode and remains mandatory in CI"
+      },
+      "native-build": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "native-client"
+          }
+        ],
+        "reason": "Native SwiftUI client requires macOS 26/Xcode and remains mandatory in CI"
+      },
+      "native-analysis": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "native-client"
+          }
+        ],
+        "reason": "Native SwiftUI client requires macOS 26/Xcode and remains mandatory in CI"
+      },
+      "native-tests": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "native-client"
+          }
+        ],
+        "reason": "Native SwiftUI client requires macOS 26/Xcode and remains mandatory in CI"
+      },
+      "package-tests-SloppyA2UI": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package validation remains mandatory on its supported native host"
+      },
+      "package-tests-SloppyComputerControl": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package validation remains mandatory on its supported native host"
+      },
+      "package-tests-SloppyConsoleProtocol": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package validation remains mandatory on its supported native host"
+      },
+      "package-tests-SloppyMigration": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package validation remains mandatory on its supported native host"
+      },
+      "package-tests-SloppyRemoteProtocol": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package validation remains mandatory on its supported native host"
+      },
+      "package-tests-SloppyRuntime": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package validation remains mandatory on its supported native host"
+      },
+      "package-build-SwiftTiktoken": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-tests-TauTUI": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package validation remains mandatory on its supported native host"
+      },
+      "package-build-SloppyA2UI": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-analysis-SloppyA2UI": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-build-SloppyComputerControl": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-analysis-SloppyComputerControl": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-build-SloppyConsoleProtocol": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-analysis-SloppyConsoleProtocol": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-build-SloppyMigration": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-analysis-SloppyMigration": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-build-SloppyRemoteProtocol": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-analysis-SloppyRemoteProtocol": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-build-SloppyRuntime": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-analysis-SloppyRuntime": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-analysis-SwiftTiktoken": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-build-TauTUI": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      },
+      "package-analysis-TauTUI": {
+        "targets": [
+          {
+            "workflow": ".github/workflows/contributor-validation.yml",
+            "job": "swift"
+          }
+        ],
+        "reason": "Owning package compilation and analyzer evidence require a supported Swift host"
+      }
+    }
+  },
+  "navigation_sources": [
+    "docs/.vitepress/config.ts"
+  ],
+  "owned_swift_roots": [
+    "Sources",
+    "Tests",
+    "Packages",
+    "Plugins",
+    "Apps/Client/Sources",
+    "Apps/Client/Tests",
+    "ClientNative/Sources",
+    "ClientNative/Tests"
+  ],
+  "swift_packages": {
+    "SloppyA2UI": {
+      "tests": true
+    },
+    "SloppyComputerControl": {
+      "tests": true
+    },
+    "SloppyConsoleProtocol": {
+      "tests": true
+    },
+    "SloppyMigration": {
+      "tests": true
+    },
+    "SloppyRemoteProtocol": {
+      "tests": true
+    },
+    "SloppyRuntime": {
+      "tests": true
+    },
+    "SwiftTiktoken": {
+      "tests": false
+    },
+    "TauTUI": {
+      "tests": true
+    }
+  }
+}

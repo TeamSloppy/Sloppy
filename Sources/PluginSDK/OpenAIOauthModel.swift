@@ -1,5 +1,6 @@
-import AnyLanguageModel
 import Foundation
+import AnyLanguageModel
+import Protocols
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -84,6 +85,27 @@ public struct OpenAIOAuthModel: LanguageModel {
         self.tokenUsageCapture = tokenUsageCapture
         self.parallelToolCalls = parallelToolCalls
         self.promptCacheScope = promptCacheScope
+    }
+}
+
+// The legacy LanguageModel implementation below remains separate. This companion never invokes tools.
+extension OpenAIOAuthModel: ModelStepProvider {
+    public func streamStep(_ request: ModelStepRequest) -> AsyncThrowingStream<ModelStepEvent, Error> {
+        let identity = "openai-oauth/" + (accountId ?? "") + "/" + ModelStepHTTPTransport.cacheKeyDigest(baseURL.absoluteString)
+        let provider = HTTPModelStepProvider(providerID: identity, model: modelName, baseURL: baseURL,
+            token: bearerTokenProvider, session: httpSession, instructions: instructions,
+            includeOutputLimit: false,
+            cacheKey: { "sloppy-step-" + Self.stableDigest((accountId ?? "") + "/" + modelName + "/" + $0.cacheScope) },
+            requestTransform: { outgoing, step in
+                var outgoing = try await buildHTTPRequest(body: outgoing.httpBody ?? Data())
+                if !step.cacheScope.isEmpty {
+                    let conversation = Self.stableUUIDString((accountId ?? "") + "/" + step.cacheScope)
+                    outgoing.setValue(conversation, forHTTPHeaderField: "session_id")
+                    outgoing.setValue(conversation, forHTTPHeaderField: "conversation_id")
+                }
+                return outgoing
+            }, refreshAuthentication: bearerTokenForceRefresh)
+        return LibraryModelStepProvider(provider: provider).streamStep(request)
     }
 }
 
@@ -824,12 +846,7 @@ private extension OpenAIOAuthModel {
 
     /// FNV-1a 64-bit, hex. Stable across launches (unlike `Hasher`), short enough for a cache key.
     static func stableDigest(_ text: String) -> String {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x100000001b3
-        }
-        return String(hash, radix: 16)
+        ModelStepHTTPTransport.cacheKeyDigest(text)
     }
 
     struct ToolConversion {

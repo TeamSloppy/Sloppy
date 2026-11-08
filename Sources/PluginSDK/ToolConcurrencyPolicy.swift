@@ -15,7 +15,7 @@ public enum ToolConcurrencyPolicy {
 
     /// Splits `count` calls into consecutive segments. A segment is either a run of concurrency-safe
     /// calls (executed together) or a single exclusive call (a barrier).
-    static func segments(count: Int, isSafe: (Int) -> Bool) -> [Range<Int>] {
+    public static func segments(count: Int, isSafe: (Int) -> Bool) -> [Range<Int>] {
         var result: [Range<Int>] = []
         var index = 0
         while index < count {

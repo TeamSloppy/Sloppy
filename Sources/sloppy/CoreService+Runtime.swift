@@ -22,6 +22,7 @@ extension CoreService {
         await recoverLongChatsIfNeeded()
         await recoverSessionMessagesIfNeeded()
         await restorePlanInputAutoApprovalsIfNeeded()
+        startNativeDerivedRecoveryIfNeeded()
         await memoryOutboxIndexer?.start()
         await startNodeMeshClientIfConfigured()
         if dispatchReadyTasks {
@@ -96,11 +97,16 @@ extension CoreService {
                         await handleVisorEvent(enrichedEvent)
                         await handleMemoryCheckpointRuntimeEvent(enrichedEvent)
                         await extractAndPersistTokenUsage(from: enrichedEvent)
+                        await didFinishRuntimeEventAccountingForTests(enrichedEvent)
                         await emitNotificationIfNeeded(from: enrichedEvent)
                     }
                 }
             }
         }
+    }
+
+    private func didFinishRuntimeEventAccountingForTests(_ event: EventEnvelope) {
+        runtimeEventAccountingFinishedForTests?(event)
     }
 
     func recordProjectAnalyticsFactIfNeeded(_ event: EventEnvelope) async {

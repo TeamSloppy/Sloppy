@@ -62,7 +62,7 @@ private struct UsageReportingLanguageModel: LanguageModel {
     }
 }
 
-private actor UsageReportingModelProvider: ModelProvider {
+private actor UsageReportingModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "usage-reporting"
     let supportedModels: [String]
     let capture = TokenUsageCapture()
@@ -73,6 +73,13 @@ private actor UsageReportingModelProvider: ModelProvider {
         self.supportedModels = models
     }
 
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { _ in
+            await self.recordRequest()
+            return .init(text: "Recorded.", stopReason: .endTurn, usage: .init(prompt: 123, completion: 45))
+        }
+    }
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         UsageReportingLanguageModel(
             text: "Recorded.",
@@ -97,7 +104,7 @@ private actor TokenUsageObserverCapture {
 }
 
 @Test
-func agentSessionOrchestratorForwardsModelTokenUsage() async throws {
+func agentSessionOrchestratorPersistsNativeUsageWithoutLegacyDoubleAccounting() async throws {
     let agentID = "usage-agent"
     let modelID = "openai-api:gpt-5.4-mini"
     let models = [
@@ -135,6 +142,10 @@ func agentSessionOrchestratorForwardsModelTokenUsage() async throws {
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: models,
+        nativeToolInvoker: { _, _, request, _, _ in
+            Issue.record("The text-only usage fixture must not execute tools")
+            return .init(result: .init(tool: request.tool, ok: false))
+        },
         tokenUsageObserver: { agentID, sessionID, usage in
             await observer.record(agentID: agentID, sessionID: sessionID, usage: usage)
         }
@@ -151,19 +162,19 @@ func agentSessionOrchestratorForwardsModelTokenUsage() async throws {
     #expect(requestCount > 0)
     let expectedPrompt = 123 * requestCount
     let expectedCompletion = 45 * requestCount
-    let records = await observer.records
-    #expect(records.count == 1)
-    #expect(records.first?.agentID == agentID)
-    #expect(records.first?.sessionID == session.id)
-    #expect(records.first?.usage.prompt == expectedPrompt)
-    #expect(records.first?.usage.completion == expectedCompletion)
+    #expect(await observer.records.isEmpty)
+    let detail = try sessionStore.loadSession(agentID: agentID, sessionID: session.id)
+    let requests = detail.events.compactMap { $0.runtimeMetadata?.usageRequest }
+    #expect(requests.count == requestCount)
+    #expect(requests.allSatisfy { $0.agentId == agentID && $0.sessionId == session.id })
+    #expect(requests.compactMap(\.usage).reduce(0) { $0 + $1.prompt } == expectedPrompt)
+    #expect(requests.compactMap(\.usage).reduce(0) { $0 + $1.completion } == expectedCompletion)
 
     let responseUsageStatuses = response.appendedEvents.compactMap(\.runStatus).filter { $0.tokenUsage != nil }
     #expect(responseUsageStatuses.last?.stage == .done)
     #expect(responseUsageStatuses.last?.tokenUsage?.prompt == expectedPrompt)
     #expect(responseUsageStatuses.last?.tokenUsage?.completion == expectedCompletion)
 
-    let detail = try sessionStore.loadSession(agentID: agentID, sessionID: session.id)
     let persistedUsageStatuses = detail.events.compactMap(\.runStatus).filter { $0.tokenUsage != nil }
     #expect(persistedUsageStatuses.contains { $0.stage == .responding && $0.tokenUsage?.prompt == expectedPrompt && $0.tokenUsage?.completion == expectedCompletion })
     #expect(persistedUsageStatuses.last?.stage == .done)

@@ -1,5 +1,6 @@
 import Foundation
 import AgentRuntime
+import PluginSDK
 import Protocols
 
 // MARK: - Self-improvement proposal review
@@ -476,8 +477,6 @@ extension CoreService {
         let ephemeralChannelId = "agent:\(normalizedAgentID):session:\(normalizedSessionID):proposal-review:\(uuid)"
         let actionRecorder = SelfImprovementProposalActionRecorder()
 
-        await runtime.setChannelBootstrap(channelId: ephemeralChannelId, content: bootstrap)
-
         let toolInvoker: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
             guard Self.selfImprovementProposalToolAllowlist.contains(request.tool) else {
                 return ToolInvocationResult(
@@ -510,7 +509,20 @@ extension CoreService {
         If there is a proposal, submit one structured intent with `self_improvement.proposal_submit`. Do not address the end user.
         """
 
-        _ = await runtime.postMessage(
+        let nativeResolution: NativeDerivedWorkResolution
+        do { nativeResolution = try nativeDerivedWorkSource(agentID: normalizedAgentID, sessionID: normalizedSessionID) }
+        catch { return "proposal_source_unavailable" }
+        switch nativeResolution {
+        case .blocked: return "proposal_source_unavailable"
+        case .owned(var source):
+            source.kind = .selfImprovementProposal
+            guard await runNativeDerivedJob(source: source, model: modelForRequest, bootstrap: bootstrap, prompt: userPrompt,
+                toolScope: Self.selfImprovementProposalToolAllowlist, additionalTools: [Self.nativeProposalToolDefinition],
+                maxToolRounds: 16, failureReview: reviewContext?.isEmpty == false,
+                record: { await actionRecorder.record($0) }) else { return "proposal_native_execution_failed" }
+        case .legacy:
+            await runtime.setChannelBootstrap(channelId: ephemeralChannelId, content: bootstrap)
+            _ = await runtime.postMessage(
             channelId: ephemeralChannelId,
             request: ChannelMessageRequest(
                 userId: "self_improvement",
@@ -523,6 +535,7 @@ extension CoreService {
             observationHandler: nil,
             nativeLoopConfig: NativeAgentLoopConfig(maxToolRounds: 16)
         )
+        }
 
         await runtime.discardEphemeralCheckpointChannel(channelId: ephemeralChannelId)
 
@@ -543,6 +556,23 @@ extension CoreService {
             ]
         )
         return nil
+    }
+
+    static var nativeProposalToolDefinition: ModelStepToolDefinition {
+        var properties: [String: JSONValue] = [
+            "action": .object(["type": .string("string"), "enum": .array(["nothing", "create", "update"].map(JSONValue.string))]),
+            "confidence": .object(["type": .string("number")]), "durability": .object(["type": .string("number")]),
+            "evidence": .object(["type": .string("array"), "items": .object(["type": .string("object"),
+                "properties": .object(["summary": .object(["type": .string("string")]), "source": .object(["type": .string("string")])]),
+                "required": .array([.string("summary")]), "additionalProperties": .bool(false)])])
+        ]
+        for name in ["affectedSubsystem", "title", "description", "testsVerification", "failureClassification", "existingTaskID"] {
+            properties[name] = .object(["type": .string("string")])
+        }
+        return .init(name: "self_improvement_proposal_submit", toolId: "self_improvement.proposal_submit",
+            description: "Submit one reviewable improvement proposal or a structured nothing decision. Creates pending-approval tasks only.",
+            parameters: .object(["type": .string("object"), "properties": .object(properties),
+                "required": .array([.string("action")]), "additionalProperties": .bool(false)]))
     }
 
     func invokeSelfImprovementProposalTool(

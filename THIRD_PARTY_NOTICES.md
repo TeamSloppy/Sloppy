@@ -3,6 +3,15 @@
 Sloppy depends on third-party software. Each dependency remains under its own
 license; no entry in the Sloppy license map replaces those terms.
 
+Contributor validation (`scripts/contribution/`, `scripts/check_contribution.py`,
+`scripts/test_contribution.py`, `scripts/test_publication.py`) and the four `sloppy-*`
+workflow skills under `.agents/skills/` adapt AdaEngine's contributor infrastructure
+from commit `6c35ed15` plus its local pre-push improvements as inspected on 2026-11-04.
+Copyright (c) 2021-present Ada Engine contributors and Vladislav Prusakov.
+The upstream MIT permission and disclaimer are preserved in
+[AdaEngine contribution notice](LICENSES/AdaEngine-contribution-MIT.txt).
+Sloppy-specific modifications follow the repository license map.
+
 The current Swift dependency graph includes:
 
 | Component | License family |

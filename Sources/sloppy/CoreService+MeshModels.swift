@@ -20,7 +20,7 @@ extension CoreService {
             return .object(["requestId": .string(envelope.id), "method": .string("models.catalog"), "ok": .bool(false),
                             "error": .object(["code": .string("model_access_denied")])])
         }
-        let models = listAvailableProviderModels().filter { !$0.id.hasPrefix("sloppy:") }
+        let models = modelStepCatalog().filter { !$0.id.hasPrefix("sloppy:") }
         guard let value = try? JSONValueCoder.encode(models) else { return .null }
         return .object(["requestId": .string(envelope.id), "method": .string("models.catalog"), "ok": .bool(true), "result": value])
     }
@@ -39,13 +39,16 @@ extension CoreService {
             registration.task.cancel()
             return []
         }
-        guard envelope.type == .streamOpen, object["kind"]?.asString == "models.inference",
+        let step = object["kind"]?.asString == "models.step.v1"
+        guard envelope.type == .streamOpen, step || object["kind"]?.asString == "models.inference",
               meshModelAccessAllowed(from: envelope.from) else { return close("Model access is not granted to this computer.") }
         guard meshModelStreams.count < 16, meshModelStreams[streamID] == nil,
-              let params = object["params"], var request = try? JSONValueCoder.decode(SloppyInferenceRequest.self, from: params),
-              !request.model.hasPrefix("sloppy:") else { return close("Invalid model request, active stream, or forwarding loop.") }
-        request.stream = true
-        let payload = request
+              let params = object["params"] else { return close("Invalid model request or active stream.") }
+        let stepInput = step ? try? JSONValueCoder.decode(SloppyModelStepRequest.self, from: params) : nil
+        var payload = step ? nil : try? JSONValueCoder.decode(SloppyInferenceRequest.self, from: params)
+        guard let model = stepInput?.request.model ?? payload?.model, !model.hasPrefix("sloppy:") else { return close("Invalid model request or forwarding loop.") }
+        payload?.stream = true
+        let inference = payload
         let generation = UUID()
         let target = envelope.from
         let local = envelope.to ?? ""
@@ -56,7 +59,19 @@ extension CoreService {
                 else { try await self.sendMeshModelEnvelope(response) }
             }
             do {
-                let updates = try await self.streamRemoteInference(payload)
+                if let stepInput {
+                    let result = await self.remoteModelStepResult(stepInput, scope: "mesh:" + target)
+                    try Task.checkCancellation()
+                    guard await self.meshModelAccessAllowed(from: target) else { throw MeshModelBridge.BridgeError.remoteFailure }
+                    try await transmit(.init(type: .streamChunk, from: local, to: target,
+                        payload: .object(["streamId": .string(streamID), "data": .object(["event": .string("complete"), "response": try JSONValueCoder.encode(result)])])))
+                    try await transmit(.init(type: .streamClose, from: local, to: target,
+                        payload: .object(["streamId": .string(streamID), "ok": .bool(true)])))
+                    await self.finishMeshModelStream(streamID, generation: generation)
+                    return
+                }
+                guard let inference else { throw MeshModelBridge.BridgeError.invalidResponse }
+                let updates = try await self.streamRemoteInference(inference)
                 var complete = false
                 for await event in updates {
                     try Task.checkCancellation()

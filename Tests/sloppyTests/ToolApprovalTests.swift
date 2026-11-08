@@ -1,4 +1,5 @@
 import Foundation
+import PluginSDK
 import Testing
 @testable import ChannelPluginTelegram
 @testable import Protocols
@@ -6,6 +7,104 @@ import Testing
 
 @Suite("Tool approvals", .serialized)
 struct ToolApprovalTests {
+
+@Test(.timeLimit(.minutes(1)))
+func concurrentApprovalStoresCannotOverwriteOrAuthorizeEachOthersState() async throws {
+    let config = CoreConfig.test
+    let owner = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let request = ToolInvocationRequest(tool: "runtime.exec", arguments: ["command": .string("fixture")])
+    let original = await owner.toolApprovalService.createPending(agentId: "owner", sessionId: "session",
+        channelId: nil, topicId: nil, request: request)
+    let workspace = await owner.workspaceRootURL
+    let path = workspace.appendingPathComponent(".runtime/tool-approvals-v1.json")
+    let before = try Data(contentsOf: path)
+    let contender = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let blocked = await contender.toolApprovalService.createPending(agentId: "contender", sessionId: "session",
+        channelId: nil, topicId: nil, request: request)
+    #expect(blocked.status == .rejected)
+    #expect(await contender.toolApprovalService.approve(id: original.id, decidedBy: "contender") == nil)
+    #expect(try Data(contentsOf: path) == before)
+    await owner.stop()
+    let successor = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    #expect(await successor.toolApprovalService.listPending().contains { $0.id == original.id })
+    #expect(await successor.toolApprovalService.approve(id: original.id, decidedBy: "successor")?.status == .approved)
+    await contender.stop(); await successor.stop()
+}
+
+@Test(.timeLimit(.minutes(3)))
+func savedApprovalCannotTransferToChangedAuthorityArgumentsOrRun() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await service.waitForStartup(dispatchReadyTasks: false)
+    let request = ToolInvocationRequest(tool: "files.write", arguments: ["path": .string("fixture.txt"), "content": .string("approved")])
+    let callID = UUID().uuidString
+    let context = NativeToolExecutionContext(metadata: .init(runId: "original-run", userTurnId: "original-turn",
+        stepId: "step", attemptId: "attempt", providerCallId: "provider-call", callEventId: callID, executionPhase: .requested),
+        definition: .init(name: "files_write", toolId: "files.write", parameters: .object(["type": .string("object")])),
+        beforeEffect: { Issue.record("Approval lookup executed an effect"); throw CancellationError() })
+    let policy = AgentToolsPolicy()
+    let binding = try context.approvalBinding(policy: policy, workingDirectory: "/original", extraRoots: ["/original"])
+    let saved = await service.toolApprovalService.createPending(agentId: "owner", sessionId: "session-original",
+        channelId: nil, topicId: nil, request: request, approvalKind: .riskyTool, binding: binding)
+    _ = await service.toolApprovalService.approve(id: saved.id, decidedBy: "fixture")
+    await service.stop()
+    let fresh = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await fresh.waitForStartup(dispatchReadyTasks: false)
+    let replay = await fresh.toolApprovalService.createPending(agentId: "owner", sessionId: "session-original",
+        channelId: nil, topicId: nil, request: request, approvalKind: .riskyTool, binding: binding)
+    #expect(replay.id == saved.id && replay.status == .approved)
+    let changedRoot = try context.approvalBinding(policy: policy, workingDirectory: "/changed", extraRoots: ["/changed"])
+    let rootDecision = await fresh.toolApprovalService.createPending(agentId: "owner", sessionId: "session-original",
+        channelId: nil, topicId: nil, request: request, approvalKind: .riskyTool, binding: changedRoot)
+    #expect(rootDecision.status == .rejected)
+    var changedRequest = request; changedRequest.arguments["content"] = .string("not approved")
+    let argumentsDecision = await fresh.toolApprovalService.createPending(agentId: "owner", sessionId: "session-original",
+        channelId: nil, topicId: nil, request: changedRequest, approvalKind: .riskyTool, binding: binding)
+    #expect(argumentsDecision.status == .rejected)
+    var otherRun = binding; otherRun.invocation.runId = "different-run"
+    let runDecision = await fresh.toolApprovalService.createPending(agentId: "owner", sessionId: "session-original",
+        channelId: nil, topicId: nil, request: request, approvalKind: .riskyTool, binding: otherRun)
+    #expect(runDecision.status == .rejected)
+    await service.stop(); await fresh.stop()
+}
+
+@Test(.timeLimit(.minutes(3)))
+func approvalsAndDecisionsSurviveFreshCoreWithoutGrantingOnCorruptStorage() async throws {
+    let config = CoreConfig.test
+    let original = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await original.waitForStartup(dispatchReadyTasks: false)
+    let request = ToolInvocationRequest(tool: "runtime.exec", arguments: ["command": .string("fixture-command")])
+    let record = await original.toolApprovalService.createPending(agentId: "approval-owner", sessionId: "saved-session",
+        channelId: nil, topicId: nil, toolCallId: "original-call", request: request)
+    await original.stop()
+    let fresh = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await fresh.waitForStartup(dispatchReadyTasks: false)
+    let restored = await fresh.listPendingToolApprovals()
+    #expect(restored.contains(record))
+    let decision = await fresh.toolApprovalService.approve(id: record.id, decidedBy: "fixture")
+    #expect(decision?.status == .approved)
+    await fresh.stop()
+    let reader = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await reader.waitForStartup(dispatchReadyTasks: false)
+    let result = await reader.toolApprovalService.waitForDecision(id: record.id)
+    if case .approved(let saved) = result {
+        #expect(saved.toolCallId == "original-call")
+        #expect(saved.arguments == request.arguments)
+        #expect(saved.agentId == "approval-owner")
+    } else { Issue.record("The durable decision was lost on restart") }
+    let file = config.resolvedWorkspaceRootURL().appendingPathComponent(".runtime/tool-approvals-v1.json")
+    #expect(FileManager.default.fileExists(atPath: file.path))
+    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("corrupt".utf8).write(to: file)
+    await reader.stop()
+    let corrupt = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await corrupt.waitForStartup(dispatchReadyTasks: false)
+    let rejected = await corrupt.toolApprovalService.createPending(agentId: "approval-owner", sessionId: "saved-session",
+        channelId: nil, topicId: nil, request: request)
+    #expect(rejected.status == .rejected)
+    #expect(await corrupt.toolApprovalService.approve(id: rejected.id, decidedBy: "fixture") == nil)
+    await original.stop(); await fresh.stop(); await reader.stop(); await corrupt.stop()
+}
 
 @Test
 func largeWorkspaceDeletionUsesRiskyToolApprovalClassification() async {
@@ -1049,9 +1148,11 @@ private func makeApprovalSession(
     )
 }
 
-private func makeApprovalTempDirectory() throws -> URL {
-    let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-        .appendingPathComponent(".build/sloppy-approval-fixtures", isDirectory: true)
+func makeApprovalTempDirectory() throws -> URL {
+    // These fixtures must be outside the implicitly allowed temporary root, including
+    // Linux checkouts located under /tmp. Only the generated child is removed by callers.
+    let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("SloppyTests/approval-fixtures", isDirectory: true)
         .appendingPathComponent("sloppy-approval-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory.standardizedFileURL

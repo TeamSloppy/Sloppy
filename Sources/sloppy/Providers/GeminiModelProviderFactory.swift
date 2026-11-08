@@ -1,5 +1,8 @@
-import AnyLanguageModel
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+import AnyLanguageModel
 import PluginSDK
 
 struct GeminiModelProviderFactory: ModelProviderFactory {
@@ -29,7 +32,8 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
                 session: ProxySessionFactory.makeSession(
                     proxy: config.coreConfig.proxy,
                     protocolClasses: [GeminiThoughtSignatureURLProtocol.self]
-                )
+                ),
+                nativeSession: ProxySessionFactory.makeSession(proxy: config.coreConfig.proxy)
             )
         }
 
@@ -37,25 +41,37 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
             let tokenBox = GeminiOAuthTokenBox(credentials: oauthCredentials)
             let tokenUsageCapture = TokenUsageCapture()
             let tokenUsageCaptureID = TokenUsageCaptureRegistry.register(tokenUsageCapture)
+            let nativeSession = ProxySessionFactory.makeSession(proxy: config.coreConfig.proxy)
+            let nativeTransport: GeminiOAuthCredentials.Transport = { request in
+                let (data, response) = try await nativeSession.data(for: request)
+                guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+                return (data, response)
+            }
+            let refresh: @Sendable (Bool) async throws -> Void = { native in
+                let current = tokenBox.credentials()
+                guard current.isUsableForAntigravityCLI else {
+                    throw GeminiOAuthCredentialsError.missingRequiredScope(currentScopes: current.antigravityScopeDescription)
+                }
+                let transport = native ? nativeTransport : nil
+                let refreshed = try await current.refreshedIfNeeded(transport: transport)
+                guard refreshed.isUsableForAntigravityCLI else {
+                    throw GeminiOAuthCredentialsError.missingRequiredScope(currentScopes: refreshed.antigravityScopeDescription)
+                }
+                let binding = tokenBox.projectBinding()
+                let project: String?
+                if native, binding.resolved {
+                    project = binding.id
+                } else {
+                    project = try await GeminiCodeAssistProjectResolver.resolve(credentials: refreshed, transport: transport)
+                }
+                tokenBox.update(refreshed, projectID: project)
+                // Only the legacy rewriting protocol owns its process-wide cache.
+                if !native { GeminiOAuthURLProtocol.setCompanionProjectID(project) }
+            }
             return GeminiModelProvider(
                 supportedModels: geminiModels,
                 apiKey: { tokenBox.accessToken() },
-                refreshTokenIfNeeded: {
-                    guard tokenBox.credentials().isUsableForAntigravityCLI else {
-                        throw GeminiOAuthCredentialsError.missingRequiredScope(
-                            currentScopes: tokenBox.credentials().antigravityScopeDescription
-                        )
-                    }
-                    let refreshed = try await tokenBox.credentials().refreshedIfNeeded()
-                    guard refreshed.isUsableForAntigravityCLI else {
-                        throw GeminiOAuthCredentialsError.missingRequiredScope(
-                            currentScopes: refreshed.antigravityScopeDescription
-                        )
-                    }
-                    let companionProjectID = try await GeminiCodeAssistProjectResolver.resolve(credentials: refreshed)
-                    GeminiOAuthURLProtocol.setCompanionProjectID(companionProjectID)
-                    tokenBox.update(refreshed)
-                },
+                refreshTokenIfNeeded: { try await refresh(false) },
                 baseURL: baseURL,
                 tools: config.tools,
                 systemInstructions: config.systemInstructions,
@@ -64,7 +80,14 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
                     protocolClasses: [GeminiOAuthURLProtocol.self],
                     additionalHeaders: [TokenUsageCaptureRegistry.headerField: tokenUsageCaptureID]
                 ),
-                tokenUsageCapture: tokenUsageCapture
+                tokenUsageCapture: tokenUsageCapture,
+                nativeSession: nativeSession,
+                nativeCodeAssist: .init(baseURL: GeminiCodeAssistProjectResolver.defaultBaseURL,
+                    projectID: { tokenBox.companionProjectID() },
+                    headers: ["X-Goog-Api-Client": GeminiCodeAssistProjectResolver.apiClient,
+                        "Client-Metadata": GeminiCodeAssistProjectResolver.clientMetadataHeader],
+                    userAgent: GeminiCodeAssistProjectResolver.userAgent,
+                    refreshCredentials: { try await refresh(true) })
             )
         }
 
@@ -75,6 +98,8 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
 private final class GeminiOAuthTokenBox: @unchecked Sendable {
     private let lock = NSLock()
     private var value: GeminiOAuthCredentials
+    private var projectID: String?
+    private var projectResolved = false
 
     init(credentials: GeminiOAuthCredentials) {
         self.value = credentials
@@ -92,9 +117,14 @@ private final class GeminiOAuthTokenBox: @unchecked Sendable {
         return value.accessToken
     }
 
-    func update(_ credentials: GeminiOAuthCredentials) {
+    func companionProjectID() -> String? { lock.withLock { projectID } }
+    func projectBinding() -> (resolved: Bool, id: String?) { lock.withLock { (projectResolved, projectID) } }
+
+    func update(_ credentials: GeminiOAuthCredentials, projectID: String?) {
         lock.lock()
         value = credentials
+        self.projectID = projectID
+        projectResolved = true
         lock.unlock()
     }
 }

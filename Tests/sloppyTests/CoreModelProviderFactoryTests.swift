@@ -19,6 +19,27 @@ private final class OAuthTokenBox: @unchecked Sendable {
 }
 
 @Test
+func mockFactoryExposesOneStepWithoutExecutingTools() async throws {
+    var config = CoreConfig.test
+    config.models = [.init(title: "Mock", apiKey: "", apiUrl: "", model: "mock:test")]
+    let provider = try #require(CoreModelProviderFactory.buildModelProvider(config: config, resolvedModels: ["mock:test"]))
+    let factory = try #require(provider as? any ModelStepProviderFactory)
+    #expect(factory.supportsModelSteps(for: "mock:test"))
+    #expect(!factory.supportsModelSteps(for: "openai-api:foreign"))
+    let adapter = try #require(try await factory.createModelStepProvider(for: "mock:test", usageContext: nil))
+    let request = ModelStepRequest(runId: "run", userTurnId: "turn", stepId: "step", attemptId: "attempt",
+        model: "mock:test", projectionRevision: "1", cacheScope: "session",
+        messages: [.init(role: .system, text: "Instructions"), .init(role: .user, text: "Current task")],
+        tools: [.init(name: "dangerous", parameters: .object(["type": .string("object")]))])
+    var finals: [ModelStepResponse] = []
+    for try await event in adapter.streamStep(request) { if case .final(let response) = event { finals.append(response) } }
+    #expect(finals.count == 1)
+    #expect(finals.first?.text == "Mock response for prompt: Current task")
+    #expect(finals.first?.toolCalls.isEmpty == true)
+    #expect(finals.first?.stopReason == .endTurn)
+}
+
+@Test
 func providerModelOptionInfersContextWindowForFutureGPT5Models() {
     let option = CoreService.providerModelOption(for: "openai-api:gpt-5.5")
 

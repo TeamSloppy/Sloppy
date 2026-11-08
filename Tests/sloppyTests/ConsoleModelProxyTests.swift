@@ -13,10 +13,10 @@ import FoundationNetworking
 
 @Suite("Console instance model provider", .serialized)
 struct ConsoleModelProxyTests {
-    @Test func consoleInstancesProvideModelsAndHostToolsOverMutualTLSWithoutManualMesh() async throws {
+    @Test(arguments: [false, true]) func consoleInstancesProvideModelsAndHostToolsOverMutualTLSWithoutManualMesh(native: Bool) async throws {
         let fixture = try await ConsoleModelFixture.make()
         defer { fixture.remove() }
-        await fixture.home.service.installConsoleClaudeFixture()
+        await fixture.home.service.installConsoleClaudeFixture(native: native)
         let instances = try await fixture.work.service.consoleModelBridge.instances()
         #expect(instances.count == 1)
         #expect(instances.first?.id == fixture.home.binding.id)
@@ -35,11 +35,19 @@ struct ConsoleModelProxyTests {
         let ids = CoreModelProviderFactory.resolveModelIdentifiers(config: config)
         let bridge = await fixture.work.service.consoleModelBridge
         let provider = try #require(CoreModelProviderFactory.buildModelProvider(config: config, resolvedModels: ids, consoleModelBridge: bridge))
-        let model = try await provider.createLanguageModel(for: "sloppy:claude-code:sonnet")
         let counter = ConsoleToolCounter()
-        let session = LanguageModelSession(model: model, tools: [ConsoleEchoTool(counter: counter)])
         var result = ""
-        for try await update in session.streamResponse(to: "private-console-prompt", generating: String.self) { result = update.content }
+        if native {
+            let factory = try #require(provider as? any ModelStepProviderFactory)
+            let step = try #require(try await factory.createModelStepProvider(for: ids[0], usageContext: nil))
+            result = try await performRemoteFixtureRound(step, model: ids[0]) { value in
+                try await ConsoleEchoTool(counter: counter).call(arguments: .init(value: value))
+            }
+        } else {
+            let model = try await provider.createLanguageModel(for: "sloppy:claude-code:sonnet")
+            let session = LanguageModelSession(model: model, tools: [ConsoleEchoTool(counter: counter)])
+            for try await update in session.streamResponse(to: "private-console-prompt", generating: String.self) { result = update.content }
+        }
         #expect(result == "from-work")
         #expect(await counter.calls == 1)
         #expect(await fixture.work.service.nodeMeshClient == nil)
@@ -52,7 +60,7 @@ struct ConsoleModelProxyTests {
         await fixture.close()
     }
 
-    @Test func readOnlyGrantCanLoadCatalogButCannotRunModelAndDoesNotCreateAccess() async throws {
+    @Test(arguments: [false, true]) func readOnlyGrantCanLoadCatalogButCannotRunModelAndDoesNotCreateAccess(native: Bool) async throws {
         let fixture = try await ConsoleModelFixture.make(permissions: [.read])
         defer { fixture.remove() }
         let instances = try await fixture.work.service.consoleModelBridge.instances()
@@ -61,20 +69,22 @@ struct ConsoleModelProxyTests {
         #expect(models.count == 1)
         let before = await fixture.hub.bytes.count
         await #expect(throws: ConsoleModelBridge.BridgeError.self) {
-            _ = try await fixture.work.service.consoleModelBridge.infer(instanceID: fixture.home.binding.id, request: fixture.request, onSnapshot: nil)
+            if native { _ = try await fixture.work.service.consoleModelBridge.inferStep(instanceID: fixture.home.binding.id, request: .init(request: remoteFixtureRequest())) }
+            else { _ = try await fixture.work.service.consoleModelBridge.infer(instanceID: fixture.home.binding.id, request: fixture.request, onSnapshot: nil) }
         }
         #expect(await fixture.hub.bytes.count == before)
         await fixture.close()
     }
 
-    @Test func scopedGrantCannotExposeInstanceWideModels() async throws {
+    @Test(arguments: [false, true]) func scopedGrantCannotExposeInstanceWideModels(native: Bool) async throws {
         let fixture = try await ConsoleModelFixture.make(projectIDs: ["project-only"])
         defer { fixture.remove() }
         await #expect(throws: ConsoleModelBridge.BridgeError.self) {
             _ = try await fixture.work.service.consoleModelBridge.catalog(instanceID: fixture.home.binding.id)
         }
         let proof = try await fixture.cloud.proof(instanceID: fixture.home.binding.id, deviceID: fixture.work.local.deviceID)
-        let frame = ConsoleModelRequest(id: UUID(), instanceID: fixture.home.binding.id, action: .inference, inference: fixture.request)
+        let frame = ConsoleModelRequest(id: UUID(), instanceID: fixture.home.binding.id, action: native ? .step : .inference,
+            inference: native ? nil : fixture.request, step: native ? .init(request: remoteFixtureRequest()) : nil)
         let reply = try await fixture.home.service.handleConsoleRemotePacket(senderID: fixture.work.local.deviceID,
             certificate: fixture.work.tls.certificateDER, packet: .init(kind: "models.request", payload: ConsoleWire.encode(frame), proof: proof))
         let error = try ConsoleWire.decode(ConsoleModelResponse.self, from: #require(reply).payload)
@@ -84,13 +94,14 @@ struct ConsoleModelProxyTests {
         await fixture.close()
     }
 
-    @Test func cancellationStopsGenerationOnTheConsoleInstance() async throws {
+    @Test(arguments: [false, true]) func cancellationStopsGenerationOnTheConsoleInstance(native: Bool) async throws {
         let fixture = try await ConsoleModelFixture.make()
         defer { fixture.remove() }
         let flags = ConsoleCancellationFlags()
-        await fixture.home.service.installConsoleBlockingModel(flags)
+        await fixture.home.service.installConsoleBlockingModel(flags, native: native)
         let task = Task {
-            try await fixture.work.service.consoleModelBridge.infer(instanceID: fixture.home.binding.id, request: fixture.request, onSnapshot: nil)
+            if native { _ = try await fixture.work.service.consoleModelBridge.inferStep(instanceID: fixture.home.binding.id, request: .init(request: remoteFixtureRequest())) }
+            else { _ = try await fixture.work.service.consoleModelBridge.infer(instanceID: fixture.home.binding.id, request: fixture.request, onSnapshot: nil) }
         }
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !(await flags.started), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
@@ -102,13 +113,14 @@ struct ConsoleModelProxyTests {
         await fixture.close()
     }
 
-    @Test func revokingConsoleGrantStopsAnActiveModelAndRejectsLaterRequests() async throws {
+    @Test(arguments: [false, true]) func revokingConsoleGrantStopsAnActiveModelAndRejectsLaterRequests(native: Bool) async throws {
         let fixture = try await ConsoleModelFixture.make()
         defer { fixture.remove() }
         let flags = ConsoleCancellationFlags()
-        await fixture.home.service.installConsoleBlockingModel(flags)
+        await fixture.home.service.installConsoleBlockingModel(flags, native: native)
         let task = Task {
-            try await fixture.work.service.consoleModelBridge.infer(instanceID: fixture.home.binding.id, request: fixture.request, onSnapshot: nil)
+            if native { _ = try await fixture.work.service.consoleModelBridge.inferStep(instanceID: fixture.home.binding.id, request: .init(request: remoteFixtureRequest())) }
+            else { _ = try await fixture.work.service.consoleModelBridge.infer(instanceID: fixture.home.binding.id, request: fixture.request, onSnapshot: nil) }
         }
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !(await flags.started), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
@@ -287,7 +299,7 @@ private extension CoreService {
         await consoleModelBridge.configure(.init(remote: remote, cloud: cloud, store: store, identity: host.tls, local: host.local, binding: host.binding))
     }
     func clearConsoleModelFixture() async { consoleRelayTask?.cancel(); consoleRelayTask = nil; await consoleModelBridge.stop() }
-    func installConsoleClaudeFixture() {
+    func installConsoleClaudeFixture(native: Bool = false) {
         modelProvider = AnyModelProviderBox(id: "claude-code", supportedModels: ["claude-code:sonnet"], createLanguageModel: { _ in
             ClaudeCodeLanguageModel(generate: { history, _, _, onText in
                 var response = ClaudeCodeResponse(); response.complete = true
@@ -302,9 +314,19 @@ private extension CoreService {
                 return response
             }, reasoningCapture: .init(), tokenUsageCapture: .init())
         })
+        if native, let base = modelProvider {
+            modelProvider = RemoteStepTestProvider(base: base, step: RemoteFixtureStep(signature: "console-signed-thinking", thinking: "private-console-thinking"))
+        }
     }
-    func installConsoleBlockingModel(_ flags: ConsoleCancellationFlags) {
+    func installConsoleBlockingModel(_ flags: ConsoleCancellationFlags, native: Bool = false) {
         modelProvider = AnyModelProviderBox(id: "claude-code", supportedModels: ["claude-code:sonnet"], createLanguageModel: { _ in ConsoleBlockingModel(flags: flags) })
+        if native, let base = modelProvider {
+            modelProvider = RemoteStepTestProvider(base: base, step: RemoteFixtureStep(signature: "blocked", thinking: "", block: {
+                await flags.start()
+                do { try await Task.sleep(for: .seconds(3600)) }
+                catch { await flags.cancel(); throw error }
+            }))
+        }
     }
 }
 private actor ConsoleToolCounter { var calls = 0; func increment() { calls += 1 } }

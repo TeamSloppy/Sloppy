@@ -7,6 +7,9 @@ title: Development Workflow
 
 This guide explains how to work on Sloppy in development and which repository rules contributors are expected to follow.
 
+For the shared agent/contributor process, scripted checks, TDD evidence, independent review
+and opt-in Git hooks, see [Contributor Validation](./contributor-validation.md).
+
 ## Project structure
 
 | Path | Responsibility |

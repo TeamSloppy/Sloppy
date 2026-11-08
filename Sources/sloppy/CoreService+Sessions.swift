@@ -1,6 +1,8 @@
 import Foundation
 import AgentRuntime
+import PluginSDK
 import Protocols
+import SloppyRuntime
 
 // MARK: - Agent Sessions
 
@@ -79,12 +81,7 @@ extension CoreService {
                 throw error
             }
             if !forkedEvents.isEmpty {
-                let copies = forkedEvents.map { event -> AgentSessionEvent in
-                    var copy = event
-                    copy.id = UUID().uuidString
-                    copy.sessionId = session.id
-                    return copy
-                }
+                let copies = try sessionStore.makeHistoricalEvents(forkedEvents, agentID: normalizedAgentID, sessionID: session.id)
                 _ = try sessionStore.appendEvents(agentID: normalizedAgentID, sessionID: session.id, events: copies)
                 try await sessionOrchestrator.prepareSessionContext(agentID: normalizedAgentID, sessionID: session.id)
             }
@@ -104,7 +101,7 @@ extension CoreService {
                 )
             }
             if let checkpointSessionID {
-                scheduleAgentMemoryCheckpoint(
+                await scheduleAgentMemoryCheckpoint(
                     agentID: normalizedAgentID,
                     sessionID: checkpointSessionID,
                     reason: "new_session_command"
@@ -163,7 +160,9 @@ extension CoreService {
             events = Array(events[...cut])
         }
         let history: Set<AgentSessionEventType> = [.message, .toolCall, .toolResult]
-        return events.filter { history.contains($0.type) }
+        // A cut may omit the later admission/cancellation rows. Determine eligibility from
+        // the complete source before copied records become non-authoritative history.
+        return SessionInputLifecycle.contextEvents(events, canonical: source.events).filter { history.contains($0.type) }
     }
 
     public func renameAgentSession(agentID: String, sessionID: String, title: String) throws -> AgentSessionSummary {
@@ -196,19 +195,36 @@ extension CoreService {
         do {
             if let eventLimit {
                 return try sessionStore.loadSessionPage(
-                    agentID: normalizedAgentID, sessionID: normalizedSessionID, limit: eventLimit, before: before
+                    agentID: normalizedAgentID, sessionID: normalizedSessionID, limit: eventLimit, before: before, excludingDerivedWork: true
                 )
             }
             guard before == nil else { throw AgentSessionError.invalidPayload }
-            return try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            var detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            detail.events.removeAll { $0.runtimeMetadata?.derivedSource != nil }
+            return detail
         } catch {
+            logger.error("session.read.failed", metadata: ["agent_id": .string(normalizedAgentID),
+                "session_id": .string(normalizedSessionID), "error": .string(String(describing: error))])
             throw mapSessionStoreError(error)
         }
+    }
+
+    /// Bounded reads for canonical tool outputs; ordinary attachments keep their compatible endpoint.
+    public func getAgentSessionAttachmentChunk(agentID: String, sessionID: String, attachmentID: String,
+        offset: Int, limit: Int) throws -> ToolOutputArtifactChunk? {
+        guard let artifact = try sessionStore.toolOutputArtifactReferences(agentID: agentID, sessionID: sessionID)
+            .first(where: { $0.attachment.id == attachmentID }) else { return nil }
+        return try sessionStore.readToolOutputArtifactChunk(artifact, offset: min(offset, artifact.attachment.sizeBytes), limit: limit)
     }
 
     /// Only attachment IDs present in this session can be retrieved. Never accepts a client path.
     public func getAgentSessionAttachment(agentID: String, sessionID: String, attachmentID: String) throws -> (data: Data, mediaType: String) {
         let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
+        if let artifact = detail.events.compactMap(\.runtimeMetadata?.toolOutputArtifact).first(where: { $0.attachment.id == attachmentID }) {
+            let bytes = try sessionStore.readInputAttachment(agentID: agentID, sessionID: sessionID, attachment: artifact.attachment)
+            guard ContentDigest.sha256(bytes) == artifact.sha256 else { throw AgentSessionError.sessionNotFound }
+            return (bytes, artifact.attachment.mimeType)
+        }
         guard let attachment = detail.events.compactMap(\.message).flatMap(\.segments)
             .compactMap(\.attachment).first(where: { $0.id == attachmentID }),
               let url = try sessionStore.resolveAttachmentFileURL(agentID: agentID, attachment: attachment) else {
@@ -424,7 +440,7 @@ extension CoreService {
         summary: AgentSessionSummary,
         events: [AgentSessionEvent]
     ) {
-        for event in events {
+        for event in events where event.runtimeMetadata?.derivedSource == nil {
             publishLiveSessionUpdate(
                 agentID: agentID,
                 sessionID: sessionID,
@@ -579,6 +595,44 @@ extension CoreService {
         }
     }
 
+    private func replayNativeSessionInput(agentID: String, sessionID: String,
+        request: AgentSessionPostMessageRequest, peerOrigin: AgentSessionPeerOrigin?) throws -> AgentSessionMessageResponse? {
+        guard let messageID = request.clientMessageId else { return nil }
+        let current = activeNativeSessionInputs[sessionStreamKey(agentID: agentID, sessionID: sessionID)]
+        let active = current?.messageID == messageID ? current : nil
+        let fingerprint = try? NativeSessionDelivery.fingerprint(request, peerOrigin: peerOrigin)
+        if let active, fingerprint != active.fingerprint {
+            logger.notice("session.native_retry.rejected", metadata: ["session_id": .string(sessionID),
+                "message_id": .string(messageID), "reason": .string("active_fingerprint_mismatch"),
+                "active_fingerprint": .string(active.fingerprint), "request_fingerprint": .string(fingerprint ?? "unavailable")])
+            throw AgentSessionError.invalidPayload
+        }
+        let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
+        let resolution: NativeSessionDelivery.Resolution
+        do { resolution = try NativeSessionDelivery.resolve(request, peerOrigin: peerOrigin, detail: detail) }
+        catch {
+            logger.error("session.native_retry.resolution_failed", metadata: ["session_id": .string(sessionID),
+                "message_id": .string(messageID), "event_count": .stringConvertible(detail.events.count),
+                "recorded_user_count": .stringConvertible(detail.events.filter { $0.message?.id == messageID }.count),
+                "accepted_fingerprint_matches": .stringConvertible(detail.events.contains {
+                    !$0.isHistorical && $0.runtimeMetadata?.inputMessageId == messageID && $0.runtimeMetadata?.requestFingerprint == fingerprint
+                }), "error": .string(String(describing: error))])
+            throw mapSessionOrchestratorError(error)
+        }
+        switch resolution {
+        case .delivered(let response): return response
+        case .unfinished:
+            guard active != nil else { return nil }
+            return .init(summary: detail.summary, appendedEvents: [], routeDecision: nil, replayed: true)
+        case .fresh:
+            guard active != nil else { return nil }
+            // The original owner has not committed acceptance. Do not acknowledge or queue a second owner.
+            logger.notice("session.native_retry.rejected", metadata: ["session_id": .string(sessionID),
+                "message_id": .string(messageID), "reason": .string("acceptance_not_committed")])
+            throw AgentSessionError.invalidPayload
+        }
+    }
+
     /// Appends user message, run-status events and assistant reply into session JSONL.
     public func postAgentSessionMessage(
         agentID: String,
@@ -590,6 +644,9 @@ extension CoreService {
         inboxDelivery: Bool = false,
         peerConversation: Bool = false
     ) async throws -> AgentSessionMessageResponse {
+        guard !nativeDerivedWorkIsStopping, let ownershipLease = await toolApprovalService.currentOwnershipLease(),
+              !nativeDerivedWorkIsStopping else { throw AgentSessionError.workspaceUnavailable }
+        defer { withExtendedLifetime(ownershipLease) {} }
         var effectiveRequest = AgentSessionOrchestrator.requestByApplyingOneShotModeCommand(request)
         if peerConversation { effectiveRequest.mode = .ask }
         await waitForStartup()
@@ -622,16 +679,57 @@ extension CoreService {
             try await restoreLongChatWorkerScope(agentID: normalizedAgentID, childID: normalizedSessionID)
         }
         if peerConversation && peerOrigin == nil { throw AgentSessionError.invalidPayload }
+        if effectiveRequest.clientMessageId == nil {
+            let runtime: AgentRuntimeConfig
+            do { runtime = try agentCatalogStore.getAgentRuntimeConfig(agentID: normalizedAgentID) }
+            catch { throw AgentSessionError.storageFailure }
+            if runtime.type == .native, runtime.effectiveNativeEngine == .unified {
+                // The ID exposed by the first journal row also belongs to the active owner.
+                effectiveRequest.clientMessageId = UUID().uuidString
+            }
+        }
+        if let replay = try replayNativeSessionInput(agentID: normalizedAgentID,
+            sessionID: normalizedSessionID, request: effectiveRequest, peerOrigin: peerOrigin) {
+            return replay
+        }
+        await cancelNativeDerivedRuns(sessionID: normalizedSessionID)
+        if sessionMessageControlIsActive(agentID: normalizedAgentID, sessionID: normalizedSessionID) {
+            if inboxDelivery { throw CancellationError() }
+            return try enqueueSessionInboxMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID,
+                request: effectiveRequest, origin: peerOrigin)
+        }
         if !inboxDelivery {
+            let detail = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            let pendingInput = NativeSessionDelivery.firstUnfinishedInput(in: detail)
+            let pendingID = pendingInput.map { $0.inputMessageId ?? $0.userTurnId }
+            let resumesAcceptedInput = pendingID != nil && pendingID == effectiveRequest.clientMessageId
             if activeSessionMessageRuns.contains(normalizedSessionID)
-                || (!longChatWorkerDelivery && sessionMessageStorage?.entries.contains(where: { $0.sessionId == normalizedSessionID && $0.state == .queued }) == true) {
+                || (!resumesAcceptedInput && (pendingInput != nil
+                    || (!longChatWorkerDelivery && sessionMessageStorage?.entries.contains(where: { $0.sessionId == normalizedSessionID && $0.state == .queued }) == true))) {
                 return try enqueueSessionInboxMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID,
                                                      request: effectiveRequest, origin: peerOrigin)
             }
-            activeSessionMessageRuns.insert(normalizedSessionID)
         }
+        let ownedInput: NativeSessionDelivery.ActiveInput?
+        if let messageID = effectiveRequest.clientMessageId {
+            let runtime: AgentRuntimeConfig
+            do { runtime = try agentCatalogStore.getAgentRuntimeConfig(agentID: normalizedAgentID) }
+            catch { throw AgentSessionError.storageFailure }
+            if runtime.type == .native, runtime.effectiveNativeEngine == .unified {
+                guard let fingerprint = try? NativeSessionDelivery.fingerprint(effectiveRequest, peerOrigin: peerOrigin) else {
+                    throw AgentSessionError.invalidPayload
+                }
+                ownedInput = .init(messageID: messageID, fingerprint: fingerprint)
+            } else { ownedInput = nil }
+        } else { ownedInput = nil }
+        let inputKey = sessionStreamKey(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        if let ownedInput { activeNativeSessionInputs[inputKey] = ownedInput }
+        if !inboxDelivery { activeSessionMessageRuns.insert(normalizedSessionID) }
         activePeerSessionOrigins[normalizedSessionID] = peerOrigin
         defer {
+            if let ownedInput, activeNativeSessionInputs[inputKey] == ownedInput {
+                activeNativeSessionInputs.removeValue(forKey: inputKey)
+            }
             activePeerSessionOrigins.removeValue(forKey: normalizedSessionID)
             if peerConversation { peerConversationSessions.remove(normalizedSessionID) }
             if !inboxDelivery {
@@ -639,6 +737,28 @@ extension CoreService {
                 scheduleSessionInbox(agentID: normalizedAgentID, sessionID: normalizedSessionID)
             }
         }
+        // Own preparation and actor dispatch as well as the model/tool portion of this input.
+        let operationID = UUID()
+        let admittedRequest = effectiveRequest
+        let operation = Task {
+            try await self.runAdmittedSessionMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID,
+                request: admittedRequest, userMessageAlreadyPersisted: userMessageAlreadyPersisted,
+                peerOrigin: peerOrigin, peerConversation: peerConversation)
+        }
+        sessionMessageOperations[inputKey] = (operationID, operation)
+        defer {
+            if sessionMessageOperations[inputKey]?.id == operationID { sessionMessageOperations.removeValue(forKey: inputKey) }
+        }
+        return try await withTaskCancellationHandler {
+            try await operation.value
+        } onCancel: { operation.cancel() }
+    }
+
+    private func runAdmittedSessionMessage(agentID normalizedAgentID: String, sessionID normalizedSessionID: String,
+        request effectiveRequest: AgentSessionPostMessageRequest, userMessageAlreadyPersisted: Bool,
+        peerOrigin: AgentSessionPeerOrigin?, peerConversation: Bool) async throws -> AgentSessionMessageResponse {
+        try Task.checkCancellation()
+        try Task.checkCancellation()
         if effectiveRequest.userId == "onboarding" {
             logger.info(
                 "onboarding.message.posted",
@@ -678,12 +798,15 @@ extension CoreService {
             if !["system_task_worker", "memory_checkpoint", "onboarding", "goal", "goal_loop"].contains(effectiveRequest.userId.lowercased()) {
                 await toolLoopGuard.beginTurn(sessionID: normalizedSessionID)
             }
+            // Test-only suspension at the existing awaited preparation boundary.
+            if let observer = sessionMessagePreparationForTests { await observer() }
             if let execution = projectExecutionSessions[normalizedSessionID] {
                 let pickupEnabled = await store.project(id: execution.projectID)?.automaticTaskPickupEnabled == true
                 guard pickupEnabled, execution.generation == projectStopGenerations[execution.projectID, default: 0] else {
                     throw CancellationError()
                 }
             }
+            try Task.checkCancellation()
             let response = try await sessionOrchestrator.postMessage(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
@@ -692,11 +815,16 @@ extension CoreService {
                 additionalContext: SessionCommunicationPolicy.instructions + (peerConversation
                     ? "\n[Communication turn] The delegated task is closed. Discuss evidence only; do not change resources or call agent_delegate.finish."
                     : ""),
-                peerOrigin: peerOrigin
+                peerOrigin: peerOrigin, peerConversation: peerConversation
             )
+            if response.replayed == true { return response }
             if !peerConversation { await reconcileLongChatWorker(agentID: normalizedAgentID, childID: normalizedSessionID) }
             let uid = effectiveRequest.userId.lowercased()
-            let skipUserTurnCount = uid == "system_task_worker" || uid == "memory_checkpoint" || uid == "onboarding" || uid == "goal" || uid == "goal_loop"
+            let resumedInput = effectiveRequest.clientMessageId.flatMap { id in
+                (try? sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID))
+                    .map { NativeSessionDelivery.isResumedInput(id, in: $0) }
+            } ?? false
+            let skipUserTurnCount = resumedInput || uid == "system_task_worker" || uid == "memory_checkpoint" || uid == "onboarding" || uid == "goal" || uid == "goal_loop"
             if !skipUserTurnCount && peerOrigin == nil {
                 do {
                     let count = try sessionStore.incrementUserTurnCount(
@@ -704,7 +832,7 @@ extension CoreService {
                         sessionID: normalizedSessionID
                     )
                     if count >= CoreService.agentMemoryCheckpointUserTurnThreshold {
-                        scheduleAgentMemoryCheckpoint(
+                        await scheduleAgentMemoryCheckpoint(
                             agentID: normalizedAgentID,
                             sessionID: normalizedSessionID,
                             reason: "user_turn_threshold"
@@ -734,6 +862,12 @@ extension CoreService {
             await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, response: response)
             return response
         } catch {
+            logger.error("session.message.failed", metadata: ["agent_id": .string(normalizedAgentID),
+                "session_id": .string(normalizedSessionID), "message_id": .string(effectiveRequest.clientMessageId ?? "generated"),
+                "error": .string(String(describing: error))])
+            // Internal delivery settlement needs the typed stop before API error mapping.
+            if error is CancellationError { throw error }
+            if let failure = error as? ModelStepFailure, failure.category == .cancelled { throw failure }
             throw mapSessionOrchestratorError(error)
         }
     }
@@ -895,32 +1029,94 @@ extension CoreService {
 
         _ = try getAgent(id: normalizedAgentID)
 
+        let interrupting = request.action == .interrupt || request.action == .interruptTree
+        var targets: [String] = []
+        var queuedAtAdmission: Set<String> = []
+        var queuedCancellations: [String: [AgentInputTransition]] = [:]
+        var controlEventIDs: [String: String] = [:]
+        var barrierKeys: [String] = []
+        defer {
+            for key in barrierKeys {
+                let depth = sessionControlDepth[key, default: 0]
+                if depth <= 1 { sessionControlDepth.removeValue(forKey: key) }
+                else { sessionControlDepth[key] = depth - 1 }
+            }
+            if !barrierKeys.isEmpty {
+                for target in targets { scheduleSessionInbox(agentID: normalizedAgentID, sessionID: target) }
+            }
+        }
         do {
-            let response = try await sessionOrchestrator.controlSession(
-                agentID: normalizedAgentID,
-                sessionID: normalizedSessionID,
-                request: request
-            )
-            if request.action == .interrupt || request.action == .interruptTree {
-                let interruptedSessionIDs = Set(response.appendedEvents.map(\.sessionId))
-                for interruptedSessionID in interruptedSessionIDs {
-                    sessionMessageRunners[interruptedSessionID]?.cancel()
-                    if let storage = try? sessionMessageInbox() {
-                        try storage.transaction { entries in
-                            for index in entries.indices where entries[index].sessionId == interruptedSessionID
-                                && entries[index].state == .queued {
-                                entries[index].state = .failed
-                                entries[index].error = "Session interrupted by the user before delivery."
-                            }
-                        }
+            let summaries = request.action == .interruptTree
+                ? try sessionStore.listSessions(agentID: normalizedAgentID, includeHeartbeat: true) : []
+            targets = AgentSessionOrchestrator.controlTargetSessionIDs(sessionID: normalizedSessionID,
+                action: request.action, sessions: summaries)
+            let targetIDs = Set(targets)
+            queuedAtAdmission = interrupting ? Set(try sessionMessageInbox().entries.filter {
+                $0.agentId == normalizedAgentID && targetIDs.contains($0.sessionId) && $0.state == .queued
+            }.map(\.id)) : []
+            if interrupting {
+                for target in targets {
+                    let detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: target)
+                    let queued = try SessionInputLifecycle.states(in: detail.events).values
+                        .filter { $0.latest.disposition == .queued && $0.owner == nil }
+                        .sorted { $0.latest.messageId < $1.latest.messageId }
+                    queuedCancellations[target] = queued.map {
+                        .init(messageId: $0.latest.messageId, fingerprint: $0.latest.fingerprint,
+                            disposition: .cancelled, delivery: .delivered)
                     }
-                    await toolExecution.cleanupSessionProcesses(interruptedSessionID)
+                    queuedAtAdmission.formUnion(queued.map(\.latest.messageId))
                 }
+            }
+            controlEventIDs = Dictionary(uniqueKeysWithValues: targets.map { ($0, UUID().uuidString) })
+            barrierKeys = interrupting ? targets.map { sessionStreamKey(agentID: normalizedAgentID, sessionID: $0) } : []
+            for key in barrierKeys { sessionControlDepth[key, default: 0] += 1 }
+            if interrupting { for target in targets { await cancelNativeDerivedRuns(sessionID: target) } }
+            let operations: [String: Task<AgentSessionMessageResponse, Error>] = interrupting
+                ? Dictionary(uniqueKeysWithValues: targets.compactMap { target in
+                    guard let operation = sessionMessageOperations[sessionStreamKey(agentID: normalizedAgentID, sessionID: target)] else { return nil }
+                    return (target, operation.task)
+                }) : [:]
+            if interrupting, let observer = sessionControlAdmissionForTests { await observer() }
+            let response = try await sessionOrchestrator.controlSession(
+                agentID: normalizedAgentID, sessionID: normalizedSessionID, request: request,
+                targetSessionIDs: targets, controlEventIDs: controlEventIDs,
+                queuedInputCancellations: queuedCancellations,
+                onInterruptAccepted: { target in operations[target]?.cancel() })
+            if interrupting {
+                let interruptedIDs = Set(response.appendedEvents.map(\.sessionId))
+                try cancelQueuedSessionMessages(agentID: normalizedAgentID, sessionIDs: interruptedIDs, inputIDs: queuedAtAdmission)
+                for target in interruptedIDs { await toolExecution.cleanupSessionProcesses(target) }
             }
             await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
             return response
         } catch {
+            if interrupting {
+                // A tree can stop earlier targets before a later target fails. Honor those
+                // exact durable controls while the admission barrier is still held.
+                let interruptedIDs = Set(targets.filter { target in
+                    guard let eventID = controlEventIDs[target],
+                          let detail = try? sessionStore.loadSession(agentID: normalizedAgentID, sessionID: target) else { return false }
+                    return detail.events.contains { !$0.isHistorical && $0.id == eventID &&
+                        $0.type == .runControl && $0.runControl?.action == request.action }
+                })
+                try cancelQueuedSessionMessages(agentID: normalizedAgentID, sessionIDs: interruptedIDs, inputIDs: queuedAtAdmission)
+                for target in interruptedIDs { await toolExecution.cleanupSessionProcesses(target) }
+            }
             throw mapSessionOrchestratorError(error)
+        }
+    }
+
+    private func cancelQueuedSessionMessages(agentID: String, sessionIDs: Set<String>, inputIDs: Set<String>) throws {
+        guard !sessionIDs.isEmpty else { return }
+        for target in sessionIDs { sessionMessageRunners[target]?.cancel() }
+        guard !inputIDs.isEmpty else { return }
+        let storage = try sessionMessageInbox()
+        try storage.transaction { entries in
+            for index in entries.indices where entries[index].agentId == agentID &&
+                sessionIDs.contains(entries[index].sessionId) && inputIDs.contains(entries[index].id) && entries[index].state == .queued {
+                entries[index].state = .failed
+                entries[index].error = "Session interrupted by the user before delivery."
+            }
         }
     }
 

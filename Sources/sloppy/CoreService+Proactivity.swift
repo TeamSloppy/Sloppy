@@ -144,9 +144,6 @@ extension CoreService {
     func analyzeProactiveSnapshots(agentID: String, snapshots: [ProactiveSnapshot], model: String) async throws -> ProactiveAnalysisBatch {
         guard let modelProvider, modelProvider.supports(modelName: model) else { throw ProactiveHeartbeatError.modelUnavailable }
         let config = try getAgentConfig(agentID: agentID)
-        let session = try await createAgentSession(agentID: agentID, request: .init(title: "Attention review", kind: .heartbeat))
-        let channelID = "agent:\(agentID):session:\(session.id):proactivity"
-        let recorder = ProactiveReportRecorder(sourceIDs: Set(snapshots.map { $0.source.id }))
         var contexts: [String] = []
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -183,6 +180,12 @@ extension CoreService {
         Sources:
         \(contexts.joined(separator: "\n\n"))
         """
+        if config.runtime.type == .native, config.runtime.effectiveNativeEngine == .unified {
+            return try await runNativeProactiveReview(agentID: agentID, snapshots: snapshots, model: model, prompt: prompt, config: config)
+        }
+        let session = try await createAgentSession(agentID: agentID, request: .init(title: "Attention review", kind: .heartbeat))
+        let channelID = "agent:\(agentID):session:\(session.id):proactivity"
+        let recorder = ProactiveReportRecorder(sourceIDs: Set(snapshots.map { $0.source.id }))
         appendProactiveSessionEvents(agentID: agentID, sessionID: session.id, events: [.init(
             agentId: agentID, sessionId: session.id, type: .message,
             message: .init(role: .user, segments: [.init(kind: .text, text: "Background review of: " + snapshots.map { $0.source.title }.joined(separator: "; "))], userId: "system_proactivity")

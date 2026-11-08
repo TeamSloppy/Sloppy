@@ -36,7 +36,11 @@ public actor UsageWireDecoder {
             agentId: agent, provider: context.provider, model: context.model, createdAt: createdAt,
             failed: failed, complete: !truncated)
         var measurements: [(UsageComponentKind, String?, String?, String?, String)] = []
-        let input = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let envelope = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let input: [String: Any]?
+        if envelope?["requestType"] as? String == "agent", let request = envelope?["request"] as? [String: Any] {
+            input = request
+        } else { input = envelope }
         if let input {
             var schemas = input["tools"] as? [[String: Any]] ?? []
             schemas = schemas.flatMap { ($0["functionDeclarations"] as? [[String: Any]]) ?? [$0] }
@@ -59,6 +63,12 @@ public actor UsageWireDecoder {
                 }
                 for block in message["content"] as? [[String: Any]] ?? [] where block["type"] as? String == "tool_use" {
                     register(["id": block["id"] ?? "", "name": block["name"] ?? "", "arguments": Self.json(block["input"] ?? [:])])
+                }
+                for part in message["parts"] as? [[String: Any]] ?? [] {
+                    if let wire = part["functionCall"] as? [String: Any] {
+                        if let call = Self.geminiCall(wire) { register(call) }
+                        else { record.complete = false }
+                    }
                 }
             }
             for message in messages {
@@ -85,14 +95,29 @@ public actor UsageWireDecoder {
                                   media: Self.hasMedia(["content": block["content"] ?? []]), to: &measurements, record: &record)
                     }
                 }
-                // Gemini does not preserve tool-call IDs on the wire; don't fabricate a link.
+                // Gemini IDs are optional. Attribute only explicit wire IDs, never a
+                // synthetic runtime ID guessed from names, arguments or response order.
                 for part in message["parts"] as? [[String: Any]] ?? [] {
-                    if part["functionCall"] != nil || part["functionResponse"] != nil { record.complete = false }
+                    if let wire = part["functionCall"] as? [String: Any] {
+                        if let id = wire["id"] as? String, let call = knownCalls[id] {
+                            measurements.append((.argumentsInput, call.tool, id, nil, call.arguments))
+                        } else { record.complete = false }
+                    }
+                    if let wire = part["functionResponse"] as? [String: Any] {
+                        if let id = wire["id"] as? String, let response = wire["response"] as? [String: Any] {
+                            // The native adapter's error/result wrapper comes from its
+                            // typed tool outcome, independent of the result's prose.
+                            let isError: Bool? = response["error"] != nil ? true : (response["result"] != nil ? false : nil)
+                            addResult(id: id, output: Self.json(response), isError: isError, to: &measurements, record: &record)
+                        } else { record.complete = false }
+                    }
                     if part["inlineData"] != nil || part["fileData"] != nil { record.complete = false }
                 }
                 if Self.hasMedia(message) { record.complete = false }
             }
-            let instructionText = Self.text(input["instructions"]) + "\n" + Self.text(input["system"]) + "\n" + messages.map { Self.text($0["content"]) }.joined(separator: "\n")
+            let geminiSystem = (input["systemInstruction"] as? [String: Any])?["parts"]
+            let instructionText = Self.text(input["instructions"]) + "\n" + Self.text(input["system"]) + "\n" +
+                Self.text(geminiSystem) + "\n" + messages.map { Self.text($0["content"]) + "\n" + Self.text($0["parts"]) }.joined(separator: "\n")
             for skill in provenance.skills where !skill.catalogEntry.isEmpty {
                 let occurrences = instructionText.components(separatedBy: skill.catalogEntry).count - 1
                 for _ in 0..<occurrences { measurements.append((.skillCatalog, nil, nil, skill.id, skill.catalogEntry)) }
@@ -125,10 +150,15 @@ public actor UsageWireDecoder {
                 let outputDetails = usage["output_tokens_details"] as? [String: Any] ?? usage["completion_tokens_details"] as? [String: Any] ?? [:]
                 reasoning = outputDetails["reasoning_tokens"] as? Int ?? reasoning
             }
-            if (object["candidates"] as? [[String: Any]] ?? []).contains(where: { candidate in
+            for candidate in object["candidates"] as? [[String: Any]] ?? [] {
                 let content = candidate["content"] as? [String: Any] ?? [:]
-                return (content["parts"] as? [[String: Any]] ?? []).contains { $0["functionCall"] != nil }
-            }) { record.complete = false }
+                for part in content["parts"] as? [[String: Any]] ?? [] {
+                    if let wire = part["functionCall"] as? [String: Any] {
+                        if let call = Self.geminiCall(wire), let id = call["id"] as? String { generated[id] = call }
+                        else { record.complete = false }
+                    }
+                }
+            }
             let gemini = object["usageMetadata"] as? [String: Any]
             if let gemini {
                 inputTokens = gemini["promptTokenCount"] as? Int
@@ -138,6 +168,7 @@ public actor UsageWireDecoder {
             }
             if let prompt = object["prompt_eval_count"] as? Int, let completion = object["eval_count"] as? Int {
                 inputTokens = prompt; outputTokens = completion
+                cached = object["prompt_eval_cached_count"] as? Int ?? 0
             }
             for output in object["output"] as? [[String: Any]] ?? [] where output["type"] as? String == "function_call" {
                 if let id = output["call_id"] as? String { generated[id] = output }
@@ -205,6 +236,11 @@ public actor UsageWireDecoder {
     }
 
     private func tool(_ name: String) -> String { provenance.toolNameMap[name] ?? name }
+    private static func geminiCall(_ wire: [String: Any]) -> [String: Any]? {
+        guard let id = wire["id"] as? String, !id.isEmpty,
+              let name = wire["name"] as? String, !name.isEmpty, let arguments = wire["args"] as? [String: Any] else { return nil }
+        return ["id": id, "name": name, "arguments": json(arguments)]
+    }
     private func register(_ wire: [String: Any]) {
         guard let id = wire["call_id"] as? String ?? wire["id"] as? String, !id.isEmpty,
               let name = wire["name"] as? String, !name.isEmpty else { return }

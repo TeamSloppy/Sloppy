@@ -1,4 +1,5 @@
 import Foundation
+import SloppyRuntime
 import Testing
 @testable import AgentRuntime
 @testable import Protocols
@@ -62,4 +63,47 @@ func persistentMemoryIsAvailableAfterReopeningSQLite() async {
     await runtime.setMemoryProject(channelId: "agent:helper:session:new", projectID: "aurora")
     let context = await runtime.persistentMemoryContext(channelId: "agent:helper:session:new")
     #expect(context.contains("Use isolated build caches"))
+}
+
+@Test
+func memoryCheckpointUsesOnlyAdmittedSemanticInputsInJournalOrder() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("memory-inputs-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("agent"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = AgentSessionFileStore(agentsRootURL: root)
+    let session = try store.createSession(agentID: "agent", request: .init())
+    let legacy = AgentSessionEvent(agentId: "agent", sessionId: session.id, type: .message,
+        createdAt: Date(timeIntervalSince1970: 100),
+        message: .init(role: .user, segments: [.init(kind: .text, text: "Legacy retained fact")]))
+    let queuedID = UUID().uuidString
+    let queued = AgentSessionPostMessageRequest(userId: "user", content: "Unadmitted queued instruction", clientMessageId: queuedID)
+    let queuedContext = try NativeInputCapture.capture(queued, messageID: queuedID, attachments: [], peerOrigin: nil)
+    let queuedFingerprint = try NativeInputCapture.fingerprint(queued, peerOrigin: nil)
+    let queuedEvent = AgentSessionEvent(version: 3, agentId: "agent", sessionId: session.id, type: .message,
+        createdAt: Date(timeIntervalSince1970: 200),
+        inputTransitions: [.init(messageId: queuedID, fingerprint: queuedFingerprint, disposition: .queued, context: queuedContext)],
+        message: .init(id: queuedID, role: .user, segments: [.init(kind: .text, text: queued.content)], userId: "user"))
+    let admittedID = UUID().uuidString
+    let source = AgentSessionPostMessageRequest(userId: "user", content: "/build Prepared admitted fact", clientMessageId: admittedID)
+    var admitted = source
+    admitted.content = "Prepared admitted fact"
+    admitted.mode = .build
+    let context = try NativeInputCapture.capture(admitted, messageID: admittedID, attachments: [], peerOrigin: nil, sourceRequest: source)
+    let fingerprint = try NativeInputCapture.fingerprint(admitted, peerOrigin: nil, sourceRequest: source)
+    let admittedEvent = AgentSessionEvent(version: 3, agentId: "agent", sessionId: session.id, type: .message,
+        createdAt: Date(timeIntervalSince1970: 50),
+        runtimeMetadata: .init(runId: "run", userTurnId: admittedID, inputMessageId: admittedID, requestFingerprint: fingerprint),
+        inputTransitions: [.init(messageId: admittedID, fingerprint: fingerprint, disposition: .admitted,
+            owner: .init(runId: "run", userTurnId: admittedID, generation: 0), context: context)],
+        message: .init(id: admittedID, role: .user, segments: [.init(kind: .text, text: source.content)], userId: "user"))
+    let cancellation = AgentSessionEvent(version: 3, agentId: "agent", sessionId: session.id, type: .runStatus,
+        inputTransitions: [.init(messageId: queuedID, fingerprint: queuedFingerprint, disposition: .cancelled, delivery: .delivered)])
+    _ = try store.appendEvents(agentID: "agent", sessionID: session.id, events: [legacy, queuedEvent, admittedEvent, cancellation])
+    let fresh = try AgentSessionFileStore(agentsRootURL: root).loadSession(agentID: "agent", sessionID: session.id)
+    let transcript = CoreService.formattedCheckpointTranscript(from: fresh, maxUTF16Scalars: 10_000)
+    #expect(!transcript.contains(queued.content))
+    #expect(!transcript.contains("/build"))
+    let first = try #require(transcript.range(of: "Legacy retained fact"))
+    let second = try #require(transcript.range(of: admitted.content))
+    #expect(first.lowerBound < second.lowerBound)
 }

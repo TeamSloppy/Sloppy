@@ -10,6 +10,21 @@ struct ProvidersAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.post("/v1/providers/step", metadata: RouteMetadata(summary: "Generate one model step",
+            description: "Versioned model inference with caller-owned tools and opaque continuation", tags: ["Providers"])) { request in
+            guard await service.authorizeModelProxy(request) else { return CoreRouter.json(status: 401, payload: ["error": "unauthorized"]) }
+            guard let body = request.body, let input = CoreRouter.decode(body, as: SloppyModelStepRequest.self) else {
+                return CoreRouter.json(status: 400, payload: ["error": "invalid_step_request"])
+            }
+            guard input.schemaVersion == 1 else { return CoreRouter.json(status: 426, payload: ["error": "remote_step_version_unavailable"]) }
+            let scope = await service.modelProxyScope(request)
+            if input.stream == true {
+                return .init(status: 200, body: Data(), contentType: "text/event-stream",
+                    sseStream: await service.streamRemoteModelStep(input, scope: scope))
+            }
+            do { return CoreRouter.encodable(status: 200, payload: try await service.remoteModelStep(input, scope: scope)) }
+            catch { return CoreRouter.json(status: 503, payload: ["error": "remote_step_unavailable"]) }
+        }
         router.get("/v1/models", metadata: RouteMetadata(summary: "OpenAI-compatible model catalog", description: "Models served by this Sloppy proxy, including configured relay models", tags: ["Providers"])) { request in
             guard await service.authorizeModelProxy(request) else { return CoreRouter.encodable(status: 401, payload: OpenAIModelProxyWire.error("Sloppy authorization is required.", type: "authentication_error")) }
             let models = await service.listAvailableProviderModels()
@@ -87,7 +102,7 @@ struct ProvidersAPIRouter: APIRouter {
         }
 
         router.get("/v1/providers/models", metadata: RouteMetadata(summary: "List available provider models", description: "Returns runtime-routable models for agent and channel model pickers", tags: ["Providers"])) { _ in
-            let models = await service.listAvailableProviderModels()
+            let models = await service.modelStepCatalog()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: models)
         }
 

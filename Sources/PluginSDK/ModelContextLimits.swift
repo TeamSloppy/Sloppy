@@ -23,7 +23,7 @@ public struct ModelContextLimits: Codable, Sendable, Equatable {
     }
 }
 
-public struct ContextLimitedModelProvider: ModelProvider {
+public struct ContextLimitedModelProvider: ModelProvider, ModelStepProviderFactory {
     private let wrapped: any ModelProvider
     private let limits: [String: ModelContextLimits]
 
@@ -36,6 +36,14 @@ public struct ContextLimitedModelProvider: ModelProvider {
     public var supportedModels: [String] { wrapped.supportedModels }
     public var systemInstructions: String? { wrapped.systemInstructions }
     public var tools: [any Tool] { wrapped.tools }
+    public func supportsModelSteps(for modelName: String) -> Bool {
+        (wrapped as? any ModelStepProviderFactory)?.supportsModelSteps(for: modelName) ?? false
+    }
+    public func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        guard let factory = wrapped as? any ModelStepProviderFactory,
+              factory.supportsModelSteps(for: modelName) else { return nil }
+        return try await factory.createModelStepProvider(for: modelName, usageContext: usageContext)
+    }
     public func supports(modelName: String) -> Bool { wrapped.supports(modelName: modelName) }
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel { try await wrapped.createLanguageModel(for: modelName) }
     public func supportsUsageObservation(for modelName: String) -> Bool { wrapped.supportsUsageObservation(for: modelName) }

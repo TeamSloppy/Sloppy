@@ -15,18 +15,16 @@ private func ok(_ tool: String, _ data: Protocols.JSONValue? = nil) -> ToolInvoc
 
 @Suite("Session work ledger")
 struct SessionWorkLedgerTests {
-    @Test("An identical read is answered from the ledger once, then runs again for fresh data")
+    @Test("Read summaries never substitute for a requested result")
     func duplicateReadIsAnsweredOnce() {
         var ledger = SessionWorkLedger()
         let read = request("files.read", ["path": .string("/a.swift")])
         #expect(ledger.duplicateReadResult(for: read) == nil)
         ledger.observe(request: read, result: ok("files.read", .object(["content": .string("let answer = 42")])))
 
-        let first = ledger.duplicateReadResult(for: read)
-        #expect(first?.ok == true)
-        #expect(first?.data?.asObject?["alreadyRead"] == .bool(true))
-        #expect(first?.data?.asObject?["digest"]?.asString?.contains("answer = 42") == true)
         #expect(ledger.duplicateReadResult(for: read) == nil)
+        #expect(ledger.duplicateReadResult(for: read) == nil)
+        #expect(ledger.render().contains("answer = 42"))
     }
 
     @Test("Editing files invalidates earlier file reads")
@@ -46,8 +44,10 @@ struct SessionWorkLedgerTests {
         let build = request("mcp.call_tool", ["server": .string("acp.studio"), "tool": .string("editor.build.start")])
         ledger.observe(request: skill, result: ok("mcp.call_tool", .object(["readOnly": .bool(true), "content": .string("skill text")])))
         ledger.observe(request: build, result: ok("mcp.call_tool", .object(["content": .string("started")])))
-        #expect(ledger.duplicateReadResult(for: skill) != nil)
+        #expect(ledger.duplicateReadResult(for: skill) == nil)
         #expect(ledger.duplicateReadResult(for: build) == nil)
+        #expect(ledger.render().contains("skill text"))
+        #expect(!ledger.render().contains("started"))
     }
 
     @Test("Rendered ledger carries goal, plan, changes, checks and reads")
@@ -144,10 +144,17 @@ private final class RoutedLog: @unchecked Sendable {
     var all: [String] { lock.lock(); defer { lock.unlock() }; return names }
 }
 
-private struct RoutedProvider: ModelProvider {
+private struct RoutedProvider: ModelProvider, ModelStepProviderFactory {
     let id = "routed"
     var supportedModels: [String] { ["bad", "good"] }
     let log = RoutedLog()
+    func supportsModelSteps(for modelName: String) -> Bool { modelName == "good" }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in
+            log.record(request.model)
+            return .init(text: "ok", stopReason: .endTurn)
+        }
+    }
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel { RoutedModel(name: modelName, log: log) }
     func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         GenerationOptions(maximumResponseTokens: maxTokens)
@@ -155,7 +162,7 @@ private struct RoutedProvider: ModelProvider {
 }
 
 @Test
-func rejectedModelFallsBackToAnotherAndFinishesTheTurn() async {
+func unsupportedNativeModelCannotSilentlySwitchPinnedSelection() async {
     let provider = RoutedProvider()
     let system = RuntimeSystem(modelProvider: provider, defaultModel: "bad")
     await system.setUnsupportedModelFallback { rejected, tried in
@@ -164,8 +171,8 @@ func rejectedModelFallsBackToAnotherAndFinishesTheTurn() async {
     }
     _ = await system.postMessage(channelId: "fallback", request: ChannelMessageRequest(userId: "u", content: "hi"))
     let final = await system.channelState(channelId: "fallback")?.messages.last(where: { $0.userId == "system" })?.content
-    #expect(final == "ok")
-    #expect(provider.log.all == ["bad", "good"])
+    #expect(final?.contains("single-step") == true)
+    #expect(provider.log.all.isEmpty)
 }
 
 @Test

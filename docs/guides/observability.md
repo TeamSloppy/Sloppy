@@ -33,8 +33,8 @@ Standard `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_*`, `OTEL_METRIC_EXPORT_INTERV
 default transport here is HTTP/protobuf, with metrics exported every 15 seconds.
 This build includes the HTTP exporter; do not configure the gRPC transport.
 
-Open [Prometheus](http://localhost:9090) for queries and
-[Jaeger](http://localhost:16686) for request and tool spans. The supplied stack
+Open Prometheus at `http://localhost:9090` for queries and
+Jaeger at `http://localhost:16686` for request and tool spans. The supplied stack
 binds published ports to localhost and is for local development. Docker must be
 installed separately. Docker configuration should be validated with
 `docker compose -f utils/observability/compose.yml config` on a Docker host.

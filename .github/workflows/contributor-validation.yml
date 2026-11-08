@@ -1,0 +1,255 @@
+name: Contributor Validation
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contributor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      swift: ${{ steps.paths.outputs.swift }}
+      client: ${{ steps.paths.outputs.client }}
+      dashboard: ${{ steps.paths.outputs.dashboard }}
+      docs: ${{ steps.paths.outputs.docs }}
+      native-client: ${{ steps.paths.outputs.native-client }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: paths
+        run: python scripts/check_contribution.py ci-files --output .artifacts/contribution/ci-paths.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contributor-paths
+          path: .artifacts/contribution/ci-paths.json
+          include-hidden-files: true
+
+  portable:
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/contribution-requirements.txt
+      - run: python -m pip install -r scripts/contribution-requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: contributor-paths
+          path: .artifacts/contribution
+      - run: python scripts/check_contribution.py check --lane portable --files-from .artifacts/contribution/ci-paths.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contributor-portable
+          path: .artifacts/contribution
+          include-hidden-files: true
+
+  swift:
+    needs: select
+    if: needs.select.outputs.swift == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      ADAENGINE_HEADLESS: "1"
+      ADAENGINE_DISABLE_SWAN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2.1"
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - uses: actions/download-artifact@v4
+        with:
+          name: contributor-paths
+          path: .artifacts/contribution
+      - run: python scripts/check_contribution.py check --lane swift --files-from .artifacts/contribution/ci-paths.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contributor-swift-macos
+          path: .artifacts/contribution
+          include-hidden-files: true
+
+  swift-linux:
+    needs: select
+    if: needs.select.outputs.swift == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: swift:6.2-jammy
+    env:
+      ADAENGINE_HEADLESS: "1"
+      ADAENGINE_DISABLE_SWAN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: apt-get update && apt-get install -y python3 libsqlite3-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: contributor-paths
+          path: .artifacts/contribution
+      - run: python3 scripts/check_contribution.py check --lane swift-compile --files-from .artifacts/contribution/ci-paths.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contributor-swift-linux
+          path: .artifacts/contribution
+          include-hidden-files: true
+
+  client:
+    needs: select
+    if: needs.select.outputs.client == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2.1"
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - uses: actions/download-artifact@v4
+        with:
+          name: contributor-paths
+          path: .artifacts/contribution
+      - name: Initialize Apple client dependencies
+        run: git submodule update --init --recursive -- Vendor/AdaEngine Vendor/AdaMCP
+      - run: python scripts/check_contribution.py check --lane client --files-from .artifacts/contribution/ci-paths.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contributor-client
+          path: .artifacts/contribution
+          include-hidden-files: true
+
+  native-client:
+    needs: select
+    if: needs.select.outputs.native-client == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - uses: actions/download-artifact@v4
+        with:
+          name: contributor-paths
+          path: .artifacts/contribution
+      - run: python scripts/check_contribution.py check --lane native-client --files-from .artifacts/contribution/ci-paths.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contributor-native-client
+          path: .artifacts/contribution
+          include-hidden-files: true
+
+  dashboard:
+    needs: select
+    if: needs.select.outputs.dashboard == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: Dashboard/package-lock.json
+      - run: npm ci
+        working-directory: Dashboard
+      - uses: actions/download-artifact@v4
+        with:
+          name: contributor-paths
+          path: .artifacts/contribution
+      - run: python scripts/check_contribution.py check --lane dashboard --files-from .artifacts/contribution/ci-paths.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contributor-dashboard
+          path: .artifacts/contribution
+          include-hidden-files: true
+
+  docs:
+    needs: select
+    if: needs.select.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+        working-directory: docs
+      - uses: actions/download-artifact@v4
+        with:
+          name: contributor-paths
+          path: .artifacts/contribution
+      - run: python scripts/check_contribution.py check --lane docs --files-from .artifacts/contribution/ci-paths.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contributor-docs
+          path: .artifacts/contribution
+          include-hidden-files: true
+
+  gate:
+    name: Contributor gate
+    if: always()
+    needs: [select, portable, swift, swift-linux, client, native-client, dashboard, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every selected lane
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ["NEEDS_JSON"])
+          required = {"select", "portable"} | {
+              name for name, value in jobs["select"].get("outputs", {}).items() if value == "true"
+          }
+          if "swift" in required:
+              required.add("swift-linux")
+          bad = [name for name in required if jobs[name]["result"] != "success"]
+          if bad:
+              raise SystemExit("Required contributor jobs failed or did not run: " + ", ".join(sorted(bad)))
+          print("All selected contributor lanes passed; task-specific review/runtime evidence remains separate")
+          PY

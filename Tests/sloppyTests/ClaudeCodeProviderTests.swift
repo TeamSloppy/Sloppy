@@ -12,6 +12,66 @@ private typealias JSONValue = Protocols.JSONValue
 
 @Suite("Claude Code provider")
 struct ClaudeCodeProviderTests {
+    @Test(arguments: [false, true])
+    func claudeCodeStepReturnsOneAdmittedGenerationAndReplaysSignedHistory(outputLimit: Bool) async throws {
+        let fixture = try ClaudeCodeCLIFixture()
+        defer { fixture.remove() }
+        let calls = ClaudeCodeStepRequests()
+        let raw = "{ \"value\" : \"host\" }"
+        let signature = #"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"analysis","signature":"native-signature"}}"#
+        let firstStream = String(decoding: claudeCodeToolSSE, as: UTF8.self)
+            .replacingOccurrences(of: #""index":0"#, with: #""index":1"#)
+            .replacingOccurrences(of: #"{\"value\":\"host\"}"#, with: #"{ \"value\" : \"host\" }"#)
+            .replacingOccurrences(of: "event: content_block_start", with: signature + "\n\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: content_block_start")
+            .replacingOccurrences(of: #""stop_reason":"tool_use""#, with: outputLimit ? #""stop_reason":"max_tokens""# : #""stop_reason":"tool_use""#)
+        let transport = ClaudeCodeTransport(environment: fixture.environment, fixtureTransport: { request in
+            let body = try JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data())
+            let index = await calls.append(body)
+            #expect(body[claude: "tools"].claudeArray.first?[claude: "name"] == .string("echo"))
+            #expect(body[claude: "max_tokens"] == .number(128))
+            if index == 2 {
+                let messages = body[claude: "messages"].claudeArray
+                #expect(messages[1][claude: "content"].claudeArray.first?[claude: "signature"] == .string("native-signature"))
+                #expect(messages.last?[claude: "content"].claudeArray.first?[claude: "is_error"] == .bool(true))
+                #expect(messages.last?[claude: "content"].claudeArray.first?[claude: "tool_use_id"] == .string("native-echo"))
+            }
+            return (index == 1 ? Data(firstStream.utf8) : claudeCodeSSE,
+                try #require(HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        })
+        let provider: any ModelProvider = ClaudeCodeModelProvider(supportedModels: ["claude-code:sonnet"],
+            systemInstructions: nil, tools: [], transport: transport)
+        let factory = try #require(provider as? any ModelStepProviderFactory)
+        let adapter = try #require(try await factory.createModelStepProvider(for: "claude-code:sonnet", usageContext: nil))
+        var request = ModelStepRequest(runId: "run", userTurnId: "turn", stepId: "step", attemptId: "attempt",
+            model: "claude-code:sonnet", projectionRevision: "1", cacheScope: "session",
+            messages: [.init(role: .user, text: "Call echo")],
+            tools: [.init(name: "echo", parameters: .object(["type": .string("object")]))], maximumOutputTokens: 128)
+        var first: ModelStepResponse?
+        var finalCount = 0
+        for try await event in adapter.streamStep(request) {
+            if case .final(let value) = event { first = value; finalCount += 1 }
+        }
+        let response = try #require(first)
+        #expect(finalCount == 1)
+        #expect(await calls.count == 1)
+        #expect(response.toolCalls.first?.rawArguments == raw)
+        #expect(response.stopReason == (outputLimit ? .outputLimit : .toolCalls))
+        #expect(response.usage?.prompt == 5)
+        #expect(response.usage?.completion == 2)
+        request.messages += [.init(role: .assistant, toolCalls: response.toolCalls, continuation: response.continuation),
+            .init(role: .tool, toolOutput: .init(callId: "native-echo", name: "echo", content: "Host error", isError: true))]
+        request.stepId = "second"
+        var second: ModelStepResponse?
+        for try await event in adapter.streamStep(request) { if case .final(let value) = event { second = value } }
+        #expect(second?.text == "ok")
+        #expect(await calls.count == 2)
+        request.messages[1].continuation?.providerId = "foreign"
+        await #expect(throws: ModelStepFailure.self) {
+            for try await _ in adapter.streamStep(request) { }
+        }
+        #expect(await calls.count == 2)
+    }
+
     @Test(arguments: ["claude.ai", "claudeai", "oauth_token"])
     func recognizesNativeSubscriptionAuthMethods(method: String) throws {
         try ClaudeCodeTransport.validateAuthStatus(.object([
@@ -298,6 +358,11 @@ struct ClaudeCodeProviderTests {
     }
 }
 
+private actor ClaudeCodeStepRequests {
+    private(set) var count = 0
+    func append(_ body: JSONValue) -> Int { count += 1; return count }
+}
+
 private actor ClaudeCodeModelFixture {
     var generations = 0
     var hostExecutions = 0
@@ -424,7 +489,7 @@ private struct ClaudeCodeCLIFixture {
                 print(json.dumps({'type': 'result', 'num_turns': 1, 'is_error': False}), flush=True)
         """
         let file = directory.appendingPathComponent("claude")
-        try Data(script.utf8).write(to: file)
+        try Data(script.utf8).write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
     }
     func remove() { try? FileManager.default.removeItem(at: directory) }

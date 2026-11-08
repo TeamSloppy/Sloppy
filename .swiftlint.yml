@@ -1,0 +1,6 @@
+only_rules:
+  - trailing_whitespace
+  - force_cast
+  - force_try
+analyzer_rules:
+  - unused_import

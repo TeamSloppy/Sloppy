@@ -216,7 +216,7 @@ extension CoreService {
                 }
             }
             await sessionOrchestrator.markDelegatedSubagentSession(sessionID: childID)
-            await runtime.setChannelToolAllowList(
+            await runtime.setChannelToolScope(
                 channelId: sessionChannelID(agentID: conversation.agentId, sessionID: childID), toolIDs: allowed)
             guard !Task.isCancelled,
                 try currentLongChatTask(sessionID: conversation.sessionId, taskID: task.id).status == .running
@@ -299,7 +299,7 @@ extension CoreService {
             task: task, policy: policy, known: known, readOnlyMCPTools: await readOnlyLongChatMCPTools())
         sessionSubagentToolAllowList[childID] = allowed
         await sessionOrchestrator.markDelegatedSubagentSession(sessionID: childID)
-        await runtime.setChannelToolAllowList(
+        await runtime.setChannelToolScope(
             channelId: sessionChannelID(agentID: agentID, sessionID: childID), toolIDs: allowed)
     }
 

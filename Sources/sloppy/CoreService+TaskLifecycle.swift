@@ -1130,7 +1130,7 @@ extension CoreService {
                 actorID: handoffDelegate.actorID,
                 agentID: handoffDelegate.agentID
             )
-            scheduleProjectMemoryCheckpointFromWorkerEvent(
+            await scheduleProjectMemoryCheckpointFromWorkerEvent(
                 projectID: project.id,
                 taskID: task.id,
                 status: task.status,
@@ -1175,7 +1175,7 @@ extension CoreService {
                 agentID: handoffDelegate.agentID,
                 artifactPath: completionArtifactPath
             )
-            scheduleProjectMemoryCheckpointFromWorkerEvent(
+            await scheduleProjectMemoryCheckpointFromWorkerEvent(
                 projectID: project.id,
                 taskID: task.id,
                 status: task.status,
@@ -1226,7 +1226,7 @@ extension CoreService {
                 agentID: handoffDelegate.agentID,
                 artifactPath: completionArtifactPath
             )
-            scheduleProjectMemoryCheckpointFromWorkerEvent(
+            await scheduleProjectMemoryCheckpointFromWorkerEvent(
                 projectID: project.id,
                 taskID: task.id,
                 status: task.status,
@@ -1802,7 +1802,7 @@ extension CoreService {
             sessionToolApprovalBypass.insert(session.id)
         }
         await sessionOrchestrator.markDelegatedSubagentSession(sessionID: session.id)
-        await runtime.setChannelToolAllowList(channelId: channelId, toolIDs: effectiveTools)
+        await runtime.setChannelToolScope(channelId: channelId, toolIDs: effectiveTools)
 
         let response: AgentSessionMessageResponse
         do {

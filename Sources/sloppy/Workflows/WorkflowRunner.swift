@@ -290,8 +290,9 @@ struct WorkflowRunner {
                 try await persistence.saveStep(step)
                 run.status = .waitingForHuman
                 run.currentNodeIds = [node.id]
-                try await persistence.saveRun(run)
+                // Publish the actionable receipt before exposing the waiting state to readers.
                 try await persistence.saveAction(action)
+                try await persistence.saveRun(run)
                 return .waitingForHuman(run, action)
 
             case .end:

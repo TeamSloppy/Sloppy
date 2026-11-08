@@ -2,6 +2,19 @@
 
 Thank you for contributing.
 
+Use the same [contributor workflow](docs/designs/contributor-workflow.md) as coding agents.
+The [validation guide](docs/guides/contributor-validation.md) covers environment setup, commands,
+Git hooks, report statuses, TDD evidence and independent review. Start by inspecting the proposed
+checks with `python scripts/check_contribution.py plan --base origin/main`.
+
+New features require an English design presented to and approved by the human before implementation.
+Improvements update the affected design; fixes within an existing contract use the shorter bug flow.
+After approval, implementation, scripted validation and separate-agent review proceed without
+additional routine approval requests. Existing authorization remains valid.
+
+All features include a discoverable user guide or a substantial update to an existing article;
+public improvements update their guides. ADRs and design documents do not replace usage documentation.
+
 Before an external contribution can be merged, the contributor must accept the
 current [Contributor License Agreement](CLA.md) through the acceptance process
 published by the maintainers. A pull request checkbox or a `Signed-off-by`

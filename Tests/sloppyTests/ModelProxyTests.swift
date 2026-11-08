@@ -99,17 +99,18 @@ struct ModelProxyTests {
         #expect(throws: SloppyRemoteError.self) { try SloppyRelayEndpoint.nodeID("sloppy-relay://personal-node?other=1") }
     }
 
-    @Test func ownerCancellationStopsRemoteGenerationAndOtherPeersCannotCancelIt() async throws {
+    @Test(arguments: [false, true]) func ownerCancellationStopsRemoteGenerationAndOtherPeersCannotCancelIt(native: Bool) async throws {
         let fixture = try ProxyHostFixture(name: "personal")
         defer { fixture.remove() }
         let identity = NodeIdentityGenerator.makeIdentity(name: "work", roles: ["worker"], capabilities: ["sloppy.models.inference"])
         _ = try fixture.service.nodeMeshStore.upsertNodeRecord(.init(id: identity.nodeId, name: identity.name, publicKey: identity.publicKey,
             roles: identity.roles, capabilities: identity.capabilities), auditAction: "fixture.register")
         let flags = ProxyCancellationFlags()
-        await fixture.service.installBlockingProxyModel(flags)
+        await fixture.service.installBlockingProxyModel(flags, native: native)
         let request = SloppyInferenceRequest(model: "claude-code:sonnet", transcript: .init(entries: [.prompt(.init(segments: [.text(.init(content: "Wait"))]))]), tools: [], options: .init())
         let open = MeshEnvelope(type: .streamOpen, from: identity.nodeId, to: "personal", payload: .object([
-            "streamId": .string("owner-stream"), "kind": .string("models.inference"), "params": try JSONValueCoder.encode(request),
+            "streamId": .string("owner-stream"), "kind": .string(native ? "models.step.v1" : "models.inference"),
+            "params": native ? try JSONValueCoder.encode(SloppyModelStepRequest(request: remoteFixtureRequest())) : try JSONValueCoder.encode(request),
         ]))
         _ = await fixture.service.handleMeshModelStream(open, send: { _ in })
         let deadline = ContinuousClock.now.advanced(by: .seconds(120))
@@ -137,12 +138,13 @@ struct ModelProxyTests {
         try await assertHostToolRound(model)
     }
 
-    @Test func twoComputersUseAuthenticatedEncryptedRelayWithoutExportingClaudeCredentials() async throws {
+    @Test(arguments: [false, true]) func twoComputersUseAuthenticatedEncryptedRelayWithoutExportingClaudeCredentials(native: Bool) async throws {
         let relay = try ProxyHostFixture(name: "relay")
         let personal = try ProxyHostFixture(name: "personal")
         let work = try ProxyHostFixture(name: "work")
         defer { relay.remove(); personal.remove(); work.remove() }
         await personal.installClaudeFixture()
+        if native { await personal.service.installNativeProxyStep() }
         let server = try relay.startServer()
         defer { try? server.shutdown() }
         let relayURL = "http://127.0.0.1:\(try #require(server.boundPort))"
@@ -166,9 +168,20 @@ struct ModelProxyTests {
         }
         #expect(models.contains { $0.id == "claude-code:sonnet" })
         let bridge = await work.service.meshModelBridge
-        let model = SloppyRemoteModel(baseURL: "sloppy-relay://\(personalID.nodeId)", accessToken: "", model: "claude-code:sonnet",
-            inferenceTransport: { request, callback in try await bridge.infer(nodeID: personalID.nodeId, request: request, onSnapshot: callback) })
-        try await assertHostToolRound(model)
+        if native {
+            let step = SloppyModelStepProvider(model: "sloppy:claude-code:sonnet", scope: "mesh:" + personalID.nodeId,
+                transport: { try await bridge.inferStep(nodeID: personalID.nodeId, request: $0) })
+            let counter = ProxyToolCounter()
+            let result = try await performRemoteFixtureRound(step, model: "sloppy:claude-code:sonnet") { value in
+                try await ProxyEchoTool(counter: counter).call(arguments: .init(value: value))
+            }
+            #expect(result == "from-work")
+            #expect(await counter.calls == 1)
+        } else {
+            let model = SloppyRemoteModel(baseURL: "sloppy-relay://\(personalID.nodeId)", accessToken: "", model: "claude-code:sonnet",
+                inferenceTransport: { request, callback in try await bridge.infer(nodeID: personalID.nodeId, request: request, onSnapshot: callback) })
+            try await assertHostToolRound(model)
+        }
         await personal.service.stop()
         await work.service.stop()
     }
@@ -224,8 +237,19 @@ private struct ProxyHostFixture {
 }
 
 private extension CoreService {
-    func installBlockingProxyModel(_ flags: ProxyCancellationFlags) {
+    func installBlockingProxyModel(_ flags: ProxyCancellationFlags, native: Bool = false) {
         modelProvider = AnyModelProviderBox(id: "claude-code", supportedModels: ["claude-code:sonnet"], createLanguageModel: { _ in BlockingProxyModel(flags: flags) })
+        if native, let base = modelProvider {
+            modelProvider = RemoteStepTestProvider(base: base, step: RemoteFixtureStep(signature: "blocked", thinking: "", block: {
+                await flags.start()
+                do { try await Task.sleep(for: .seconds(3600)) }
+                catch { await flags.cancel(); throw error }
+            }))
+        }
+    }
+    func installNativeProxyStep() {
+        if let base = modelProvider { modelProvider = RemoteStepTestProvider(base: base,
+            step: RemoteFixtureStep(signature: "signed-thinking-fixture", thinking: "private reasoning")) }
     }
     func installProxyClaudeFixture() {
         modelProvider = AnyModelProviderBox(id: "claude-code", supportedModels: ["claude-code:sonnet"], createLanguageModel: { _ in

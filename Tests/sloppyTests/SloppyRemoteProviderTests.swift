@@ -10,6 +10,112 @@ import Testing
 
 @Suite("Sloppy remote provider", .serialized)
 struct SloppyRemoteProviderTests {
+    @Test(arguments: [false, true]) func anonymousRemoteStepCannotInheritAnotherAuthorization(factory: Bool) async throws {
+        RemoteInferenceURLProtocol.handler = { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization")?.isEmpty != false)
+            if request.httpMethod == "GET" {
+                let data = try JSONEncoder().encode([ProviderModelOption(id: "mock:test-model", title: "Step", capabilities: ["model_step_v1"])])
+                return .init(status: 200, body: data, contentType: "application/json")
+            }
+            let body = try #require(try remoteStepBody(request))
+            let input = try JSONDecoder().decode(SloppyModelStepRequest.self, from: body)
+            return .init(status: 200, body: try JSONEncoder().encode(SloppyModelStepResponse(request: input.request,
+                response: .init(text: "Anonymous step", stopReason: .endTurn))), contentType: "application/json")
+        }
+        defer { RemoteInferenceURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RemoteInferenceURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["Authorization": "Bearer must-not-leak"]
+        let http = URLSession(configuration: configuration)
+        defer { http.invalidateAndCancel() }
+        let adapter: any ModelStepProvider
+        if factory {
+            var config = CoreConfig.test
+            config.models = [.init(title: "Anonymous", apiKey: "", apiUrl: "https://remote.test", model: "mock:test-model", providerCatalogId: "sloppy")]
+            let provider = try #require(CoreModelProviderFactory.buildModelProvider(config: config,
+                resolvedModels: ["sloppy:mock:test-model"], proxySession: http))
+            let stepFactory = try #require(provider as? any ModelStepProviderFactory)
+            adapter = try #require(try await stepFactory.createModelStepProvider(for: "sloppy:mock:test-model", usageContext: nil))
+        } else { adapter = try SloppyModelStepProvider(baseURL: "https://remote.test", accessToken: "", model: "sloppy:mock:test-model", session: http) }
+        var final: ModelStepResponse?
+        for try await event in adapter.streamStep(remoteFixtureRequest(model: "sloppy:mock:test-model")) {
+            if case .final(let value) = event { final = value }
+        }
+        #expect(final?.text == "Anonymous step")
+    }
+
+    @Test func versionedRemoteStepKeepsTheCallerAsToolOwner() async throws {
+        var serverConfig = CoreConfig.test
+        serverConfig.auth.token = "step-only-token"
+        let server = CoreService(config: serverConfig, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        await server.waitForStartup(dispatchReadyTasks: false)
+        let script = RemoteStepScript()
+        await server.overrideModelProviderForTests(RemoteStepFactory(script: script), defaultModel: "mock:test-model")
+        let router = CoreRouter(service: server)
+        RemoteInferenceURLProtocol.handler = { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer step-only-token")
+            return await router.handle(method: request.httpMethod ?? "GET", path: request.url?.path ?? "",
+                body: try remoteStepBody(request), headers: ["Authorization": "Bearer step-only-token"])
+        }
+        defer { RemoteInferenceURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RemoteInferenceURLProtocol.self]
+        let http = URLSession(configuration: configuration)
+        defer { http.invalidateAndCancel() }
+        var config = CoreConfig.test
+        config.models = [.init(title: "Remote step", apiKey: "step-only-token", apiUrl: "https://remote.test",
+            model: "mock:test-model", providerCatalogId: "sloppy")]
+        let provider = try #require(CoreModelProviderFactory.buildModelProvider(config: config,
+            resolvedModels: ["sloppy:mock:test-model"], proxySession: http))
+        let factory = try #require(provider as? any ModelStepProviderFactory)
+        let adapter = try #require(try await factory.createModelStepProvider(for: "sloppy:mock:test-model", usageContext: nil))
+        var request = ModelStepRequest(runId: "run", userTurnId: "turn", stepId: "one", attemptId: "one",
+            model: "sloppy:mock:test-model", projectionRevision: "1", cacheScope: "caller",
+            messages: [.init(role: .user, text: "Read through the caller")],
+            tools: [.init(name: "local_read", toolId: "files.read", parameters: .object(["type": .string("object")]))],
+            reasoningEffort: .high)
+        var first: ModelStepResponse?
+        for try await event in adapter.streamStep(request) { if case .final(let response) = event { first = response } }
+        let response = try #require(first)
+        #expect(await script.requests.count == 1)
+        #expect(await script.legacyCalls == 0)
+        #expect(response.toolCalls.first?.rawArguments == #"{ "path" : "caller.txt" }"#)
+        #expect(response.usage?.total == 12)
+        request.stepId = "two"; request.attemptId = "two"
+        request.messages += [.init(role: .assistant, toolCalls: response.toolCalls, continuation: response.continuation),
+            .init(role: .tool, toolOutput: .init(callId: "local-call", name: "local_read", content: "Caller-owned result", isError: false))]
+        var last: ModelStepResponse?
+        for try await event in adapter.streamStep(request) { if case .final(let response) = event { last = response } }
+        #expect(last?.text == "Remote response after caller result")
+        #expect(await script.requests.count == 2)
+        request.messages[1].continuation?.providerId = "foreign"
+        await #expect(throws: ModelStepFailure.self) { for try await _ in adapter.streamStep(request) { } }
+        #expect(await script.requests.count == 2)
+        #expect(await script.legacyCalls == 0)
+    }
+
+    @Test func remoteStepRejectsUnversionedAndUnauthenticatedRequests() async throws {
+        var config = CoreConfig.test
+        config.auth.token = "step-only-token"
+        let server = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        await server.waitForStartup(dispatchReadyTasks: false)
+        let script = RemoteStepScript()
+        await server.overrideModelProviderForTests(RemoteStepFactory(script: script), defaultModel: "mock:test-model")
+        let router = CoreRouter(service: server)
+        let request = ModelStepRequest(runId: "run", userTurnId: "turn", stepId: "one", attemptId: "one",
+            model: "mock:test-model", projectionRevision: "1", cacheScope: "caller", messages: [.init(role: .user, text: "Task")])
+        for version in [0, 2] {
+            let body = try JSONEncoder().encode(Protocols.JSONValue.object(["schemaVersion": .number(Double(version)),
+                "request": try JSONValueCoder.encode(request)]))
+            #expect(await router.handle(method: "POST", path: "/v1/providers/step", body: body,
+                headers: ["Authorization": "Bearer step-only-token"]).status == 426)
+        }
+        let body = try JSONEncoder().encode(Protocols.JSONValue.object(["schemaVersion": .number(1), "request": try JSONValueCoder.encode(request)]))
+        #expect(await router.handle(method: "POST", path: "/v1/providers/step", body: body).status == 401)
+        #expect(await script.requests.isEmpty)
+        #expect(await script.legacyCalls == 0)
+    }
+
     @Test(arguments: [false, true]) func executesToolsOnRequestingServer(streaming: Bool) async throws {
         var config = CoreConfig.test
         config.auth.token = "only-remote-token"
@@ -130,6 +236,59 @@ struct SloppyRemoteProviderTests {
         #expect(response.status == 401)
         let authorized = await router.handle(method: "POST", path: "/v1/providers/inference", body: body, headers: ["Authorization": "Bearer remote-secret"])
         #expect(authorized.status == 200)
+    }
+}
+
+private func remoteStepBody(_ request: URLRequest) throws -> Data? {
+    if let body = request.httpBody { return body }
+    guard let stream = request.httpBodyStream else { return nil }
+    stream.open()
+    defer { stream.close() }
+    var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
+    while stream.hasBytesAvailable {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count <= 0 { break }
+        data.append(buffer, count: count)
+    }
+    return data
+}
+
+private actor RemoteStepScript: ModelStepProvider {
+    private(set) var requests: [ModelStepRequest] = []
+    private(set) var legacyCalls = 0
+    func legacy() { legacyCalls += 1 }
+    private func next(_ request: ModelStepRequest) -> ModelStepResponse {
+        requests.append(request)
+        #expect(request.model == "mock:test-model")
+        if requests.count == 1 {
+            #expect(request.reasoningEffort == .high)
+            #expect(request.tools.first?.name == "local_read")
+            return .init(toolCalls: [.init(id: "local-call", name: "local_read", rawArguments: #"{ "path" : "caller.txt" }"#)],
+                stopReason: .toolCalls, usage: .init(prompt: 10, completion: 2),
+                continuation: .init(providerId: "remote-fixture", modelId: "mock:test-model", format: "signed-v1", content: .string("signed-value")))
+        }
+        #expect(request.messages[1].continuation?.providerId == "remote-fixture")
+        #expect(request.messages[1].continuation?.content == .string("signed-value"))
+        #expect(request.messages.last?.toolOutput?.content == "Caller-owned result")
+        return .init(text: "Remote response after caller result", stopReason: .endTurn)
+    }
+    nonisolated func streamStep(_ request: ModelStepRequest) -> AsyncThrowingStream<ModelStepEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task { continuation.yield(.started); continuation.yield(.final(await self.next(request))); continuation.finish() }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+}
+
+private struct RemoteStepFactory: ModelProvider, ModelStepProviderFactory {
+    let id = "remote-fixture"
+    let supportedModels = ["mock:test-model"]
+    let script: RemoteStepScript
+    func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? { script }
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        await script.legacy()
+        throw ModelStepFailure(category: .protocolViolation, code: "legacy_remote_generation", message: "Remote steps cannot use legacy scheduling.")
     }
 }
 

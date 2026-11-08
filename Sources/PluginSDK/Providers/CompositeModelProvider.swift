@@ -5,7 +5,7 @@ import Protocols
 /// Combines multiple `ModelProvider` instances into a single provider.
 /// Routes `createLanguageModel(for:)` and `generationOptions(for:)` to the
 /// matching sub-provider based on `supportedModels`.
-public struct CompositeModelProvider: ModelProvider {
+public struct CompositeModelProvider: ModelProvider, ModelStepProviderFactory {
     public enum ProviderError: Error {
         case unsupportedModel(String)
     }
@@ -58,6 +58,16 @@ public struct CompositeModelProvider: ModelProvider {
 
     public func supports(modelName: String) -> Bool {
         provider(matching: modelName) != nil
+    }
+
+    public func supportsModelSteps(for modelName: String) -> Bool {
+        (provider(matching: modelName) as? any ModelStepProviderFactory)?.supportsModelSteps(for: modelName) ?? false
+    }
+
+    public func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        guard let factory = provider(matching: modelName) as? any ModelStepProviderFactory,
+              factory.supportsModelSteps(for: modelName) else { return nil }
+        return try await factory.createModelStepProvider(for: modelName, usageContext: usageContext)
     }
 
     public func supportsUsageObservation(for modelName: String) -> Bool { provider(matching: modelName)?.supportsUsageObservation(for: modelName) ?? false }

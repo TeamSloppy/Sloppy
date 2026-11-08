@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "Protocols", targets: ["Protocols"]),
     ],
     dependencies: [
+        .package(path: "../SloppyA2UI"),
         .package(path: "../SloppyComputerControl"),
         .package(path: "../SwiftTiktoken"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
@@ -19,6 +20,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "Protocols", dependencies: [
+            .product(name: "SloppyA2UI", package: "SloppyA2UI"),
             .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
             .product(name: "Logging", package: "swift-log"),
         ]),

@@ -44,6 +44,13 @@ struct ClaudeCodeHistory: Sendable {
     var system: String
     var messages: [JSONValue]
 
+    init(system: String, messages: [JSONValue]) throws {
+        guard messages.last?[claude: "role"].claudeString == "user",
+              messages.last?[claude: "content"].claudeArray.isEmpty == false else { throw ClaudeCodeError.invalidStream }
+        self.system = system
+        self.messages = messages
+    }
+
     init(transcript: Transcript, names: [String: String]) throws {
         var instructions: [String] = []
         messages = []
@@ -128,6 +135,7 @@ struct ClaudeCodeHistory: Sendable {
 
 /// Parse the admitted upstream stream, not the CLI's later tool-denial/retry text.
 struct ClaudeCodeResponse: Sendable {
+    var wireResponse = Data()
     var message: JSONValue = .object([:])
     var blocks: [Int: [String: JSONValue]] = [:]
     var inputs: [Int: String] = [:]

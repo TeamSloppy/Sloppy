@@ -477,7 +477,7 @@ actor NodeMeshRelay {
         guard let kind = envelope.payload.asObject?["kind"]?.asString else {
             return "stream kind is missing"
         }
-        if kind == "models.inference" { return modelAccessDenial(source: envelope.from, target: target) }
+        if kind == "models.inference" || kind == "models.step.v1" { return modelAccessDenial(source: envelope.from, target: target) }
         if let denial = fullCoreAccessDenial(source: envelope.from, target: target) {
             return denial
         }

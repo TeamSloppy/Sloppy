@@ -52,3 +52,10 @@ Derived/
 **/.derivedData/
 ClientNative/.artifacts/
 ClientNative/.artefacts/
+
+# Contributor validation evidence and analyzer environment
+.artifacts/contribution/
+.artifacts/contribution-tools/
+.artifacts/contribution-bootstrap-*.log
+__pycache__/
+.ruff_cache/

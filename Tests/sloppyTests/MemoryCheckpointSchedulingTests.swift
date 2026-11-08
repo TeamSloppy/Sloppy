@@ -148,7 +148,7 @@ private struct BlockingMemoryCheckpointResponseModel: LanguageModel {
     }
 }
 
-private actor BlockingMemoryCheckpointResponseProvider: ModelProvider {
+private actor BlockingMemoryCheckpointResponseProvider: ModelProvider, ModelStepProviderFactory {
     nonisolated let id: String = "blocking-memory-checkpoint-response"
     nonisolated let supportedModels: [String] = ["mock:test-model"]
 
@@ -162,6 +162,17 @@ private actor BlockingMemoryCheckpointResponseProvider: ModelProvider {
         BlockingMemoryCheckpointResponseModel(store: store)
     }
 
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        let store = store
+        return FixtureModelStep { request in
+            if request.messages.contains(where: { $0.text.contains("Internal MEMORY checkpoint") }) {
+                await store.waitIfNeeded()
+            }
+            return .init(text: "Turn completed.", stopReason: .endTurn)
+        }
+    }
+
     func hasBlocked() async -> Bool {
         await store.hasBlocked()
     }
@@ -171,7 +182,7 @@ private actor BlockingMemoryCheckpointResponseProvider: ModelProvider {
     }
 }
 
-private actor BlockingMemoryCheckpointModelProvider: ModelProvider {
+private actor BlockingMemoryCheckpointModelProvider: ModelProvider, ModelStepProviderFactory {
     nonisolated let id: String = "blocking-memory-checkpoint"
     nonisolated let supportedModels: [String] = ["mock:test-model"]
 
@@ -191,6 +202,12 @@ private actor BlockingMemoryCheckpointModelProvider: ModelProvider {
             }
         }
         return MemoryCheckpointFixedTextModel()
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        _ = try await createLanguageModel(for: modelName)
+        return FixtureModelStep { _ in .init(text: "Checkpoint inspected.", stopReason: .endTurn) }
     }
 
     func hasStarted() -> Bool {
@@ -233,6 +250,11 @@ func createAgentSessionSchedulesNewSessionMemoryCheckpointInBackground() async t
         agentID: agentID,
         request: AgentSessionCreateRequest(title: "Previous")
     )
+
+    await service.overrideModelProviderForTests(BlockingMemoryCheckpointResponseProvider(blockAtResponse: 99), defaultModel: "mock:test-model")
+    _ = try await service.postAgentSessionMessage(agentID: agentID, sessionID: previous.id,
+        request: .init(userId: "fixture", content: "Record a completed source turn.", mode: .ask))
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:test-model")
 
     let creationProbe = MemoryCheckpointCreationProbe()
     let creationTask = Task {
@@ -341,6 +363,9 @@ func requestedMemoryCheckpointPersistsLifecycleEvents() async throws {
         request: AgentSessionCreateRequest(title: "Lifecycle")
     )
 
+    _ = try await service.postAgentSessionMessage(agentID: agentID, sessionID: session.id,
+        request: .init(userId: "fixture", content: "Record a completed source turn.", mode: .ask))
+
     _ = try await service.requestAgentMemoryCheckpoint(
         agentID: agentID,
         sessionID: session.id,
@@ -369,6 +394,11 @@ func workerCompletedForExplicitlyDoneProjectTaskSchedulesMemoryCheckpoint() asyn
         agentID: agentID,
         request: AgentSessionCreateRequest(title: "Worker", projectId: "checkpoint-worker-project")
     )
+    await service.overrideModelProviderForTests(BlockingMemoryCheckpointResponseProvider(blockAtResponse: 99), defaultModel: "mock:test-model")
+    _ = try await service.postAgentSessionMessage(agentID: agentID, sessionID: session.id,
+        request: .init(userId: "fixture", content: "Record a completed source turn.", mode: .ask))
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:test-model")
+
     let project = try await service.createProject(
         ProjectCreateRequest(id: "checkpoint-worker-project", name: "Checkpoint Worker Project")
     ).project

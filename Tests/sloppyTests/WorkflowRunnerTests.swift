@@ -51,6 +51,7 @@ func workflowRunnerPausesForHumanApproval() async throws {
         updateTask: recorder.updateTask
     )
 
+    #expect(await recorder.waitingRunHadAction == [true])
     guard case .waitingForHuman(let run, let action) = result else {
         Issue.record("Expected waiting workflow run.")
         return
@@ -348,6 +349,7 @@ private actor WorkflowRecorder {
     private(set) var steps: [WorkflowRunStep] = []
     private(set) var actions: [WorkflowPendingAction] = []
     private(set) var taskUpdates: [String] = []
+    private(set) var waitingRunHadAction: [Bool] = []
 
     var persistence: WorkflowRunner.Persistence {
         WorkflowRunner.Persistence(
@@ -362,6 +364,7 @@ private actor WorkflowRecorder {
     }
 
     private func save(run: WorkflowRun) {
+        if run.status == .waitingForHuman { waitingRunHadAction.append(actions.contains { $0.workflowRunId == run.id }) }
         runs.append(run)
     }
 

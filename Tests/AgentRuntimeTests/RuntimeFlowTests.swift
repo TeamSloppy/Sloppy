@@ -519,7 +519,7 @@ private actor NativeLoopOutcomeCapture {
 
 private struct NativeToolSequenceLanguageModel: LanguageModel {
     typealias UnavailableReason = Never
-    let toolNames: [String]
+    nonisolated let toolNames: [String]
     let finalText: String
     var failStreaming = false
 
@@ -598,10 +598,10 @@ private struct NativeToolSequenceLanguageModel: LanguageModel {
     }
 }
 
-private actor NativeToolSequenceModelProvider: ModelProvider {
+private actor NativeToolSequenceModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "native-tool-sequence"
     nonisolated var supportedModels: [String] { ["mock-model"] }
-    let toolNames: [String]
+    nonisolated let toolNames: [String]
     let finalText: String
 
     let failStreaming: Bool
@@ -612,9 +612,43 @@ private actor NativeToolSequenceModelProvider: ModelProvider {
         self.failStreaming = failStreaming
     }
 
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in await self.nextStep(request) }
+    }
+
+    private var stepIndexByRun: [String: Int] = [:]
+    nonisolated var tools: [any Tool] { Array(Set(toolNames)).sorted().map { FixtureToolDeclaration(name: $0) } }
+    private func nextStep(_ request: ModelStepRequest) -> ModelStepResponse {
+        let index = stepIndexByRun[request.runId, default: 0]
+        stepIndexByRun[request.runId] = index + 1
+        guard index < toolNames.count else { return .init(text: finalText, stopReason: .endTurn) }
+        let tool = toolNames[index], name = request.tools.first { $0.toolId == tool }?.name ?? tool
+        return .init(toolCalls: [.init(id: "call-\(index)", name: name,
+            rawArguments: "{}")], stopReason: .toolCalls)
+    }
+
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         NativeToolSequenceLanguageModel(toolNames: toolNames, finalText: finalText, failStreaming: failStreaming)
     }
+}
+
+@Test(arguments: [false, true])
+func repeatedReadsExecuteAndRecordLedgerAcrossTransports(failStreaming: Bool) async {
+    let provider = NativeToolSequenceModelProvider(
+        toolNames: ["files.list", "files.list"], failStreaming: failStreaming
+    )
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+    let invocations = ToolInvocationCounter()
+    _ = await system.postMessage(
+        channelId: "repeated-read", request: ChannelMessageRequest(userId: "u", content: "list twice"),
+        toolInvoker: { request in
+            await invocations.increment()
+            return ToolInvocationResult(tool: request.tool, ok: true, data: .object(["content": .string("full file listing")]))
+        }
+    )
+    #expect(await invocations.value() == 2)
+    #expect(await system.workLedgerText(channelId: "repeated-read").contains("full file listing"))
 }
 
 // MARK: - Shared mock infrastructure
@@ -748,14 +782,44 @@ private struct SequencedMockLanguageModel: LanguageModel {
     }
 }
 
-private actor SequencedModelProvider: ModelProvider {
+private actor SequencedModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "sequenced"
-    nonisolated var supportedModels: [String] { ["mock-model"] }
+    nonisolated let supportedModels: [String]
     nonisolated let callStore = MockCallStore()
     private var queue: [String]
 
-    init(outputs: [String]) {
+    nonisolated private let toolNames: [String]
+    nonisolated private let examples: [String: GeneratedContent]
+    nonisolated var tools: [any Tool] { toolNames.map { FixtureToolDeclaration(name: $0, example: examples[$0] ?? GeneratedContent(properties: [:])) } }
+    init(outputs: [String], models: [String] = ["mock-model"]) {
+        self.supportedModels = models
         self.queue = outputs
+        self.examples = outputs.reduce(into: [:]) { result, output in
+            if let data = output.data(using: .utf8), let value = try? JSONDecoder().decode(Protocols.JSONValue.self, from: data).asObject,
+               let name = value["tool"]?.asString, let arguments = value["arguments"],
+               let bytes = try? JSONEncoder().encode(arguments), let generated = try? GeneratedContent(json: String(decoding: bytes, as: UTF8.self)) {
+                result[name] = generated
+            }
+        }
+        self.toolNames = Array(Set(outputs.compactMap { output in
+            output.data(using: .utf8).flatMap { try? JSONDecoder().decode(Protocols.JSONValue.self, from: $0).asObject?["tool"]?.asString }
+        })).sorted()
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in
+            self.callStore.recordModel(request.model); self.callStore.recordEffort(request.reasoningEffort)
+            let output = await self.dequeue()
+            if let bytes = output.data(using: .utf8), let object = try? JSONDecoder().decode(Protocols.JSONValue.self, from: bytes).asObject,
+               let tool = object["tool"]?.asString {
+                let name = request.tools.first { $0.toolId == tool }?.name ?? tool
+                let arguments = object["arguments"] ?? .object([:])
+                return .init(toolCalls: [.init(id: request.stepId + "-call", name: name,
+                    rawArguments: String(decoding: try JSONEncoder().encode(arguments), as: UTF8.self))], stopReason: .toolCalls)
+            }
+            return .init(text: output, stopReason: .endTurn)
+        }
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -769,7 +833,7 @@ private actor SequencedModelProvider: ModelProvider {
     }
 
     func dequeue() -> String {
-        queue.isEmpty ? "No output." : queue.removeFirst()
+        queue.isEmpty ? "" : queue.removeFirst()
     }
 
     func requestedModelsSnapshot() -> [String] { callStore.models }
@@ -812,10 +876,18 @@ private struct FailingMockLanguageModel: LanguageModel {
     }
 }
 
-private actor FailingModelProvider: ModelProvider {
+private actor FailingModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "failing"
     nonisolated var supportedModels: [String] { ["mock-model"] }
     nonisolated let callStore = MockCallStore()
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in
+            self.callStore.recordModel(request.model)
+            throw ModelStepFailure(category: .provider, code: "fixture_unavailable", message: "provider unavailable", retryable: false)
+        }
+    }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         callStore.recordModel(modelName)
@@ -844,7 +916,7 @@ private actor ReconnectDelayCapture {
     }
 }
 
-private actor ReconnectingModelProvider: ModelProvider {
+private actor ReconnectingModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "reconnecting"
     nonisolated var supportedModels: [String] { ["mock-model"] }
     private var failuresBeforeSuccess: Int
@@ -862,6 +934,14 @@ private actor ReconnectingModelProvider: ModelProvider {
         self.failuresBeforeSuccess = failuresBeforeSuccess
         self.successText = successText
         self.error = error
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { _ in
+            do { return .init(text: try await self.nextResponseText(), stopReason: .endTurn) }
+            catch { throw ModelStepFailure(category: .transport, code: "fixture_connection_lost", message: error.localizedDescription, retryable: true) }
+        }
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -1005,7 +1085,7 @@ private struct PromptCapturingMockLanguageModel: LanguageModel {
     }
 }
 
-private final class PromptCapturingModelProvider: ModelProvider, @unchecked Sendable {
+private final class PromptCapturingModelProvider: ModelProvider, ModelStepProviderFactory, @unchecked Sendable {
     let id: String = "prompt-capturing"
     let supportedModels: [String]
     private let streamOutput: String?
@@ -1029,6 +1109,18 @@ private final class PromptCapturingModelProvider: ModelProvider, @unchecked Send
         self.usageCapture = tokenUsageCapture
         self.streamUsage = streamUsage
         self.respondUsage = respondUsage
+    }
+
+    func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in
+            self.callStore.recordModel(request.model)
+            self.callStore.recordEffort(request.reasoningEffort)
+            self.callStore.recordInstructions(request.messages.first(where: { $0.role == .system })?.text)
+            self.callStore.recordPrompt(request.messages.filter { $0.role == .user }.map(\.text).joined(separator: "\n"))
+            return .init(text: self.streamOutput ?? self.respondOutput, stopReason: .endTurn,
+                usage: self.streamUsage ?? self.respondUsage)
+        }
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -1089,8 +1181,8 @@ func respondInlineAutoToolCallingLoop() async {
     let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
     #expect(finalMessage == "Final answer after tool execution.")
     #expect(await invocationCounter.value() == 1)
-    #expect(await provider.requestedModelsSnapshot() == ["mock-model"])
-    #expect(await provider.requestedReasoningEffortsSnapshot() == [nil])
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model"])
+    #expect(await provider.requestedReasoningEffortsSnapshot() == [nil, nil])
 }
 
 @Test
@@ -1194,7 +1286,9 @@ func respondInlineAllowsFinalizerAfterToolBudgetRecovery() async throws {
     #expect(await invocationCounter.toolNames() == ["agent_delegate.finish"])
     #expect(outcome.toolRoundsUsed == 1)
     #expect(!outcome.hitTurnLimit)
-    #expect(outcome.toolErrors.contains { $0.error?.code == "tool_budget_exhausted" })
+    let history = await system.modelStepHistoryByChannel["tool-budget-finalizer"] ?? []
+    let results = history.compactMap(\.toolOutput).compactMap { try? JSONDecoder().decode(ToolInvocationResult.self, from: Data($0.content.utf8)) }
+    #expect(results.contains { $0.error?.code == "undeclared_tool" })
 }
 
 @Test
@@ -1236,7 +1330,7 @@ func respondInlineHardStopsAfterBudgetRecoveryIsIgnored() async throws {
 }
 
 @Test
-func respondInlineParsesToolCallEmbeddedInAssistantText() async {
+func respondInlineDoesNotExecuteToolCallEmbeddedInAssistantText() async {
     let provider = SequencedModelProvider(
         outputs: [
             """
@@ -1267,13 +1361,13 @@ func respondInlineParsesToolCallEmbeddedInAssistantText() async {
     #expect(decision.action == .respond)
     let snapshot = await system.channelState(channelId: "tool-loop-inline-json")
     let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
-    #expect(finalMessage == "Final answer after recovery tool execution.")
-    #expect(await invocationCounter.value() == 1)
+    #expect(finalMessage.contains("Initial inspection hit a tool failure"))
+    #expect(await invocationCounter.value() == 0)
 }
 
 @Test
 func respondInlineRecreatesSessionWhenRequestedModelChanges() async {
-    let provider = SequencedModelProvider(outputs: ["First", "Second"])
+    let provider = SequencedModelProvider(outputs: ["First", "Second"], models: ["mock-a", "mock-b"])
     let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-a")
     let channelId = "model-switch"
 
@@ -1379,7 +1473,7 @@ func respondInlineInjectsScopedMemoryForAgentSession() async {
     let prompt = await provider.lastPrompt() ?? ""
     #expect(prompt.contains("[Recalled scoped memory]"))
     #expect(prompt.contains("Project codename Aurora"))
-    #expect(prompt.contains("[Current user message]"))
+    #expect(prompt.hasSuffix("What is the project codename?"))
     #expect(prompt.contains("What is the project codename?"))
     #expect(!prompt.contains("Borealis"))
 }
@@ -1594,7 +1688,7 @@ func respondInlineRepairsEmptyStreamAndCompletion() async {
     let snapshot = await system.channelState(channelId: "empty-repair")
     let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
     #expect(finalMessage == "Recovered final answer.")
-    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model"])
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model", "mock-model"])
 }
 
 @Test
@@ -1610,7 +1704,7 @@ func respondInlineFallsBackWhenEmptyRepairAlsoReturnsEmpty() async {
     let snapshot = await system.channelState(channelId: "empty-repair-fallback")
     let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
     #expect(finalMessage == "Model returned an empty response. Please try rephrasing or try again.")
-    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model"])
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model", "mock-model"])
 }
 
 @Test
@@ -1799,8 +1893,8 @@ func respondInlineReusesRequestModelAndReasoningEffortAcrossToolLoop() async {
         }
     )
 
-    #expect(await provider.requestedModelsSnapshot() == ["mock-model"])
-    #expect(await provider.requestedReasoningEffortsSnapshot() == [.medium])
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model"])
+    #expect(await provider.requestedReasoningEffortsSnapshot() == [.medium, .medium])
 }
 
 @Test
@@ -1997,13 +2091,13 @@ func memoryDebugCapturesTheInputOfAnActualRuntimeTurn() async throws {
     #expect(snapshot.queries.count == 2)
     #expect(context.entries.first?.kind == "instructions")
     #expect(context.entries.first?.content.contains("Curated bootstrap") == true)
-    #expect(context.entries.last?.content.contains("Aurora uses Swift") == true)
+    #expect(context.entries.contains { $0.content.contains("Aurora uses Swift") })
     #expect(context.entries.last?.content.hasSuffix("Aurora") == true)
     #expect(context.memoryInjection?.hitIds.count == 1)
 }
 
 @Test
-func persistentSessionReusesLanguageModelAcrossMessages() async {
+func persistentSessionRetainsHistoryAcrossSingleStepRequests() async {
     let provider = PromptCapturingModelProvider(models: ["mock-model"])
     let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
 
@@ -2016,7 +2110,7 @@ func persistentSessionReusesLanguageModelAcrossMessages() async {
         request: ChannelMessageRequest(userId: "u1", content: "second message")
     )
 
-    #expect(await provider.requestedModelsSnapshot().count == 1)
+    #expect(await provider.requestedModelsSnapshot().count == 2)
 }
 
 @Test
@@ -2070,7 +2164,7 @@ func abortChannelCancelsActiveInlineResponseTask() async {
 }
 
 @Test
-func persistentSessionContextOverflowCreatesNewSession() async {
+func persistentSessionContextOverflowCannotDiscardHistoryForRetry() async {
     let provider = ContextOverflowModelProvider(recoveryResponse: "Recovered response.")
     let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
 
@@ -2081,8 +2175,8 @@ func persistentSessionContextOverflowCreatesNewSession() async {
 
     let snapshot = await system.channelState(channelId: "overflow-channel")
     let lastSystemMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
-    #expect(lastSystemMessage == "Recovered response.")
-    #expect(await provider.currentCallCount() == 2)
+    #expect(lastSystemMessage.contains("The prepared context does not fit."))
+    #expect(await provider.currentCallCount() == 1)
 }
 
 @Test
@@ -2163,6 +2257,9 @@ func recoveryTranscriptToolNamesAreRemappedToSanitizedSessionTools() async {
 private actor TranscriptCaptureStore {
     private var transcripts: [String] = []
 
+    func recordFrame(_ request: ModelStepRequest) {
+        transcripts.append(request.messages.map { $0.text }.joined(separator: "\n"))
+    }
     func record(_ transcript: Transcript) {
         transcripts.append(transcript.map(debugRuntimeTranscriptEntry).joined(separator: "\n"))
     }
@@ -2261,13 +2358,21 @@ private struct TranscriptCapturingLanguageModel: LanguageModel {
     }
 }
 
-private actor TranscriptCapturingModelProvider: ModelProvider {
+private actor TranscriptCapturingModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "transcript-capturing"
     let supportedModels: [String]
     private let store = TranscriptCaptureStore()
 
     init(models: [String]) {
         self.supportedModels = models
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in
+            await self.store.recordFrame(request)
+            return .init(text: "Captured.", stopReason: .endTurn)
+        }
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -2293,10 +2398,19 @@ private actor CancellableStreamState {
     }
 }
 
-private actor CancellableStreamModelProvider: ModelProvider {
+private actor CancellableStreamModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "cancellable-stream"
     nonisolated let supportedModels: [String] = ["mock-model"]
     private let state = CancellableStreamState()
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { _ in
+            await self.state.markStarted()
+            try await Task.sleep(for: .seconds(5))
+            return .init(text: "late response", stopReason: .endTurn)
+        }
+    }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         CancellableStreamLanguageModel(state: state)
@@ -2360,7 +2474,7 @@ private struct CancellableStreamLanguageModel: LanguageModel {
 
 // MARK: - ContextOverflowModelProvider
 
-private actor ContextOverflowModelProvider: ModelProvider {
+private actor ContextOverflowModelProvider: ModelProvider, ModelStepProviderFactory {
     let id: String = "context-overflow"
     nonisolated let supportedModels: [String] = ["mock-model"]
     private var callCount = 0
@@ -2368,6 +2482,17 @@ private actor ContextOverflowModelProvider: ModelProvider {
 
     init(recoveryResponse: String) {
         self.recoveryResponse = recoveryResponse
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { _ in try await self.nextStep() }
+    }
+
+    private func nextStep() throws -> ModelStepResponse {
+        callCount += 1
+        if callCount == 1 { throw ModelStepFailure(category: .context, code: "fixture_context_overflow", message: "The prepared context does not fit.") }
+        return .init(text: recoveryResponse, stopReason: .endTurn)
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -2480,7 +2605,7 @@ func reasoningContentCaptureConsumeResetsAccumulator() {
 
 // MARK: - Reasoning observation emission tests
 
-private final class ReasoningCapturingModelProvider: ModelProvider, @unchecked Sendable {
+private final class ReasoningCapturingModelProvider: ModelProvider, ModelStepProviderFactory, @unchecked Sendable {
     let id: String = "reasoning-capturing"
     let supportedModels: [String] = ["mock-reasoning-model"]
     let _capture = ReasoningContentCapture()
@@ -2491,6 +2616,11 @@ private final class ReasoningCapturingModelProvider: ModelProvider, @unchecked S
         if !reasoning.isEmpty {
             _capture.append(reasoning)
         }
+    }
+
+    func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureReasoningStep(text: responseText, reasoning: _capture.consume())
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {

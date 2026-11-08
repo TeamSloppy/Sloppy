@@ -16,22 +16,28 @@ extension CoreService: UIToolService {
         var detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
         let persisted = Set(detail.events.map(\.id))
         var repaired = false
+        let runtime = try agentCatalogStore.getAgentRuntimeConfig(agentID: agentID)
         for entry in try sessionMessageInbox().entries
         where entry.agentId == agentID && entry.sessionId == sessionID && entry.uiSnapshot != nil
             && !persisted.contains("ui-accepted-" + entry.id)
         {
-            try persistAcceptedUISnapshot(entry)
+            if runtime.type == .native, runtime.effectiveNativeEngine == .unified {
+                _ = try persistSessionInboxMessage(entry)
+            } else {
+                try persistAcceptedUISnapshot(entry)
+            }
             repaired = true
         }
         if repaired { detail = try getAgentSession(agentID: agentID, sessionID: sessionID) }
         var surfaces: [String: AgentUISurfaceSnapshot] = [:]
-        for event in detail.events where event.type == .message {
-            guard event.agentId == detail.summary.agentId, event.sessionId == detail.summary.id,
-                event.message?.role == .assistant, let surface = event.message?.uiSurface,
-                (try? surface.validate()) != nil
-            else { continue }
-            if let previous = surfaces[surface.surfaceId], previous.revision >= surface.revision { continue }
-            surfaces[surface.surfaceId] = surface
+        for event in detail.events {
+            guard event.agentId == detail.summary.agentId, event.sessionId == detail.summary.id else { continue }
+            var candidates = event.inputTransitions?.compactMap { $0.context?.uiSnapshot } ?? []
+            if event.message?.role == .assistant, let surface = event.message?.uiSurface { candidates.append(surface) }
+            for surface in candidates where (try? surface.validate()) != nil {
+                if let previous = surfaces[surface.surfaceId], previous.revision >= surface.revision { continue }
+                surfaces[surface.surfaceId] = surface
+            }
         }
         return surfaces.values.sorted { $0.surfaceId < $1.surfaceId }
     }

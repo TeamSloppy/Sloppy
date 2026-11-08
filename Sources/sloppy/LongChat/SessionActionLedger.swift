@@ -202,8 +202,8 @@ enum CoordinatorResponseReview {
     /// Review factual claims semantically; no phrase matching drives control flow.
     static func verifiedResponse(
         candidate: String, userRequest: String, ledger: SessionActionLedger, isWorkerNotification: Bool = false,
-        review: @Sendable (String) async -> String?
-    ) async -> String {
+        review: @Sendable (String) async throws -> String?
+    ) async rethrows -> String {
         guard ledger.totalCalls > 0 || isWorkerNotification else { return candidate }
         let payload: JSONValue = .object([
             "userRequest": .string(String(userRequest.prefix(4000))),
@@ -218,7 +218,7 @@ enum CoordinatorResponseReview {
         [Payload]
         \(data)
         """
-        guard let raw = await review(prompt), let bytes = raw.data(using: .utf8),
+        guard let raw = try await review(prompt), let bytes = raw.data(using: .utf8),
               let verdict = try? JSONDecoder().decode(Verdict.self, from: bytes) else { return ledger.factualFallback }
         if verdict.supported { return candidate }
         guard let corrected = verdict.correctedResponse?.trimmingCharacters(in: .whitespacesAndNewlines), !corrected.isEmpty else { return ledger.factualFallback }

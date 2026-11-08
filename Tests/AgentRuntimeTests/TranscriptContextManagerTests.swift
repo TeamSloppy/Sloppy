@@ -109,7 +109,7 @@ struct TranscriptContextManagerTests {
         #expect(pressure.utilization < 0.4)
     }
 
-    @Test("Runtime applies the selected model budget before sending its recovered transcript")
+    @Test("Runtime budget refuses to prune unverified historical links or send oversized input")
     func runtimeIntegration() async throws {
         let capture = ContextRuntimeCapture()
         let provider = ContextTestProvider(capture: capture)
@@ -117,27 +117,34 @@ struct TranscriptContextManagerTests {
         let history = Transcript(entries: [prompt("original task"), try output(id: "old"), response("old reply"), prompt("recent request"), response("recent reply")])
         await runtime.setChannelRecoveryTranscript(channelId: "channel", transcript: history)
         _ = await runtime.postMessage(channelId: "channel", request: .init(userId: "user", content: "current correction", model: "test:small"))
-        let report = try #require(await runtime.contextPreparationReport(channelId: "channel"))
-        #expect(report.prunedToolOutputs == 1)
-        let sent = try #require(await capture.latest())
-        #expect(!sent.contains("old build log"))
-        #expect(sent.contains("proof-1"))
+        #expect(await capture.latest() == nil)
+        let saved = await runtime.modelStepHistoryByChannel["channel"] ?? []
+        #expect(saved.compactMap(\.toolOutput).contains { $0.content.contains("old build log") })
         #expect(await runtime.contextLedgerSnapshot(channelId: "channel")?.contextWindowTokens == 2_000)
+        #expect(await runtime.channelState(channelId: "channel")?.messages.last?.content.contains("prepared input") == true)
     }
 }
 
 private actor ContextRuntimeCapture {
     var text: String?
+    func recordFrame(_ request: ModelStepRequest) { text = request.messages.map { $0.text + ($0.toolOutput?.content ?? "") }.joined(separator: "\n") }
     func record(_ transcript: Transcript) { text = transcript.map(TranscriptContextManager.render).joined(separator: "\n") }
     func latest() -> String? { text }
 }
 
-private struct ContextTestProvider: ModelProvider {
+private struct ContextTestProvider: ModelProvider, ModelStepProviderFactory {
     let capture: ContextRuntimeCapture
     var limits: ModelContextLimits? = .init(contextWindowTokens: 2_000, maxOutputTokens: 256)
     var id: String { "test" }
     var supportedModels: [String] { ["test:small"] }
     func contextLimits(for modelName: String) -> ModelContextLimits? { limits }
+    func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in
+            await capture.recordFrame(request)
+            return .init(text: "Done", stopReason: .endTurn)
+        }
+    }
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel { ContextTestLanguageModel(capture: capture) }
 }
 

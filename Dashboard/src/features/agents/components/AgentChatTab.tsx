@@ -1,3 +1,4 @@
+import { extractEventKey, findPendingToolCallRecordIds, isTerminalRunStage } from "../sessionActivity";
 import { SessionUISurfaces } from "../ui/SessionUISurfaces";
 import { WorkComposerControls } from "../../work/WorkComposerControls";
 import { WorkerTaskCard } from "./WorkerTaskCard";
@@ -1270,14 +1271,9 @@ function isActiveRunStage(stage) {
   return value === "thinking" || value === "searching" || value === "responding";
 }
 
-function isTerminalRunStage(stage) {
-  const value = String(stage || "").trim().toLowerCase();
-  return value === "done" || value === "interrupted";
-}
 
-function extractEventKey(event, index) {
-  return event?.id || `${event?.type || "event"}-${index}`;
-}
+
+
 
 function previewText(value, fallback = "No details") {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
@@ -1360,47 +1356,7 @@ function formatStructuredData(value) {
   }
 }
 
-function findPendingToolCallRecordIds(events) {
-  const openCallsByTool = new Map();
-  const pendingRecordIds = new Set();
 
-  for (let index = 0; index < (Array.isArray(events) ? events.length : 0); index += 1) {
-    const eventItem = events[index];
-
-    if (eventItem?.type === "run_status" && isTerminalRunStage(eventItem.runStatus?.stage)) {
-      openCallsByTool.clear();
-      pendingRecordIds.clear();
-      continue;
-    }
-
-    if (eventItem?.type === "tool_call" && eventItem.toolCall) {
-      const toolName = String(eventItem.toolCall.tool || "").trim();
-      const recordId = `${extractEventKey(eventItem, index)}-tool-call`;
-      pendingRecordIds.add(recordId);
-      if (!openCallsByTool.has(toolName)) {
-        openCallsByTool.set(toolName, []);
-      }
-      openCallsByTool.get(toolName).push(recordId);
-      continue;
-    }
-
-    if (eventItem?.type === "tool_result" && eventItem.toolResult) {
-      const toolName = String(eventItem.toolResult.tool || "").trim();
-      const queue = openCallsByTool.get(toolName) || [];
-      const matchedRecordId = queue.shift();
-      if (queue.length === 0) {
-        openCallsByTool.delete(toolName);
-      } else {
-        openCallsByTool.set(toolName, queue);
-      }
-      if (matchedRecordId) {
-        pendingRecordIds.delete(matchedRecordId);
-      }
-    }
-  }
-
-  return pendingRecordIds;
-}
 
 /**
  * Shimmer on "Executing tool" (run_status stage searching) only while that tool round is still in flight.

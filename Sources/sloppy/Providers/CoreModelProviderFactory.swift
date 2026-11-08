@@ -258,12 +258,19 @@ struct MockModelProviderFactory: ModelProviderFactory {
     }
 }
 
-private actor MockModelProvider: ModelProvider {
+private actor MockModelProvider: ModelProvider, ModelStepProviderFactory {
     nonisolated let id: String = "mock"
     nonisolated let supportedModels: [String]
 
     init(supportedModels: [String]) {
         self.supportedModels = supportedModels
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        guard supportsModelSteps(for: modelName) else { return nil }
+        return MockModelStepProvider(model: modelName)
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -272,6 +279,27 @@ private actor MockModelProvider: ModelProvider {
 
     nonisolated func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         GenerationOptions(maximumResponseTokens: maxTokens)
+    }
+}
+
+private struct MockModelStepProvider: ModelStepProvider {
+    let model: String
+    func streamStep(_ request: ModelStepRequest) -> AsyncThrowingStream<ModelStepEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try Task.checkCancellation()
+                    guard request.model == model else {
+                        throw ModelStepFailure(category: .unavailable, code: "model_mismatch", message: "The mock step is bound to another model.")
+                    }
+                    continuation.yield(.started)
+                    let prompt = request.messages.last(where: { $0.role == .user })?.text ?? ""
+                    continuation.yield(.final(.init(text: "Mock response for prompt: " + prompt, stopReason: .endTurn)))
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
     }
 }
 

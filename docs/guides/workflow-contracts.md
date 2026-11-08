@@ -56,7 +56,7 @@ An edge without either condition is the fallback; there can be only one per ordi
 Multiple edges launch concurrent work only from an explicit Parallel block. Drafts may remain unfinished, but a running
 path must reach an explicit End node. Invalid updates leave the saved version unchanged.
 
-Templates use `{{input.ticket}}` and `{{nodes.review.output.result.verdict}}`. Unknown nodes,
+Templates use <code v-pre>{{input.ticket}}</code> and <code v-pre>{{nodes.review.output.result.verdict}}</code>. Unknown nodes,
 malformed placeholders and unavailable runtime fields are errors. Unexecuted branches
 do not supply an output. Array elements can be addressed by index, such as `result.items.0`.
 A whole-value template in tool arguments retains its JSON type; interpolation inside
@@ -114,8 +114,8 @@ passes only the winner's branch outputs; failures before a winner still stop the
 Each branch receives the pre-fork input and upstream outputs. It can read its own earlier
 steps. Sibling outputs become available downstream only after every branch succeeds.
 The Parallel output exposes final branch results under `branches.<branchStartId>`;
-after Join, references such as `{{nodes.review.output.text}}` and
-`{{nodes.qa.output.stdout}}` address individual successful steps.
+after Join, references such as <code v-pre>{{nodes.review.output.text}}</code> and
+<code v-pre>{{nodes.qa.output.stdout}}</code> address individual successful steps.
 
 Approval, Human Input and native agent questions can pause separate branches. Answering
 one continues that branch while the others keep running or waiting. Each attempt, action,
@@ -135,8 +135,8 @@ implemented. Shell node cwd overrides must stay within that pinned directory.
 
 ## Task and execution environment
 
-Start a run with a real project `taskId` to snapshot its fields. Use `{{task.title}}`,
-`{{task.description}}`, or `{{input.task.id}}`. Project Task outputs that snapshot;
+Start a run with a real project `taskId` to snapshot its fields. Use <code v-pre>{{task.title}}</code>,
+<code v-pre>{{task.description}}</code>, or <code v-pre>{{input.task.id}}</code>. Project Task outputs that snapshot;
 Update Task writes the bound live task's status. Renaming the task during an approval
 wait does not change the input already assigned to the run. A second root workflow
 cannot claim an active task; ordinary task pickup also respects the durable ownership.

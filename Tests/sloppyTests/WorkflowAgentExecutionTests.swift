@@ -232,11 +232,22 @@ actor WorkflowModelProbe {
 
 private enum WorkflowModelError: Error { case unavailable, unsupportedContent }
 
-actor WorkflowModelProvider: ModelProvider {
+actor WorkflowModelProvider: ModelProvider, ModelStepProviderFactory {
     nonisolated let id = "workflow-test"
     nonisolated let supportedModels = ["mock:test-model"]
     let probe: WorkflowModelProbe
     init(probe: WorkflowModelProbe) { self.probe = probe }
+    nonisolated var tools: [any Tool] { [PlanningRequestInputTool()] }
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        FixtureModelStep { request in
+            if let tool = request.tools.first(where: { $0.toolId == "planning.request_input" }), await self.probe.takeInputRequest() {
+                return .init(toolCalls: [.init(id: UUID().uuidString, name: tool.name,
+                    rawArguments: #"{"questions":[{"id":"choice","question":"Continue?","options":[{"id":"yes","label":"Yes"},{"id":"no","label":"No"}]}]}"#)], stopReason: .toolCalls)
+            }
+            return .init(text: try await self.probe.response(prompt: request.messages.filter { $0.role == .user }.map(\.text).joined(separator: "\n")), stopReason: .endTurn)
+        }
+    }
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel { WorkflowLanguageModel(probe: probe) }
 }
 

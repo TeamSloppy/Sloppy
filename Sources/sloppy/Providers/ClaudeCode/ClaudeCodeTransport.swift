@@ -123,7 +123,7 @@ struct ClaudeCodeTransport: Sendable {
             if let effort { args += ["--effort", effort] }
             let events = try child.start(executable: executable, arguments: args, environment: env, cwd: workingDirectory)
             let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-            let response = try await withThrowingTaskGroup(of: ClaudeCodeResponse.self) { group in
+            var response = try await withThrowingTaskGroup(of: ClaudeCodeResponse.self) { group in
                 group.addTask { try await admission.waitForResult() }
                 group.addTask {
                     try await withTaskCancellationHandler {
@@ -166,6 +166,7 @@ struct ClaudeCodeTransport: Sendable {
                 return result
             }
             child.cancel()
+            response.wireResponse = await admission.responseBody
             await recordUsage(admission, context: usageContext, failed: false)
             await admission.stop()
             try? FileManager.default.removeItem(at: directory)

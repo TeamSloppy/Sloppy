@@ -34,6 +34,8 @@ actor UsageMemoryLedger {
             (query.from.map { r.createdAt >= $0 } ?? true) && (query.to.map { r.createdAt <= $0 } ?? true)
                 && (query.channelId == nil || r.channelId == query.channelId)
                 && (query.sessionId == nil || r.sessionId == query.sessionId)
+                && (query.runId == nil || r.runId == query.runId)
+                && (query.userTurnId == nil || r.userTurnId == query.userTurnId)
                 && (query.provider == nil || r.provider == query.provider)
                 && (query.model == nil || r.model == query.model)
                 && (query.serverId == nil || r.components.contains { $0.serverId == query.serverId } || r.calls.contains { $0.serverId == query.serverId })
@@ -104,6 +106,7 @@ actor UsageMemoryLedger {
 
 extension InMemoryPersistenceStore {
     public func persistUsageRequest(_ record: UsageRequestRecord) async throws {
+        try record.validateRunIdentity()
         if await usageMemoryLedger.persist(record), let usage = record.usage {
             await persistTokenUsage(channelId: record.channelId, taskId: nil, usage: usage)
         }

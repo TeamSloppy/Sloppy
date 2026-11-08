@@ -87,6 +87,7 @@ export default defineConfig({
           { text: "Memory", link: "/agents/memory" },
           { text: "Context Compactor", link: "/agents/context-compactor" },
           { text: "Runtime", link: "/agents/runtime" },
+          { text: "Native Execution", link: "/guides/native-agent-execution" },
           { text: "Workspace", link: "/agents/workspace" },
           { text: "Sloppies", link: "/agents/sloppies" }
         ]
@@ -103,6 +104,7 @@ export default defineConfig({
         text: "Architecture",
         items: [
           { text: "Project Design", link: "/architecture/project-design" },
+          { text: "Unified Agent Loop", link: "/designs/native-agent-loop" },
           { text: "Enterprise Extension Boundary", link: "/architecture/enterprise-extension-boundary" },
           { text: "Actors Board", link: "/architecture/actors-board" },
           { text: "Swarm", link: "/architecture/swarm" },

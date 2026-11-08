@@ -3,6 +3,35 @@
 Guidance for coding agents working in this repository.
 Project type: SwiftPM agent runtime (Swift 6.2) + React/Vite dashboard + Apple client.
 
+## Contributor workflow for agents and humans
+
+- Follow the [contributor workflow](docs/designs/contributor-workflow.md). For a new capability or
+  extension/reworking of an existing subsystem, load [sloppy-feature-flow](.agents/skills/sloppy-feature-flow/SKILL.md).
+- Features use Task → Enrich → Design → human approval → Plan → Code → independent Review.
+  Improvements update the subsystem design (or create a concise one), obtain approval, then implement
+  and review. Adding another provider/channel to an existing integration is an improvement.
+  Fixes within the existing contract need reproduction, applicable validation and review; no new PRD
+  or design approval is needed unless the contract changes. Respect approval already given in the session.
+- Design documents are English. Reuse `docs/specs/`, `docs/product/`, `docs/architecture/` and
+  `Apps/docs/adr/`; put new subsystem designs in `docs/designs/` and feature plans in `docs/plans/`.
+  Supersede architectural decisions instead of rewriting their historical meaning.
+- Use [sloppy-enrich](.agents/skills/sloppy-enrich/SKILL.md) for unresolved product decisions and
+  [sloppy-tdd](.agents/skills/sloppy-tdd/SKILL.md) for testable behavior. Repository facts are investigated
+  by the agent. Do not invent tests or approval records for work without applicable TDD.
+- Before Code → Review, run `python scripts/check_contribution.py run --task TASK --stage review`.
+  Initialize the task and explicit scope first; see [runner instructions](.agents/knowledge/workflow.md).
+  Missing tools, zero executed tests, failed checks and stale reports block completion.
+- Request [sloppy-review](.agents/skills/sloppy-review/SKILL.md) in a separate subagent context.
+  The reviewer reads code, tests, documentation and evidence independently, returns defects to the
+  implementer, and escalates material design deviations to the human. Self-review is not independent review.
+- Features ship a user-facing article/update with navigation and a verified usage example. Public
+  improvements update the affected guide; internal improvements record a reviewed applicability reason.
+- Hooks and CI use the same runner and [validation configuration](.agents/validation.json).
+  `pre-push` permits explicitly mapped unavailable checks to remain required in CI; deferred results
+  never count as successful completion. Keep existing hooks, including Git LFS, in the chain.
+- Load only relevant entries from the [agent knowledge index](.agents/knowledge/README.md).
+  Do not claim hosted CI or branch protection is enabled merely because a workflow file exists.
+
 ## Visual design and brand
 
 - Read [Sloppy Visual Design](docs/dashboard-style.md) before creating or changing product UI, brand assets, websites, documentation visuals, or presentations. It is the canonical design reference, approved on 2026-10-05.
