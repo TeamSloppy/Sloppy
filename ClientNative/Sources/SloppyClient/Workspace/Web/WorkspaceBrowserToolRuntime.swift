@@ -508,12 +508,12 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
 #if os(macOS)
+        // WKNavigationAction uses a button mask. The primary button is bit 0.
         if navigationAction.navigationType == .linkActivated,
-           navigationAction.buttonNumber == 0,
+           navigationAction.buttonNumber == 1,
            navigationAction.modifierFlags.contains(.command),
            !navigationAction.shouldPerformDownload,
-           let url = navigationAction.request.url,
-           (try? Self.resolveURL(url.absoluteString)) != nil,
+           let url = BrowserSearchEngine.websiteURL(navigationAction.request.url),
            let onOpenLinkInNewTab {
             onOpenLinkInNewTab(url)
             return .cancel

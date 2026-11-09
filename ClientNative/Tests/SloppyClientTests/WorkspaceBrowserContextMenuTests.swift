@@ -9,12 +9,16 @@ import WebKit
 @Suite("Browser context menu", .serialized, .appKitUI, .appKitIsolation)
 @MainActor
 struct WorkspaceBrowserContextMenuTests {
-    @Test func rightClickBuildsTheNativePageMenu() async throws {
-        let server = try BrowserHTTPFixture(responseDelay: 0)
+    @Test(arguments: [false, true])
+    func rightClickBuildsTheNativePageMenu(onLink: Bool) async throws {
+        let html = onLink ? #"<a style="position:fixed;inset:0" href="/destination">Open</a>"# : nil
+        let server = try BrowserHTTPFixture(responseDelay: 0, html: html)
         let url = try await server.start()
-        let view = ContextMenuCaptureWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 750), configuration: WKWebViewConfiguration())
+        let view = WorkspaceBrowserWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 750), configuration: WKWebViewConfiguration())
         let runtime = WorkspaceBrowserToolRuntime(webView: view)
         try server.allowHTTP(in: runtime)
+        var opened: [URL] = []
+        runtime.onOpenLinkInNewTab = { opened.append($0) }
         let window = NSWindow(contentRect: view.bounds, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
@@ -24,17 +28,28 @@ struct WorkspaceBrowserContextMenuTests {
         let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: view.convert(point, to: nil),
             modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
             context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let capture = ContextMenuCaptureDelegate(event: event)
+        view.uiDelegate = capture
         let target = try #require(view.hitTest(point))
         target.rightMouseDown(with: event)
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while view.menuIdentifiers.isEmpty {
+        while capture.menuIdentifiers.isEmpty {
             guard ContinuousClock.now < deadline else { throw URLError(.timedOut) }
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(view.menuIdentifiers.contains("sloppy.browser.context.save"))
-        #expect(view.menuIdentifiers.contains("sloppy.browser.context.print"))
-        #expect(view.menuIdentifiers.contains("WKMenuItemIdentifierInspectElement") || view.menuIdentifiers.contains("sloppy.browser.context.inspect"))
+        #expect(capture.menuIdentifiers.contains("sloppy.browser.context.save"))
+        #expect(capture.menuIdentifiers.contains("sloppy.browser.context.print"))
+        #expect(capture.menuIdentifiers.contains("WKMenuItemIdentifierInspectElement") || capture.menuIdentifiers.contains("sloppy.browser.context.inspect"))
         #expect(view.isInspectable)
+        let newTabItem = capture.newTabItem
+        #expect((newTabItem != nil) == onLink)
+        if let newTabItem {
+            let action = try #require(newTabItem.action)
+            #expect(NSApp.sendAction(action, to: newTabItem.target, from: newTabItem))
+        }
+        #expect(opened == (onLink ? [url.appendingPathComponent("destination")] : []))
+        #expect(view.url == url)
+        #expect(runtime.popupWindows.isEmpty)
     }
 
     @Test func menuPreservesWebKitItemsAndDisablesUnavailableNavigation() throws {
@@ -118,14 +133,23 @@ struct WorkspaceBrowserContextMenuTests {
 }
 
 @MainActor
-private final class ContextMenuCaptureWebView: WorkspaceBrowserWebView {
-    var menuIdentifiers: [String] = []
-    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-        super.willOpenMenu(menu, with: event)
-        menuIdentifiers = menu.items.compactMap { $0.identifier?.rawValue }
-        // Verify WebKit's real right-click path without leaving a modal menu tracking
-        // loop or a system-owned menu window for the shared UI fixture to tear down.
-        menu.removeAllItems()
+private final class ContextMenuCaptureDelegate: NSObject, WKUIDelegate {
+    let event: NSEvent
+    private(set) var menuIdentifiers: [String] = []
+    private(set) var newTabItem: NSMenuItem?
+
+    init(event: NSEvent) {
+        self.event = event
+    }
+
+    @objc(_webView:getContextMenuFromProposedMenu:forElement:userInfo:completionHandler:)
+    func captureContextMenu(_ webView: WKWebView, proposedMenu: NSMenu, element: NSObject,
+                            userInfo: Any?, completionHandler: (NSMenu) -> Void) {
+        (webView as? WorkspaceBrowserWebView)?.prepareContextMenu(proposedMenu, event: event)
+        menuIdentifiers = proposedMenu.items.compactMap { $0.identifier?.rawValue }
+        newTabItem = proposedMenu.items.first { $0.title == "Open Link in New Tab" }
+        // Capture WebKit's proposed menu without starting a modal menu tracking loop.
+        completionHandler(NSMenu())
     }
 }
 #endif

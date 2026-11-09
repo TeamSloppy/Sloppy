@@ -8,25 +8,51 @@ import WebKit
 @Suite("Browser link navigation", .serialized, .appKitIsolation)
 @MainActor
 struct BrowserLinkNavigationTests {
-    @Test func commandClickCreatesANewTabAndPreservesTheSourcePage() async throws {
+    @Test(.appKitUI, arguments: ["_self", "_blank"])
+    func commandClickCreatesANewTabAndPreservesTheSourcePage(target: String) async throws {
+        let server = try BrowserHTTPFixture(responseDelay: 0, html: """
+        <!doctype html><style>body { margin: 0 } a { display: block; width: 200px; height: 100px }</style>
+        <a href="/destination" target="\(target)">Open</a>
+        """)
+        let url = try await server.start()
         let suite = "BrowserLinkNavigationTests.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let state = BrowserWorkspaceState(defaults: defaults, history: WorkspaceBrowserHistory(defaults: defaults))
+        try server.allowHTTP(in: state)
         let source = state.createBlankTab()
         let page = try #require(state.selectedPage)
         let runtime = page.ensureBrowserRuntime()
-        let destination = try #require(URL(string: "https://example.com/destination"))
-        let action = LinkNavigationAction(url: destination, modifiers: .command)
-        let policy = await runtime.webView(runtime.webView, decidePolicyFor: action)
-        #expect(policy == .cancel)
+        let view = runtime.webView
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 800, height: 600),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        defer { runtime.stop(); window.close() }
+        _ = try await runtime.open(url: url.absoluteString)
+
+        let point = NSPoint(x: 25, y: view.isFlipped ? 25 : view.bounds.height - 25)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(
+                with: type, location: view.convert(point, to: nil), modifierFlags: .command,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+            ))
+            window.sendEvent(event)
+        }
+
+        let deadline = ContinuousClock.now + .seconds(3)
+        while state.tabs.count == 1, view.url == url, runtime.popupWindows.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(state.tabs.count == 2)
         #expect(state.tabs.first?.id == source)
-        #expect(state.tabs.first?.url == nil)
         #expect(state.pages[source] === page)
         #expect(state.selectedID != source)
-        #expect(state.selectedTab?.url == destination)
-        #expect(runtime.webView.url == nil)
+        #expect(state.selectedTab?.url == url.appendingPathComponent("destination"))
+        #expect(view.url == url)
+        #expect(runtime.popupWindows.isEmpty)
     }
 
     @Test func onlyCommandLeftClicksOnLinksAreRedirected() async throws {
@@ -37,7 +63,7 @@ struct BrowserLinkNavigationTests {
         for action in [
             LinkNavigationAction(url: url, modifiers: []),
             LinkNavigationAction(url: url, modifiers: .control),
-            LinkNavigationAction(url: url, modifiers: .command, button: 1),
+            LinkNavigationAction(url: url, modifiers: .command, button: 2),
             LinkNavigationAction(url: url, modifiers: .command, type: .formSubmitted),
             LinkNavigationAction(url: url, modifiers: .command, type: .other),
         ] {
@@ -73,11 +99,17 @@ struct BrowserLinkNavigationTests {
             let action = LinkNavigationAction(url: url, modifiers: [], type: type)
             #expect(await runtime.webView(runtime.webView, decidePolicyFor: action) == .cancel)
         }
-        #expect(opened == [url, url])
+        let mail = try #require(URL(string: "mailto:demo@example.com"))
+        var tabs: [URL] = []
+        runtime.onOpenLinkInNewTab = { tabs.append($0) }
+        let command = LinkNavigationAction(url: mail, modifiers: .command)
+        #expect(await runtime.webView(runtime.webView, decidePolicyFor: command) == .cancel)
+        #expect(tabs.isEmpty)
+        #expect(opened == [url, url, mail])
         #expect(errors.isEmpty)
         let unsafe = LinkNavigationAction(url: try #require(URL(string: "javascript:alert(1)")), modifiers: [])
         #expect(await runtime.webView(runtime.webView, decidePolicyFor: unsafe) == .cancel)
-        #expect(opened == [url, url])
+        #expect(opened == [url, url, mail])
     }
 
     @Test(.appKitUI, arguments: ["_self", "_blank"])
@@ -111,7 +143,7 @@ private final class LinkNavigationAction: WKNavigationAction {
     private let type: WKNavigationType
     private let download: Bool
 
-    init(url: URL, modifiers: NSEvent.ModifierFlags, button: Int = 0,
+    init(url: URL, modifiers: NSEvent.ModifierFlags, button: Int = 1,
          type: WKNavigationType = .linkActivated, download: Bool = false) {
         self.url = url
         self.modifiers = modifiers
