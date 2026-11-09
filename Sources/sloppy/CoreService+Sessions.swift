@@ -25,7 +25,7 @@ extension CoreService {
             if let filter = projectID?.trimmingCharacters(in: .whitespacesAndNewlines), !filter.isEmpty {
                 sessions = sessions.filter { ($0.projectId ?? "").caseInsensitiveCompare(filter) == .orderedSame }
             }
-            return Self.paginatedAgentSessions(sessions, limit: limit, offset: offset)
+            return Self.paginatedAgentSessions(sessions, limit: limit, offset: offset).map(classifyingLegacyWorker)
         } catch {
             throw mapSessionStoreError(error)
         }
@@ -39,7 +39,7 @@ extension CoreService {
         return try SessionToolQuery.list(
             agentID: agentID, projectID: projectID, query: query,
             limit: limit, offset: offset, includeWorkers: includeWorkers,
-            catalog: agentCatalogStore, store: sessionStore)
+            catalog: agentCatalogStore, store: sessionStore).map(classifyingLegacyWorker)
     }
 
     /// Creates a session for a given agent.
@@ -53,6 +53,7 @@ extension CoreService {
         _ = try getAgent(id: normalizedAgentID)
 
         guard request.kind != .longChat, request.kind != .longChatWorker else { throw AgentSessionError.invalidPayload }
+        guard request.kind != .worker || userID == nil else { throw AgentSessionError.invalidPayload }
         if let parentID = request.parentSessionId,
            (try? getAgentSession(agentID: normalizedAgentID, sessionID: parentID).summary.kind) == .longChat {
             throw AgentSessionError.invalidPayload
@@ -195,14 +196,43 @@ extension CoreService {
 
         do {
             if let eventLimit {
-                return try sessionStore.loadSessionPage(
+                var detail = try sessionStore.loadSessionPage(
                     agentID: normalizedAgentID, sessionID: normalizedSessionID, limit: eventLimit, before: before
                 )
+                detail.summary = classifyingLegacyWorker(detail.summary)
+                return detail
             }
             guard before == nil else { throw AgentSessionError.invalidPayload }
-            return try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            var detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            detail.summary = classifyingLegacyWorker(detail.summary)
+            return detail
         } catch {
             throw mapSessionStoreError(error)
+        }
+    }
+
+    private func classifyingLegacyWorker(_ summary: AgentSessionSummary) -> AgentSessionSummary {
+        guard summary.kind == .chat else { return summary }
+        guard legacyWorkflowWorkerSessionIDs.contains(summary.id)
+                || sessionMessageStorage?.scopes[summary.id] != nil
+                || isLegacyDelegatedChild(summary) else {
+            return summary
+        }
+        var worker = summary
+        worker.kind = .worker
+        return worker
+    }
+
+    private func isLegacyDelegatedChild(_ summary: AgentSessionSummary) -> Bool {
+        guard let parentID = summary.parentSessionId else { return false }
+        if longChatStorage?.state.workerContexts?[summary.id] != nil || longChatParent(of: summary.id) != nil {
+            return true
+        }
+        guard let parent = try? sessionStore.loadSession(agentID: summary.agentId, sessionID: parentID) else { return false }
+        return parent.events.contains { event in
+            guard event.importOrigin == nil, let result = event.toolResult,
+                  result.tool == "sessions.spawn", result.ok else { return false }
+            return result.data?.asObject?["id"]?.asString == summary.id
         }
     }
 
@@ -424,6 +454,7 @@ extension CoreService {
         summary: AgentSessionSummary,
         events: [AgentSessionEvent]
     ) {
+        let summary = classifyingLegacyWorker(summary)
         for event in events {
             publishLiveSessionUpdate(
                 agentID: agentID,
@@ -588,7 +619,8 @@ extension CoreService {
         userMessageAlreadyPersisted: Bool = false,
         peerOrigin: AgentSessionPeerOrigin? = nil,
         inboxDelivery: Bool = false,
-        peerConversation: Bool = false
+        peerConversation: Bool = false,
+        systemDelivery: Bool = false
     ) async throws -> AgentSessionMessageResponse {
         var effectiveRequest = AgentSessionOrchestrator.requestByApplyingOneShotModeCommand(request)
         if peerConversation { effectiveRequest.mode = .ask }
@@ -602,10 +634,13 @@ extension CoreService {
         }
 
         _ = try getAgent(id: normalizedAgentID)
-        let workerSummary = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID).summary
+        let workerSummary = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, eventLimit: 1).summary
+        guard !workerSummary.isWorker || systemDelivery || longChatWorkerDelivery || inboxDelivery || peerOrigin != nil else {
+            throw AgentSessionError.workerSessionReadOnly
+        }
         var goalTurnID: String?
         if !longChatWorkerDelivery, !inboxDelivery, !peerConversation, peerOrigin == nil,
-           workerSummary.parentSessionId == nil, workerSummary.kind != .longChatWorker {
+           !systemDelivery, !workerSummary.isWorker, workerSummary.parentSessionId == nil {
             let command = try await handleSessionGoalCommand(
                 agentID: normalizedAgentID, sessionID: normalizedSessionID, request: effectiveRequest)
             if let response = command.response { return response }
@@ -689,8 +724,11 @@ extension CoreService {
                 await toolLoopGuard.beginTurn(sessionID: normalizedSessionID)
             }
             if let execution = projectExecutionSessions[normalizedSessionID] {
-                let pickupEnabled = await store.project(id: execution.projectID)?.automaticTaskPickupEnabled == true
-                guard pickupEnabled, execution.generation == projectStopGenerations[execution.projectID, default: 0] else {
+                if execution.requiresAutomaticPickup,
+                   await store.project(id: execution.projectID)?.automaticTaskPickupEnabled != true {
+                    throw CancellationError()
+                }
+                guard execution.generation == projectStopGenerations[execution.projectID, default: 0] else {
                     throw CancellationError()
                 }
             }
@@ -762,7 +800,9 @@ extension CoreService {
             throw AgentSessionError.invalidSessionID
         }
         _ = try getAgent(id: normalizedAgentID)
-        _ = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        guard try !getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, eventLimit: 1).summary.isWorker else {
+            throw AgentSessionError.workerSessionReadOnly
+        }
 
         let objective = request.objective.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !objective.isEmpty else {
@@ -821,11 +861,15 @@ extension CoreService {
     }
 
     public func resumeAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        await waitForStartup()
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw AgentSessionError.invalidAgentID
         }
         guard let normalizedSessionID = normalizedSessionID(sessionID) else {
             throw AgentSessionError.invalidSessionID
+        }
+        guard try !getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, eventLimit: 1).summary.isWorker else {
+            throw AgentSessionError.workerSessionReadOnly
         }
         _ = try await getAgentSessionGoal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         guard let goal = await sessionGoalController.resume(agentID: normalizedAgentID, sessionID: normalizedSessionID) else {
@@ -981,6 +1025,10 @@ extension CoreService {
         }
 
         _ = try getAgent(id: normalizedAgentID)
+        if request.events.contains(where: { $0.message?.role == .user }),
+           try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, eventLimit: 1).summary.isWorker {
+            throw AgentSessionError.workerSessionReadOnly
+        }
 
         do {
             return try await sessionOrchestrator.appendSessionEvents(

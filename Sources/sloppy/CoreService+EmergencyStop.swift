@@ -2,8 +2,13 @@ import Foundation
 import Protocols
 
 extension CoreService {
-    func registerProjectExecutionSession(sessionID: String, projectID: String, taskID: String, agentID: String, generation: Int? = nil) {
-        projectExecutionSessions[sessionID] = (projectID, taskID, agentID, generation ?? projectStopGenerations[projectID, default: 0])
+    func registerProjectExecutionSession(
+        sessionID: String, projectID: String, taskID: String, agentID: String,
+        generation: Int? = nil, requiresAutomaticPickup: Bool = true
+    ) {
+        projectExecutionSessions[sessionID] = (
+            projectID, taskID, agentID, generation ?? projectStopGenerations[projectID, default: 0], requiresAutomaticPickup
+        )
     }
 
     /// Stops project task executions without dispatching queued work during startup.

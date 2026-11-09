@@ -22,6 +22,15 @@ extension CoreService {
                 var restore = false
                 do {
                     if let state = try workflowExecutionFiles.load(id) {
+                        let agentNodes = Set(state.definition.nodes.filter { $0.type == .agentStep }.map(\.id))
+                        let steps = state.steps + (state.parallel?.branches.flatMap(\.steps) ?? [])
+                        for step in steps where agentNodes.contains(step.nodeId) {
+                            for key in ["sessionId", "compactSessionId"] {
+                                if let sessionID = step.output[key]?.asString {
+                                    legacyWorkflowWorkerSessionIDs.insert(sessionID)
+                                }
+                            }
+                        }
                         let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
                         workflowJournals[id] = journal
                         try await journal.flush()

@@ -79,7 +79,7 @@ public struct ChatComposerOverlay: View {
     private var composerBar: some View {
 #if os(macOS)
         VStack(spacing: theme.spacing.s) {
-            if !viewModel.composerSuggestions.isEmpty {
+            if !viewModel.isWorkerSession, !viewModel.composerSuggestions.isEmpty {
                 ComposerSuggestionsView(
                     suggestions: viewModel.composerSuggestions,
                     selectedSuggestionID: viewModel.composerSuggestionSelection.selectedID,
@@ -108,7 +108,7 @@ public struct ChatComposerOverlay: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if !viewModel.queuedMessages.isEmpty {
+            if !viewModel.isWorkerSession, !viewModel.queuedMessages.isEmpty {
                 ChatQueuedMessagesCard(
                     messages: viewModel.queuedMessages,
                     cancel: viewModel.cancelQueuedMessage
@@ -124,13 +124,19 @@ public struct ChatComposerOverlay: View {
             }
 #endif
 
-            ChatComposerView(
-                draft: viewModel.composerDraft,
-                tabs: tabs,
-                viewModel: viewModel,
-                tabActions: tabActions
-            )
-            .frame(maxWidth: maximumComposerWidth)
+            if viewModel.isWorkerSession {
+                Text("Worker session · Read only")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ChatComposerView(
+                    draft: viewModel.composerDraft,
+                    tabs: tabs,
+                    viewModel: viewModel,
+                    tabActions: tabActions
+                )
+                .frame(maxWidth: maximumComposerWidth)
+            }
 
         }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in

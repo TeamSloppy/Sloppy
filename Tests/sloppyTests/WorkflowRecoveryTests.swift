@@ -58,11 +58,12 @@ struct WorkflowRecoveryTests {
         let payload = PlanInputAnswerRequest(status: status, answers: status == .answered ? [.init(questionId: "choice", selectedOptionId: "yes")] : [], userId: "owner")
         if answerSavedBeforeRestart {
             let response = PlanInputResponse(requestId: input.id, status: status, answers: payload.answers, userId: "owner")
-            _ = try await service.appendAgentSessionEvents(agentID: agentID, sessionID: sessionID, request: .init(events: [
+            // Simulate the durable write before the server got a chance to resume the worker.
+            _ = try await service.sessionStore.appendEvents(agentID: agentID, sessionID: sessionID, events: [
                 .init(agentId: agentID, sessionId: sessionID, type: .inputResponse, inputResponse: response),
                 .init(agentId: agentID, sessionId: sessionID, type: .message,
                       message: .init(role: .user, segments: [.init(kind: .text, text: "Persisted user answer: \(status.rawValue), choice yes")], userId: "owner"))
-            ]))
+            ])
         }
         await service.shutdownChannelPlugins()
         let restarted = CoreService(config: config)

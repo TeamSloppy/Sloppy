@@ -53,6 +53,7 @@ public struct SessionStatusResponse: Codable, Sendable, Equatable {
 public enum AgentSessionKind: String, Codable, Sendable, Equatable {
     case longChat = "long_chat"
     case longChatWorker = "long_chat_worker"
+    case worker
     case chat
     case heartbeat
 }
@@ -178,6 +179,10 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
     public var taskId: String?
     /// Optional workspace scope (Dashboard workspace chats).
     public var workspaceId: String?
+
+    public var isWorker: Bool {
+        kind == .worker || kind == .longChatWorker
+    }
 
     public init(
         id: String,
