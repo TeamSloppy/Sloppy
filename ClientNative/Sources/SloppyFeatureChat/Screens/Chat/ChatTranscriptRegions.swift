@@ -74,21 +74,22 @@ struct ChatEmptyChatRegion: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        GeometryReader { geometry in
+        let greeting = ChatGreetingView(
+            projects: viewModel.projects,
+            selectedProjectId: viewModel.activeProjectIdForWorkspacePanel,
+            selectedProjectName: viewModel.activeProjectNameForWorkspacePanel,
+            onSelectPersonal: viewModel.pickPersonal,
+            onSelectProject: viewModel.pickProject,
+            onSelectPrompt: viewModel.useStarterPrompt
+        )
+        return GeometryReader { geometry in
             ScrollView {
-                ChatGreetingView(
-                    projects: viewModel.projects,
-                    selectedProjectId: viewModel.activeProjectIdForWorkspacePanel,
-                    selectedProjectName: viewModel.activeProjectNameForWorkspacePanel,
-                    onSelectPersonal: viewModel.pickPersonal,
-                    onSelectProject: viewModel.pickProject,
-                    onSelectPrompt: viewModel.useStarterPrompt
-                )
-                .frame(maxWidth: heroWidth)
-                .padding(.horizontal, idiom == .phone ? theme.spacing.s : 0)
-                .padding(.vertical, theme.spacing.m)
-                .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - bottomClearance))
-                .padding(.bottom, bottomClearance)
+                greeting
+                    .frame(maxWidth: heroWidth)
+                    .padding(.horizontal, idiom == .phone ? theme.spacing.s : 0)
+                    .padding(.vertical, theme.spacing.m)
+                    .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - bottomClearance))
+                    .padding(.bottom, bottomClearance)
             }
         }
 

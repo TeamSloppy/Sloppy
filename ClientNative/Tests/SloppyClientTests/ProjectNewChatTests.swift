@@ -1,13 +1,15 @@
 #if os(macOS)
 import Foundation
 import AppKit
+import Observation
+import Synchronization
 import SwiftUI
 import SloppyClientUI
 import SloppyUITestSupport
 import SloppyClientCore
-import SloppyFeatureChat
 import Testing
 @testable import SloppyClient
+@testable import SloppyFeatureChat
 
 @Suite("Project new chat", .serialized)
 @MainActor
@@ -73,10 +75,20 @@ struct ProjectNewChatTests {
         #expect(original.selectedSessionId == existing.id)
         #expect(fixture.posts.count == initialPosts)
         let other = APIProjectRecord(id: "other", name: "Other", actors: [agent.id])
+        first.projects = [project, other]
+        let projectSelectionChanged = Mutex(false)
+        withObservationTracking {
+            #expect(first.activeProjectIdForWorkspacePanel == project.id)
+            #expect(first.activeProjectNameForWorkspacePanel == project.name)
+        } onChange: {
+            projectSelectionChanged.withLock { $0 = true }
+        }
         model.showNewProjectChat(project: other)
+        #expect(projectSelectionChanged.withLock { $0 })
         #expect(model.selectedTabID == firstID)
         #expect(model.tabs.count == 1)
         #expect(first.activeProjectIdForWorkspacePanel == other.id)
+        #expect(first.activeProjectNameForWorkspacePanel == other.name)
         #expect(first.composerDraft.text == "First draft")
         #expect(first.selectedSessionId == nil)
         try await Task.sleep(for: .milliseconds(100))

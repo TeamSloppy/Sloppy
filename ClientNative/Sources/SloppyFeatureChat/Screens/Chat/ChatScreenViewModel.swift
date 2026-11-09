@@ -25,6 +25,7 @@ public final class ChatScreenViewModel {
     public var selectedSessionId: String?
     public var pinnedSessionIds: Set<String> { settings.pinnedSessionIds }
     public internal(set) var activeContextTitle: String?
+    var activeProjectId: String?
     public internal(set) var sessionActionStatus: String?
     public internal(set) var sendErrorMessage: String?
     public internal(set) var isLoadingSessions = false
@@ -334,7 +335,6 @@ public final class ChatScreenViewModel {
     @ObservationIgnored var pendingNavigationRequest: ChatNavigationRequest?
     @ObservationIgnored var pendingSessionSummary: ChatSessionSummary?
     @ObservationIgnored var lastAppliedNavigationRequestId: Int?
-    @ObservationIgnored var activeProjectId: String?
     @ObservationIgnored var activeTaskId: String?
     @ObservationIgnored var isLoadingInitialData = false
     @ObservationIgnored var initialDataTask: Task<Void, Never>?
