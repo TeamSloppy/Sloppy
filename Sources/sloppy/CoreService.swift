@@ -105,6 +105,7 @@ public actor CoreService {
         case invalidPayload
         case agentNotFound
         case sessionNotFound
+        case workerSessionReadOnly
         case storageFailure
     }
 
@@ -309,9 +310,10 @@ public actor CoreService {
     var workflowTaskOwners: [String: String] = [:]
     var workflowWaitingChildren: [String: Set<String>] = [:]
     var workflowSessionDirectories: [String: String] = [:]
+    var legacyWorkflowWorkerSessionIDs: Set<String> = []
     var sessionWorkingDirectories: [String: String] = [:]
     var sessionAddedRoots: [String: [String]] = [:]
-    var projectExecutionSessions: [String: (projectID: String, taskID: String, agentID: String, generation: Int)] = [:]
+    var projectExecutionSessions: [String: (projectID: String, taskID: String, agentID: String, generation: Int, requiresAutomaticPickup: Bool)] = [:]
     var projectPlanningCancellations: [String: [UUID: @Sendable () -> Void]] = [:]
     var projectStopGenerations: [String: Int] = [:]
     var sessionEnvironmentOverrides: [String: [String: String]] = [:]

@@ -1,5 +1,5 @@
 {
-  "originHash" : "f502f4b4f2ac5ca344db53d7d5dc94807e79fbeee7e6fc6e8964ac74a69093d5",
+  "originHash" : "e79ce4a3ee220912a0e320a120fddc5eaf193c69ded049422cc01a86dbbdc851",
   "pins" : [
     {
       "identity" : "h",
@@ -17,14 +17,6 @@
       "state" : {
         "revision" : "991755e698a7516eac571e6f6a65c04c907ce5ed",
         "version" : "0.59.0"
-      }
-    },
-    {
-      "identity" : "swan",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/AdaEngine/swan",
-      "state" : {
-        "revision" : "790df787281e9cf1c2358a11bb42b2ec2df01029"
       }
     },
     {
@@ -73,15 +65,6 @@
       }
     },
     {
-      "identity" : "swift-format",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-format.git",
-      "state" : {
-        "revision" : "d54c5be7afba3e5f52ae29e2371e444a3c2a49c1",
-        "version" : "603.0.0"
-      }
-    },
-    {
       "identity" : "swift-log",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
@@ -118,15 +101,6 @@
       }
     },
     {
-      "identity" : "swift-subprocess",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-subprocess.git",
-      "state" : {
-        "branch" : "0.2.1",
-        "revision" : "44922dfe46380cd354ca4b0208e717a3e92b13dd"
-      }
-    },
-    {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-syntax.git",
@@ -142,6 +116,23 @@
       "state" : {
         "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
         "version" : "1.6.4"
+      }
+    },
+    {
+      "identity" : "swiftlintplugins",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/SimplyDanny/SwiftLintPlugins",
+      "state" : {
+        "revision" : "ef7d692fc6706e8f5628e26bcafaefa445c58a97",
+        "version" : "0.65.1"
+      }
+    },
+    {
+      "identity" : "swiftterm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/migueldeicaza/SwiftTerm.git",
+      "state" : {
+        "revision" : "caa1bdd3f1396c5b0ed66121f299d1c8b42bc94c"
       }
     },
     {

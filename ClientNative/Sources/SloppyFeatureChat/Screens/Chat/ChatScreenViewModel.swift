@@ -193,6 +193,10 @@ public final class ChatScreenViewModel {
         return parentID
     }
 
+    public var isWorkerSession: Bool {
+        (sessions + sessionCatalog).first { $0.id == selectedSessionId }?.isWorker == true
+    }
+
     public func returnToParentChat() {
         guard let parentID = activeParentSessionID, let agent = selectedAgent else { return }
         if let parent = (sessions + sessionCatalog).first(where: { $0.id == parentID }) {

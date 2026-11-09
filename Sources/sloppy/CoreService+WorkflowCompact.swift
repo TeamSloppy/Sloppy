@@ -48,7 +48,7 @@ extension CoreService {
                 guard summary.ok else { return wrap(summary) }
                 guard let text = summary.data?.asObject?["text"]?.asString, !text.isEmpty, text.count <= 32_000,
                       let target = node.config["agentId"]?.asString else { throw WorkflowGraphContracts.Violation("Compaction produced no bounded handoff summary.") }
-                let work = try await createAgentSession(agentID: target, request: .init(title: "Workflow: \(node.title)", separateChat: true, projectId: context.projectId, taskId: context.taskId))
+                let work = try await createAgentSession(agentID: target, request: .init(title: "Workflow: \(node.title)", kind: .worker, separateChat: true, projectId: context.projectId, taskId: context.taskId))
                 metadata = ["agentId": .string(target), "sessionId": .string(work.id), "sessionAfterEventId": .null,
                     "contextPhase": .string("working"), "handoffSummary": .string(text), "compactSourceSessionId": .string(session),
                     "compactSessionId": summary.data?.asObject?["sessionId"] ?? .null]

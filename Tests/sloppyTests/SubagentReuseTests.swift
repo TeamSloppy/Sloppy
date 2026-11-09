@@ -99,6 +99,7 @@ struct SubagentReuseTests {
         let result = await service.invokeToolFromRuntime(agentID: "reuse-agent", sessionID: parent.id,
             request: .init(tool: "agents.delegate_task", arguments: [
                 "sessionId": .string(child.id), "goal": .string("Verify the fixes"),
+                "tasks": .array([]), "toolsets": .array([]),
             ]), recordSessionEvents: false)
         #expect(result.ok)
         #expect(result.data?.asObject?["accepted"]?.asBool == true)
@@ -109,6 +110,48 @@ struct SubagentReuseTests {
         #expect(try await service.getAgentSession(agentID: "reuse-agent", sessionID: child.id).events.compactMap(\.message).first?.segments.first?.text == "Previous findings")
         let root = await service.workspaceRootURL
         #expect(try LongChatFileStore(root: root).state.conversations[0].assignments[0].tasks[0].reuseSessionId == child.id)
+    }
+
+    @Test func workerRejectsDirectUserMessagesAndAppendedUserEvents() async throws {
+        let (service, parent, child) = try await fixture()
+        defer { Task { await service.stop() } }
+        let workflowWorker = try await service.createAgentSession(
+            agentID: parent.agentId, request: .init(title: "Workflow worker", kind: .worker)
+        )
+        let legacySpawn = try await service.createAgentSession(
+            agentID: parent.agentId, request: .init(title: "Legacy worker", parentSessionId: parent.id)
+        )
+        let fork = try await service.createAgentSession(
+            agentID: parent.agentId, request: .init(title: "Fork", parentSessionId: parent.id)
+        )
+        _ = try await service.appendAgentSessionEvents(agentID: parent.agentId, sessionID: parent.id, request: .init(events: [
+            .init(agentId: parent.agentId, sessionId: parent.id, type: .toolResult,
+                  toolResult: .init(tool: "sessions.spawn", ok: true, data: .object(["id": .string(legacySpawn.id)])))
+        ]))
+        let router = CoreRouter(service: service)
+        for worker in [child, workflowWorker, legacySpawn] {
+            let before = try await service.getAgentSession(agentID: worker.agentId, sessionID: worker.id)
+            let path = "/v1/agents/\(worker.agentId)/sessions/\(worker.id)"
+            let message = AgentSessionMessage(role: .user, segments: [.init(kind: .text, text: "Do other work")])
+            let event = AgentSessionEvent(agentId: worker.agentId, sessionId: worker.id, type: .message, message: message)
+            let body = try JSONEncoder().encode(AgentSessionPostMessageRequest(userId: "workflow", content: "Do other work"))
+            let response = await router.handle(method: "POST", path: path + "/messages", body: body)
+            #expect(response.status == 403)
+            #expect(String(decoding: response.body, as: UTF8.self).contains("worker_session_read_only"))
+            await #expect(throws: CoreService.AgentSessionError.workerSessionReadOnly) {
+                try await service.appendAgentSessionEvents(agentID: worker.agentId, sessionID: worker.id, request: .init(events: [event]))
+            }
+            let after = try await service.getAgentSession(agentID: worker.agentId, sessionID: worker.id)
+            #expect(after.events == before.events)
+        }
+        let forkDetail = try await service.getAgentSession(agentID: fork.agentId, sessionID: fork.id)
+        #expect(!forkDetail.summary.isWorker)
+        let message = AgentSessionMessage(role: .user, segments: [.init(kind: .text, text: "Continue this fork")])
+        let event = AgentSessionEvent(agentId: fork.agentId, sessionId: fork.id, type: .message, message: message)
+        let accepted = try await service.appendAgentSessionEvents(
+            agentID: fork.agentId, sessionID: fork.id, request: .init(events: [event])
+        )
+        #expect(accepted.appendedEvents.contains { $0.message?.id == message.id })
     }
 
     @Test func missingOrForeignSessionReturnsErrorWithoutReplacement() async throws {

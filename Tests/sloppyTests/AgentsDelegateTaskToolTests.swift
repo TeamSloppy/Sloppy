@@ -70,6 +70,21 @@ struct AgentsDelegateTaskToolTests {
         #expect(result.ok == true)
     }
 
+    @Test
+    func blankOptionalSessionIDStartsFreshDelegation() async {
+        let context = makeContext(delegateSubagent: { _, _, _, _, toolsets, _, _ in
+            toolsets?.joined(separator: ",")
+        })
+        for sessionID in [JSONValue.string(""), .string("  "), .null] {
+            let result = await AgentsDelegateTaskTool().invoke(arguments: [
+                "sessionId": sessionID, "goal": .string("Implement the frontend"),
+                "tasks": .array([]), "toolsets": .array([.string("file")]),
+            ], context: context)
+            #expect(result.ok)
+            #expect(result.data?.asObject?["results"]?.asArray?.first?.asObject?["summary"]?.asString == "file")
+        }
+    }
+
     @Test("Passes current session id to delegated subagent runner")
     func passesParentSessionIDToRunner() async throws {
         let tool = AgentsDelegateTaskTool()

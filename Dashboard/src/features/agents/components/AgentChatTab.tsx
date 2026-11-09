@@ -9,7 +9,6 @@ import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMem
 import {
   createAgentSession,
   openLongChat,
-  updateLongChatTask,
   deleteAgentSession,
   fetchAgentConfig,
   fetchAgentTasks,
@@ -4371,8 +4370,6 @@ export function AgentChatTab({
     status: "idle"
   });
   const [subagentSession, setSubagentSession] = useState(null);
-  const [workerClarification, setWorkerClarification] = useState("");
-  const [workerControlError, setWorkerControlError] = useState("");
   const [subagentExpandedRecordIds, setSubagentExpandedRecordIds] = useState({});
   const {
     text: optimisticAssistantText,
@@ -5344,17 +5341,6 @@ export function AgentChatTab({
     }
   }
 
-  async function clarifyOpenWorker(event) {
-    event.preventDefault();
-    const events = activeSession?.events || [];
-    const task = [...events].reverse().map((item) => item.longChatTask?.task).find((item) => item?.attempts?.at(-1)?.sessionId === subagentPanel.sessionId);
-    if (!task || !workerClarification.trim()) return;
-    try {
-      await updateLongChatTask(agentId, activeSessionId, task.id, "messages", { userId: "user", content: workerClarification, clientMessageId: crypto.randomUUID() });
-      setWorkerClarification(""); setWorkerControlError("");
-    } catch (failure) { setWorkerControlError(String(failure)); }
-  }
-
   async function openSubagentPanel(sessionId, title = "Sub-session") {
     const normalizedSessionId = String(sessionId || "").trim();
     if (!normalizedSessionId) {
@@ -6167,9 +6153,11 @@ export function AgentChatTab({
     return `Use installed skill \`${skillId}\` for this request.\n\nUser request:\n${request}`;
   }
 
+  const isWorkerSession = ["worker", "long_chat_worker"].includes(activeSession?.summary?.kind);
+
   async function handleSend(event) {
     event?.preventDefault?.();
-    if (isSending || approvalPolicy.busy || preparingMessage.current) { return; }
+    if (isWorkerSession || isSending || approvalPolicy.busy || preparingMessage.current) { return; }
 
     const trimmed = String(inputText || "").trim();
     const tagMarkdown = sourceControlDiffComposeTags.map((t) => t.markdown).join("\n\n");
@@ -7608,8 +7596,8 @@ export function AgentChatTab({
                   inputText={inputText}
                   onInputTextChange={setInputText}
                   isBusy={activeSession?.summary?.kind === "long_chat" ? isSending : isActiveSessionBusy}
-                  inputLocked={Boolean(activePendingInputRequest)}
-                  inputLockReason="Answer the pending plan question to continue."
+                  inputLocked={isWorkerSession || Boolean(activePendingInputRequest)}
+                  inputLockReason={isWorkerSession ? "Worker session · Read only" : "Answer the pending plan question to continue."}
                   isStopPending={isStopping}
                   onSend={handleSend}
                   onStop={handleStop}
@@ -7693,7 +7681,6 @@ export function AgentChatTab({
                   />
                 )}
                 {activeSession?.summary?.kind === "long_chat" && <div className="long-chat-panel">
-                  {workerControlError && <p role="alert">{workerControlError}</p>}
                   {latestUnansweredInputRequest(subagentSession?.events || []) && <PlanInputPanel
                     key={latestUnansweredInputRequest(subagentSession?.events || []).id}
                     request={latestUnansweredInputRequest(subagentSession?.events || [])}
@@ -7702,10 +7689,6 @@ export function AgentChatTab({
                       const response = await answerAgentSessionInputRequest(agentId, subagentPanel.sessionId, input.id, payload);
                       if (!response) throw new Error("Failed to answer worker input request");
                     }} />}
-                  <form onSubmit={clarifyOpenWorker}>
-                    <input aria-label="Clarify worker task" value={workerClarification} onChange={(event) => setWorkerClarification(event.target.value)} placeholder="Clarify this task…" />
-                    <button type="submit" disabled={!workerClarification.trim()}>Send clarification</button>
-                  </form>
                 </div>}
               </aside>
             ) : null}

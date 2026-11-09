@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 extension ChatScreenViewModel {
     @discardableResult
     public func summarizeBrowserPage(_ page: ChatComposerQuote) -> Bool {
-        guard let agent = selectedAgent, page.browserSource != nil,
+        guard !isWorkerSession, let agent = selectedAgent, page.browserSource != nil,
               !isSending, !isAwaitingAgentResponse, activeInputRequest == nil,
               approvalModeAllowsSending else { return false }
         sendMessageImmediately(
@@ -20,7 +20,7 @@ extension ChatScreenViewModel {
     }
 
     public func prepareLaunch() {
-        guard let agent = selectedAgent, selectedSessionId != nil,
+        guard !isWorkerSession, let agent = selectedAgent, selectedSessionId != nil,
               !isSending, !isAwaitingAgentResponse, activeInputRequest == nil,
               approvalModeAllowsSending else { return }
         sendMessageImmediately(
@@ -31,7 +31,7 @@ extension ChatScreenViewModel {
 
     @discardableResult
     public func sendMessage(content: String) -> Bool {
-        guard let agent = selectedAgent,
+        guard !isWorkerSession, let agent = selectedAgent,
               activeInputRequest == nil,
               approvalModeAllowsSending else {
             return false
@@ -451,7 +451,7 @@ extension ChatScreenViewModel {
     }
 
     func sendNextQueuedMessageIfIdle() async {
-        guard !isSending,
+        guard !isWorkerSession, !isSending,
               approvalModeAllowsSending,
               !isAwaitingAgentResponse,
               !isStopping,

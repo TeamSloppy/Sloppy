@@ -55,11 +55,13 @@ struct AgentsDelegateTaskTool: CoreTool {
     }
 
     func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
-        if let target = arguments["sessionId"] {
-            guard let sessionID = target.asString?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionID.isEmpty,
-                  let goal = trimmedArg("goal", from: arguments), !goal.isEmpty,
-                  arguments["tasks"] == nil || arguments["tasks"]?.asArray?.isEmpty == true,
-                  arguments["toolsets"] == nil else {
+        if let target = arguments["sessionId"], target != .null, target.asString == nil {
+            return toolFailure(tool: name, code: "invalid_arguments", message: "sessionId must be a string.", retryable: false)
+        }
+        if let sessionID = trimmedArg("sessionId", from: arguments) {
+            guard let goal = trimmedArg("goal", from: arguments),
+                  arguments["tasks"] == nil || arguments["tasks"] == .null || arguments["tasks"]?.asArray?.isEmpty == true,
+                  arguments["toolsets"] == nil || arguments["toolsets"] == .null || arguments["toolsets"]?.asArray?.isEmpty == true else {
                 return toolFailure(tool: name, code: "invalid_arguments", message: "Continuation requires a nonempty sessionId and goal; omit tasks and toolsets.", retryable: false)
             }
             guard let service = context.sessionService else {

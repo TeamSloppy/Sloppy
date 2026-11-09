@@ -1635,7 +1635,8 @@ extension CoreService {
             selectedModel: selectedModel,
             parentSessionID: parentSessionID,
             bypassToolApproval: autopilotContext?.bypassToolApproval == true,
-            explicitToolIDs: explicitToolIDs
+            explicitToolIDs: explicitToolIDs,
+            requiresAutomaticPickup: parentSessionID == nil
         )
     }
 
@@ -1674,12 +1675,16 @@ extension CoreService {
         selectedModel: String? = nil,
         parentSessionID: String? = nil,
         bypassToolApproval: Bool = false,
-        explicitToolIDs: [String]? = nil
+        explicitToolIDs: [String]? = nil,
+        requiresAutomaticPickup: Bool = false
     ) async -> AgentTaskRunResult? {
+        let parentExecution = parentSessionID.flatMap { projectExecutionSessions[$0] }
         let directProjectID = await projectID(containingTaskID: taskID)
-        let executionProjectID = directProjectID ?? parentSessionID.flatMap { projectExecutionSessions[$0]?.projectID }
-        let executionGeneration = executionProjectID.map { projectStopGenerations[$0, default: 0] }
-        if let executionProjectID,
+        let executionProjectID = directProjectID ?? parentExecution?.projectID
+        let executionGeneration = executionProjectID.map { id in
+            (parentExecution?.projectID == id ? parentExecution?.generation : nil) ?? projectStopGenerations[id, default: 0]
+        }
+        if requiresAutomaticPickup, let executionProjectID,
            await store.project(id: executionProjectID)?.automaticTaskPickupEnabled != true { return nil }
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
@@ -1728,7 +1733,7 @@ extension CoreService {
         do {
             session = try await createAgentSession(
                 agentID: agentID,
-                request: AgentSessionCreateRequest(title: sessionTitle, parentSessionId: parentSessionID)
+                request: AgentSessionCreateRequest(title: sessionTitle, parentSessionId: parentSessionID, kind: .worker)
             )
             await appendSubagentSessionTaskCommentIfNeeded(
                 agentID: agentID,
@@ -1796,7 +1801,10 @@ extension CoreService {
         sessionEnvironmentOverrides[session.id] = workerEnvironment
 
         if let executionProjectID {
-            registerProjectExecutionSession(sessionID: session.id, projectID: executionProjectID, taskID: taskID, agentID: agentID, generation: executionGeneration)
+            registerProjectExecutionSession(
+                sessionID: session.id, projectID: executionProjectID, taskID: taskID, agentID: agentID,
+                generation: executionGeneration, requiresAutomaticPickup: requiresAutomaticPickup
+            )
         }
         defer { projectExecutionSessions.removeValue(forKey: session.id) }
         let channelId = sessionChannelID(agentID: agentID, sessionID: session.id)
@@ -1832,7 +1840,8 @@ extension CoreService {
                         let t = selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                         return t.isEmpty ? nil : t
                     }()
-                )
+                ),
+                systemDelivery: true
             )
         } catch {
             await appendSystemTaskComment(
@@ -1944,7 +1953,8 @@ extension CoreService {
                         let t = selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                         return t.isEmpty ? nil : t
                     }()
-                )
+                ),
+                systemDelivery: true
             )
             let detail = try? getAgentSession(agentID: agentID, sessionID: session.id)
             return detail?.events

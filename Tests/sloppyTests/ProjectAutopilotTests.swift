@@ -418,6 +418,34 @@ func projectAutopilotStopsPlanningTickAfterTransientPlannerFailure() async throw
 }
 
 @Test
+func explicitWorkerRunsWithAutomaticPickupDisabled() async throws {
+    var config = CoreConfig.test
+    config.models = [.init(title: "Worker", apiKey: "", apiUrl: "", model: "mock:worker")]
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let provider = AutopilotRecordingModelProvider(models: ["mock:worker"], output: "Worker response.")
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:worker")
+    let agent = try await service.createAgent(.init(id: "explicit-worker", displayName: "Worker", role: "Developer"))
+    let parent = try await service.createAgentSession(agentID: agent.id, request: .init(separateChat: true))
+    let task = ProjectTask(id: "explicit-task", title: "Explicit task", description: "", priority: "medium", status: "ready")
+    await service.store.saveProject(.init(id: "manual-pickup", name: "Manual pickup", description: "", channels: [],
+                                          tasks: [task], automaticTaskPickupEnabled: false))
+
+    let automatic = await service.runAgentTaskResult(agentID: agent.id, taskID: task.id, objective: "Inspect the task.",
+                                                     workingDirectory: nil, selectedModel: "mock:worker")
+    #expect(automatic == nil)
+    #expect(await provider.requestedModelsSnapshot().isEmpty)
+
+    _ = await service.runAgentTaskResult(agentID: agent.id, taskID: task.id, objective: "Inspect the task.",
+                                         workingDirectory: nil, selectedModel: "mock:worker", parentSessionID: parent.id)
+    #expect(await !provider.requestedModelsSnapshot().isEmpty)
+    let child = try #require(try await service.listAgentSessions(agentID: agent.id).first { $0.parentSessionId == parent.id })
+    #expect(child.kind == .worker)
+    let history = try await service.getAgentSession(agentID: agent.id, sessionID: child.id)
+    #expect(history.events.contains { $0.message?.role == .user && $0.message?.userId == "system_task_worker" })
+    #expect(await service.store.project(id: "manual-pickup")?.automaticTaskPickupEnabled == false)
+}
+
+@Test
 func projectAutopilotBlocksTaskWhenDelegatedSubagentMissesFinishTool() async throws {
     var config = CoreConfig.test
     config.models = [

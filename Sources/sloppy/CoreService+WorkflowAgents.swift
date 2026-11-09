@@ -94,7 +94,8 @@ extension CoreService {
                 request: AgentSessionPostMessageRequest(
                     userId: "workflow", content: content, reasoningEffort: effort,
                     selectedModel: value("model"), mode: mode
-                )
+                ),
+                systemDelivery: true
             )
             try Task.checkCancellation()
             let persisted = try getAgentSession(agentID: agentID, sessionID: session.id)

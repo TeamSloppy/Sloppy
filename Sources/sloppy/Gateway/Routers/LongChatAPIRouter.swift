@@ -52,12 +52,7 @@ struct LongChatAPIRouter: APIRouter {
                     case "retry":
                         try await service.retryLongChatTask(agentID: agentID, sessionID: sessionID, taskID: taskID)
                     default:
-                        guard let body = request.body,
-                            var payload = CoreRouter.decode(body, as: LongChatTaskMessageRequest.self)
-                        else { return CoreRouter.json(status: 400, payload: ["error": "invalid_body"]) }
-                        payload.userId = try await Self.userID(request, service: service)
-                        try await service.messageLongChatTask(
-                            agentID: agentID, sessionID: sessionID, taskID: taskID, request: payload)
+                        throw CoreService.AgentSessionError.workerSessionReadOnly
                     }
                     let result = try await service.getLongChat(agentID: agentID, sessionID: sessionID)
                     return CoreRouter.encodable(status: 200, payload: result)

@@ -33,7 +33,7 @@ struct SessionsSpawnTool: CoreTool {
         do {
             let summary = try context.sessionStore.createSession(
                 agentID: context.agentID,
-                request: AgentSessionCreateRequest(title: title, parentSessionId: parent)
+                request: AgentSessionCreateRequest(title: title, parentSessionId: parent, kind: .worker)
             )
             context.logger.info(
                 "Session spawned via tool",

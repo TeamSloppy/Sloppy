@@ -40,7 +40,7 @@ extension CoreService {
             throw WorkflowGraphContracts.Violation("Invalid workflow session policy.")
         }
         if policy == .new {
-            return try await createAgentSession(agentID: agentID, request: .init(title: "Workflow: \(node.title)", separateChat: true,
+            return try await createAgentSession(agentID: agentID, request: .init(title: "Workflow: \(node.title)", kind: .worker, separateChat: true,
                 projectId: context.projectId, taskId: context.taskId))
         }
         guard let source = node.config["sessionSourceNodeId"]?.asString,

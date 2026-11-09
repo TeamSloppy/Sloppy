@@ -1510,6 +1510,8 @@ public actor CoreRouter {
             return json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
         case .sessionNotFound:
             return json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.sessionNotFound])
+        case .workerSessionReadOnly:
+            return json(status: HTTPStatus.forbidden, payload: ["error": "worker_session_read_only"])
         case .storageFailure:
             return json(status: HTTPStatus.internalServerError, payload: ["error": fallback])
         }

@@ -320,6 +320,9 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var messageCount: Int
     public var updatedAt: Date
     public var kind: String
+    public var isWorker: Bool {
+        kind == "worker" || kind == "long_chat_worker"
+    }
     public var projectId: String?
     public var taskId: String?
     public var workspaceId: String?

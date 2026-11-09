@@ -253,7 +253,8 @@ extension CoreService {
                 userId: longChatParent(of: normalizedSessionID)?.0.userId ?? response.userId,
                 content: resumePromptText(request: inputRequest, response: response),
                 mode: inputRequestChatMode(inputRequest)
-            )
+            ),
+            systemDelivery: true
         )
     }
 

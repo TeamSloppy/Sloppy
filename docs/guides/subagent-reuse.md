@@ -5,6 +5,9 @@ worker in the same chat. It explicitly selects the session; Sloppy does not matc
 roles or silently create replacements. A fresh session remains useful for an
 independent review.
 
+Worker sessions are read-only for direct chat messages. Send instructions to
+the parent chat. Tool approvals and structured input requests can still be answered.
+
 In an ordinary chat, `agents.delegate_task` returns `sessionId` alongside each new
 worker's summary. Discover other workers with `sessions.list`. Continue one with:
 

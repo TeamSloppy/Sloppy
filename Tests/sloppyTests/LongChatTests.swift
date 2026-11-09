@@ -221,6 +221,17 @@ struct LongChatAPITests {
                 ]))
         let childA = try await service.attachLongChatTestWorker(
             sessionID: chat.id, taskID: assignment.tasks[0].id, agentID: "long-agent")
+        let router = CoreRouter(service: service)
+        let base = "/v1/agents/long-agent/sessions"
+        let body = try JSONEncoder().encode(
+            AgentSessionPostMessageRequest(userId: "local", content: "Take a different task")
+        )
+        for path in ["\(base)/\(childA)/messages",
+                     "\(base)/\(chat.id)/long-chat/tasks/\(assignment.tasks[0].id)/messages"] {
+            let rejected = await router.handle(method: "POST", path: path, body: body)
+            #expect(rejected.status == 403)
+            #expect(String(decoding: rejected.body, as: UTF8.self).contains("worker_session_read_only"))
+        }
         _ = try await service.attachLongChatTestWorker(
             sessionID: chat.id, taskID: assignment.tasks[1].id, agentID: "long-agent")
         let receipt = try await service.postAgentSessionMessage(
