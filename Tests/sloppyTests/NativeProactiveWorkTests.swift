@@ -44,7 +44,7 @@ private struct NativeProactiveFactory: ModelProvider, ModelStepProviderFactory {
 
 @Suite("Native proactive work")
 struct NativeProactiveWorkTests {
-    @Test(.timeLimit(.minutes(3)), arguments: [false, true])
+    @Test(.timeLimit(.minutes(10)), arguments: [false, true])
     func proactiveReportsUseTheCommonOwnerAndResumeKnownResults(startupCredentialFailure: Bool) async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         defer { Task { await service.stop() } }

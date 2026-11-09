@@ -40,7 +40,7 @@ func mcpServerStatusesReportMissingCommands() async {
     let registry = MCPClientRegistry(
         config: CoreConfig.MCP(
             servers: [
-                .init(id: "missing", transport: .stdio, command: missingCommand, timeoutMs: 50)
+                .init(id: "missing", transport: .stdio, command: missingCommand, timeoutMs: 5_000)
             ]
         )
     )

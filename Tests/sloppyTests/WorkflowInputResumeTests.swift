@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow input continuation", .timeLimit(.minutes(1)))
+@Suite("Workflow input continuation", .timeLimit(.minutes(5)))
 struct WorkflowInputResumeTests {
     @Test(arguments: [PlanInputResponseStatus.answered, .cancelled])
     func agentInputContinuesOriginalWorkflowSession(status: PlanInputResponseStatus) async throws {

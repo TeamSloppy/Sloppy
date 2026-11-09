@@ -42,12 +42,28 @@ public final class AgentSessionFileStore: @unchecked Sendable {
     private let logger: Logger
     private let journalOwnership: FileOwnershipLease.Reference?
     private let authorizeJournalWrite: (@Sendable (URL, Int) throws -> Void)?
-    private static let operationLock = NSRecursiveLock()
+    /// Serialises synchronous journal I/O per agents root. Stores that point at the same directory
+    /// (several instances over one workspace) still exclude each other, but independent
+    /// workspaces no longer queue behind one process-wide lock.
+    private final class OperationLocks: @unchecked Sendable {
+        private let guardLock = NSLock()
+        private var locks: [String: NSRecursiveLock] = [:]
+        func lock(forRoot root: URL) -> NSRecursiveLock {
+            let key = root.standardizedFileURL.path
+            guardLock.lock()
+            defer { guardLock.unlock() }
+            if let existing = locks[key] { return existing }
+            let created = NSRecursiveLock()
+            locks[key] = created
+            return created
+        }
+    }
+    private static let operationLocks = OperationLocks()
     private static let summaryCacheSchemaVersion = 5
     private static let decodedEventsCacheLimit = 8
 
     /// Decoded journal of a recently used session, valid only while the file still has the same fingerprint.
-    /// Without it every tool call re-read and re-decoded the whole journal several times under `operationLock`.
+    /// Without it every tool call re-read and re-decoded the whole journal several times under the per-root operation lock.
     private struct DecodedEventsCache {
         var byteCount: Int
         var modifiedAt: TimeInterval
@@ -696,8 +712,9 @@ public final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        Self.operationLock.lock()
-        defer { Self.operationLock.unlock() }
+        let lock = Self.operationLocks.lock(forRoot: agentsRootURL)
+        lock.lock()
+        defer { lock.unlock() }
         return try body()
     }
 

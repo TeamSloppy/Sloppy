@@ -43,7 +43,7 @@ enum ExternalProcessRunner {
 
         let finished = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in finished.signal() }
-        try process.run()
+        try process.runSerialized()
 
         // Drain both pipes concurrently so a chatty tool cannot block on a full pipe buffer.
         let outData = ProcessOutputBuffer(maxBytes: Int.max)

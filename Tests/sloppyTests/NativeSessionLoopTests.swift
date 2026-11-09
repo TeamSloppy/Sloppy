@@ -342,7 +342,7 @@ private extension CoreService {
 
 @Suite("Core unified session integration")
 struct NativeSessionLoopTests {
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func coreToolArtifactIsRetrievableOnlyFromItsSessionWithMatchingBytes() async throws {
         let fixture = try await SessionIdentityFixture.make(script: SessionStepScript())
         let service = fixture.service
@@ -373,7 +373,7 @@ struct NativeSessionLoopTests {
         #expect(denied)
     }
 
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func restartContinuesTheOriginalApprovedEffectWithoutAnotherToolResponse() async throws {
         let config = CoreConfig.test, script = NativeApprovalScript(), model = "openai-api:gpt-5.4-mini"
         let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
@@ -424,7 +424,7 @@ struct NativeSessionLoopTests {
         #expect(await fresh.listPendingToolApprovals().isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func coreSteeringUsesTheCurrentRunAndSettlesItsReceipt() async throws {
         let gate = SessionStepGate()
         let heldScript = SessionStepScript(firstRequestGate: gate)

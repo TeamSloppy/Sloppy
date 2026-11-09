@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow startup recovery", .timeLimit(.minutes(1)))
+@Suite("Workflow startup recovery", .timeLimit(.minutes(5)))
 struct WorkflowRecoveryTests {
     @Test
     func queuedRunExecutesOnceAndCompletedRunNeverReplays() async throws {

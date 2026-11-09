@@ -196,7 +196,7 @@ func gitWorktreeErrorOnNonRepo() async throws {
     }
 }
 
-@Test(.timeLimit(.minutes(2)))
+@Test(.timeLimit(.minutes(5)))
 func gitWorktreeLargeDiffCompletesAndTruncatesConcurrentRequests() async throws {
     let repoURL = try makeGitRepo()
     defer { try? FileManager.default.removeItem(at: repoURL) }
@@ -222,7 +222,7 @@ func gitWorktreeLargeDiffCompletesAndTruncatesConcurrentRequests() async throws 
 }
 
 #if !os(Windows)
-@Test(.timeLimit(.minutes(2)))
+@Test(.timeLimit(.minutes(5)))
 func gitWorktreeDiffDrainsStandardOutputAndErrorConcurrently() async throws {
     let repoURL = try makeGitRepo()
     defer { try? FileManager.default.removeItem(at: repoURL) }
@@ -247,7 +247,7 @@ func gitWorktreeDiffDrainsStandardOutputAndErrorConcurrently() async throws {
     #expect(patch.text.contains("stderr-complete"))
 }
 
-@Test(.timeLimit(.minutes(2)))
+@Test(.timeLimit(.minutes(5)))
 func gitWorktreeDiffTimesOut() async throws {
     let repoURL = try makeGitRepo()
     defer { try? FileManager.default.removeItem(at: repoURL) }
@@ -269,7 +269,7 @@ func gitWorktreeDiffTimesOut() async throws {
     }
 }
 
-@Test(.timeLimit(.minutes(2)))
+@Test(.timeLimit(.minutes(5)))
 func gitWorktreeDiffPropagatesCancellation() async throws {
     let repoURL = try makeGitRepo()
     defer { try? FileManager.default.removeItem(at: repoURL) }

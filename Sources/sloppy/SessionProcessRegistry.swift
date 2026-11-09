@@ -74,7 +74,7 @@ actor SessionProcessRegistry {
         process.environment = childProcessEnvironment(overrides: environmentOverrides)
 
         do {
-            try process.run()
+            try process.runSerialized()
         } catch {
             throw RegistryError.launchFailed
         }

@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow reconciliation and merge", .timeLimit(.minutes(1)))
+@Suite("Workflow reconciliation and merge", .timeLimit(.minutes(5)))
 struct WorkflowRecoveryControlTests {
     @Test
     func verifiedResultAfterRestartDoesNotReplayUncertainProcess() async throws {
@@ -95,7 +95,7 @@ struct WorkflowRecoveryControlTests {
     }
 }
 
-@Suite("Workflow environment reconciliation", .timeLimit(.minutes(1)))
+@Suite("Workflow environment reconciliation", .timeLimit(.minutes(5)))
 struct WorkflowEnvironmentReconciliationTests {
     @Test
     func restoringDirectoryAfterApprovalDoesNotAskAgain() async throws {

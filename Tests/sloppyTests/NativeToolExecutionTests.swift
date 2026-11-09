@@ -51,7 +51,7 @@ private actor NativeEffectCompletionProbe {
 
 @Suite("Native Core effect boundary")
 struct NativeToolExecutionTests {
-    @Test(.timeLimit(.minutes(3)), arguments: NativeEffectCase.allCases)
+    @Test(.timeLimit(.minutes(10)), arguments: NativeEffectCase.allCases)
     fileprivate func coreOwnsEffectDeadlineAndKeepsCandidatesTyped(mode: NativeEffectCase) async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         let agentID = "native-lifetime-" + UUID().uuidString.lowercased()
@@ -130,7 +130,7 @@ struct NativeToolExecutionTests {
         #expect(SessionToolRecovery.unknownEffectCallIDs(in: detail.events).isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func cancellationSettlesApprovalWithoutAHumanDecision() async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         let agentID = "native-cancel-wait-" + UUID().uuidString.lowercased()

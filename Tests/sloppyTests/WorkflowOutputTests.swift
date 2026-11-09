@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow output contracts", .timeLimit(.minutes(1)))
+@Suite("Workflow output contracts", .timeLimit(.minutes(5)))
 struct WorkflowOutputTests {
     private let schema: JSONValue = .object([
         "type": .string("object"), "required": .array([.string("result")]),

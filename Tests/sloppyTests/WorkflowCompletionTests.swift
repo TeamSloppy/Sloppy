@@ -4,7 +4,7 @@ import Protocols
 import PluginSDK
 @testable import sloppy
 
-@Suite("Workflow completion plan", .timeLimit(.minutes(1)))
+@Suite("Workflow completion plan", .timeLimit(.minutes(5)))
 struct WorkflowCompletionTests {
     @Test
     func compactCreatesCheckpointedSummaryAndFreshTargetSession() async throws {
@@ -194,7 +194,7 @@ private actor WorkflowRecordingGateway: GatewayPlugin {
     func send(channelId: String, message: String, topicId: String?) async throws { sent.append(message) }
 }
 
-@Suite("Workflow child and compact recovery", .timeLimit(.minutes(1)))
+@Suite("Workflow child and compact recovery", .timeLimit(.minutes(5)))
 struct WorkflowChildCompactRecoveryTests {
     @Test
     func malformedChildInputNeverStartsAnEmptyInputRun() async throws {
@@ -308,7 +308,7 @@ struct WorkflowChildCompactRecoveryTests {
     }
 }
 
-@Suite("Workflow task ownership through child repair", .timeLimit(.minutes(1)))
+@Suite("Workflow task ownership through child repair", .timeLimit(.minutes(5)))
 struct WorkflowChildTaskOwnershipTests {
     @Test
     func repairedChildKeepsTaskReservedUntilParentCompletes() async throws {

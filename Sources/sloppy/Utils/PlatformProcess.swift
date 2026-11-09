@@ -12,6 +12,8 @@ enum PlatformProcess {
             value.withCString(encodedAs: UTF16.self) { _wputenv_s(name, $0) }
         }
         #else
+        processSpawnLock.lock()
+        defer { processSpawnLock.unlock() }
         setenv(key, value, overwrite ? 1 : 0)
         #endif
     }
@@ -72,7 +74,7 @@ enum PlatformProcess {
             try configure(process, command: "git", arguments: process.arguments ?? [], environment: environment)
         }
         #endif
-        try process.run()
+        try process.runSerialized()
     }
 
     #if os(Windows)
@@ -105,3 +107,16 @@ private extension Int32 {
     var withIsTTY: Bool { isatty(self) != 0 }
 }
 #endif
+
+/// swift-corelibs-foundation's `Process.run()` can crash inside libc when many threads spawn at once
+/// (observed on Linux under a fully parallel test run). Only the spawn is serialised; the child runs concurrently.
+/// Also guards `setenv`: growing `environ` while another thread spawns a child reads freed memory.
+let processSpawnLock = NSLock()
+
+extension Process {
+    func runSerialized() throws {
+        processSpawnLock.lock()
+        defer { processSpawnLock.unlock() }
+        try run()
+    }
+}

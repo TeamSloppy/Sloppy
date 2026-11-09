@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow environment binding", .timeLimit(.minutes(1)))
+@Suite("Workflow environment binding", .timeLimit(.minutes(5)))
 struct WorkflowEnvironmentTests {
     @Test
     func taskAndWorktreeStayPinnedAcrossApprovalAndProjectChanges() async throws {

@@ -71,7 +71,7 @@ struct ToolPathResolutionTests {
     func resolveCwdOutsideWorkspaceNoRoots() throws {
         let tmp = FileManager.default.temporaryDirectory
         let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
-        let outside = tmp.appendingPathComponent("sloppy-outside-\(UUID().uuidString)", isDirectory: true)
+        let outside = outsideImplicitRootsURL("sloppy-outside")
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         defer {
@@ -126,7 +126,7 @@ struct ToolPathResolutionTests {
     func resolveReadableOutsideNoRoots() throws {
         let tmp = FileManager.default.temporaryDirectory
         let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
-        let outside = tmp.appendingPathComponent("sloppy-out-\(UUID().uuidString)", isDirectory: true)
+        let outside = outsideImplicitRootsURL("sloppy-out")
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         defer {
@@ -197,7 +197,7 @@ struct ToolPathResolutionTests {
     func resolveReadableWithReadOnlyRoots() throws {
         let tmp = FileManager.default.temporaryDirectory
         let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
-        let sharedRoot = tmp.appendingPathComponent("sloppy-shared-\(UUID().uuidString)", isDirectory: true)
+        let sharedRoot = outsideImplicitRootsURL("sloppy-shared")
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: sharedRoot, withIntermediateDirectories: true)
         defer {
@@ -292,8 +292,7 @@ struct ToolPathResolutionTests {
         let sessionSummary = try decoder.decode(AgentSessionSummary.self, from: sessionResp.body)
         let sessionID = sessionSummary.id
 
-        let tmp = FileManager.default.temporaryDirectory
-        let outsidePath = tmp.appendingPathComponent("outside-\(UUID().uuidString)").path
+        let outsidePath = outsideImplicitRootsURL("outside").path
 
         let result = await service.invokeToolFromRuntime(
             agentID: agentID,

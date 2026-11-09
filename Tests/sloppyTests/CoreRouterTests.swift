@@ -2441,7 +2441,7 @@ func systemLogsMetadataKeysAreSorted() async throws {
     let logsDirectory = workspaceRoot.appendingPathComponent("logs", isDirectory: true)
     try FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
     let logFileURL = logsDirectory.appendingPathComponent("core-test-sorted.log")
-    
+
     // Create a log line with metadata keys that are NOT sorted
     let logLine = """
     {"label":"test","level":"info","message":"test","metadata":{"z":"last","a":"first","m":"middle"},"source":"test","timestamp":"2026-03-10T10:11:12.123Z"}
@@ -2458,7 +2458,7 @@ func systemLogsMetadataKeysAreSorted() async throws {
     #expect(response.status == 200)
 
     let jsonString = String(data: response.body, encoding: .utf8) ?? ""
-    
+
     // We expect "metadata":{"a":"first","m":"middle","z":"last"} due to .sortedKeys
     #expect(jsonString.contains("\"metadata\":{\"a\":\"first\",\"m\":\"middle\",\"z\":\"last\"}"))
 }

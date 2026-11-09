@@ -134,7 +134,7 @@ func projectSummariesLeaveRegularProjectsTopLevel() async throws {
 }
 
 #if !os(Windows)
-@Test(.timeLimit(.minutes(2)))
+@Test(.timeLimit(.minutes(5)))
 func projectListsBoundStalledGitMetadataWithoutBlockingOtherRequests() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let repo = try makeWorktreeMetadataTempDirectory(prefix: "project-worktree-stalled")

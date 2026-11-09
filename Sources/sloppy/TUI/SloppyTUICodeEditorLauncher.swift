@@ -304,7 +304,7 @@ enum SloppyTUICodeEditorLauncher {
             try PlatformProcess.configure(process, command: executableURL.path, arguments: arguments,
                                           environment: childProcessEnvironment())
             #endif
-            try process.run()
+            try process.runSerialized()
         } catch {
             return false
         }

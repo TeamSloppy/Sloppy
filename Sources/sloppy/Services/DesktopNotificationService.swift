@@ -111,7 +111,7 @@ struct MacOSDesktopNotificationDriver: DesktopNotificationDelivering {
         process.arguments = Self.arguments(for: request)
         process.standardOutput = Pipe()
         process.standardError = Pipe()
-        try process.run()
+        try process.runSerialized()
         process.waitUntilExit()
     }
 

@@ -71,7 +71,7 @@ enum BenchProcess {
             if !chunk.isEmpty { collector.append(chunk) }
         }
 
-        try process.run()
+        try process.runSerialized()
 
         let deadline = Date().addingTimeInterval(timeout)
         var timedOut = false

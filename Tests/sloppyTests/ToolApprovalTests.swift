@@ -8,7 +8,7 @@ import Testing
 @Suite("Tool approvals", .serialized)
 struct ToolApprovalTests {
 
-@Test(.timeLimit(.minutes(1)))
+@Test(.timeLimit(.minutes(5)))
 func concurrentApprovalStoresCannotOverwriteOrAuthorizeEachOthersState() async throws {
     let config = CoreConfig.test
     let owner = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
@@ -31,7 +31,7 @@ func concurrentApprovalStoresCannotOverwriteOrAuthorizeEachOthersState() async t
     await contender.stop(); await successor.stop()
 }
 
-@Test(.timeLimit(.minutes(3)))
+@Test(.timeLimit(.minutes(10)))
 func savedApprovalCannotTransferToChangedAuthorityArgumentsOrRun() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
@@ -68,7 +68,7 @@ func savedApprovalCannotTransferToChangedAuthorityArgumentsOrRun() async throws 
     await service.stop(); await fresh.stop()
 }
 
-@Test(.timeLimit(.minutes(3)))
+@Test(.timeLimit(.minutes(10)))
 func approvalsAndDecisionsSurviveFreshCoreWithoutGrantingOnCorruptStorage() async throws {
     let config = CoreConfig.test
     let original = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())

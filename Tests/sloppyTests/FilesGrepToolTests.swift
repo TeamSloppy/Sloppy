@@ -189,7 +189,8 @@ struct FilesGrepToolTests {
     @Test("grep rejects paths outside allowed roots")
     func grepRejectsOutsidePath() async throws {
         let workspace = try makeWorkspace()
-        let outside = try makeWorkspace()
+        let outside = outsideImplicitRootsURL("sloppy-files-grep-outside")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(at: workspace)
             try? FileManager.default.removeItem(at: outside)

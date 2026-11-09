@@ -197,7 +197,7 @@ actor ManagedMCPStdioTransport: Transport {
         process.environment = childProcessEnvironment(overrides: configuredEnvironment, base: environment)
 
         do {
-            try process.run()
+            try process.runSerialized()
         } catch {
             throw MCPRegistryError.invalidConfiguration(
                 "Failed to start MCP command '\(command)': \(error.localizedDescription)"

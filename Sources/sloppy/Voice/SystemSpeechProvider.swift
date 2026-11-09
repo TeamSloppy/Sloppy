@@ -57,7 +57,7 @@ struct SystemSpeechProvider: VoiceSpeechProvider {
         let errors = Pipe()
         process.standardError = errors
 
-        try process.run()
+        try process.runSerialized()
         input.fileHandleForWriting.write(Data(text.utf8))
         try input.fileHandleForWriting.close()
         process.waitUntilExit()

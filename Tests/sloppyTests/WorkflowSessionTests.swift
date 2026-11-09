@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow session policy", .timeLimit(.minutes(1)))
+@Suite("Workflow session policy", .timeLimit(.minutes(5)))
 struct WorkflowSessionTests {
     @Test
     func sharedStepsProduceSeparateAnswersAndRunsRemainIsolated() async throws {

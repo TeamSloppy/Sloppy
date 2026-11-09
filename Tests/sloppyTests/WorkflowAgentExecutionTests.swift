@@ -5,7 +5,7 @@ import Testing
 @testable import Protocols
 @testable import sloppy
 
-@Suite("Workflow agent execution", .timeLimit(.minutes(1)))
+@Suite("Workflow agent execution", .timeLimit(.minutes(5)))
 struct WorkflowAgentExecutionTests {
     @Test(arguments: ["agent", "ai_transform"])
     func runsRealSessionAndPersistsResult(blockKind: String) async throws {

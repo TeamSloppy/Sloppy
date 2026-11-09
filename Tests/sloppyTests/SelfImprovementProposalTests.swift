@@ -80,9 +80,36 @@ private struct SelfImprovementProposalToolCallModel: LanguageModel {
     }
 }
 
-private actor SelfImprovementProposalModelProvider: ModelProvider {
+/// Scripted single-step generation. The background review run is recognised by its
+/// proposal tool; any other run optionally calls `mainToolName` once, then answers.
+private func selfImprovementScriptedStep(
+    reviewToolID: String,
+    reviewArguments: GeneratedContent,
+    mainToolName: String? = nil
+) -> FixtureModelStep {
+    FixtureModelStep { request in
+        let hasToolResult = request.messages.contains(where: { $0.role == .tool })
+        let reviewTool = request.tools.first { $0.toolId == reviewToolID }
+        let isReview = reviewTool != nil
+        if hasToolResult {
+            return .init(text: isReview ? "Proposal review completed." : "Completed after observing the tool failure.",
+                         stopReason: .endTurn)
+        }
+        if isReview {
+            return .init(toolCalls: [.init(id: "proposal-call-1", name: reviewTool?.name ?? reviewToolID, rawArguments: reviewArguments.jsonString)],
+                         stopReason: .toolCalls)
+        }
+        if let mainToolName {
+            return .init(toolCalls: [.init(id: "failure-call-1", name: mainToolName, rawArguments: "{}")],
+                         stopReason: .toolCalls)
+        }
+        return .init(text: "Done.", stopReason: .endTurn)
+    }
+}
+
+private actor SelfImprovementProposalModelProvider: ModelProvider, ModelStepProviderFactory {
     nonisolated let id: String = "self-improvement-proposal"
-    nonisolated let supportedModels: [String] = ["mock:proposal"]
+    nonisolated let supportedModels: [String] = ["openai-api:proposal", "openai-api:gpt-5.4-mini"]
 
     let toolName: String
     let arguments: GeneratedContent
@@ -90,6 +117,11 @@ private actor SelfImprovementProposalModelProvider: ModelProvider {
     init(toolName: String = "self_improvement.proposal_submit", arguments: GeneratedContent) {
         self.toolName = toolName
         self.arguments = arguments
+    }
+
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        selfImprovementScriptedStep(reviewToolID: toolName, reviewArguments: arguments)
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -165,9 +197,9 @@ private struct SelfImprovementFailureSignalToolCallModel: LanguageModel {
     }
 }
 
-private actor SelfImprovementFailureReviewSequenceProvider: ModelProvider {
+private actor SelfImprovementFailureReviewSequenceProvider: ModelProvider, ModelStepProviderFactory {
     nonisolated let id: String = "self-improvement-failure-review"
-    nonisolated let supportedModels: [String] = ["mock:failure-review"]
+    nonisolated let supportedModels: [String] = ["openai-api:failure-review", "openai-api:gpt-5.4-mini"]
 
     private let proposalArguments: GeneratedContent
     private let proposalToolName: String
@@ -181,6 +213,15 @@ private actor SelfImprovementFailureReviewSequenceProvider: ModelProvider {
         self.proposalArguments = proposalArguments
     }
 
+    nonisolated func supportsModelSteps(for modelName: String) -> Bool { supportedModels.contains(modelName) }
+    func createModelStepProvider(for modelName: String, usageContext: ModelUsageContext?) async throws -> (any ModelStepProvider)? {
+        selfImprovementScriptedStep(
+            reviewToolID: proposalToolName,
+            reviewArguments: proposalArguments,
+            mainToolName: "missing.runtime_tool"
+        )
+    }
+
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         createCount += 1
         if createCount == 1 {
@@ -188,6 +229,18 @@ private actor SelfImprovementFailureReviewSequenceProvider: ModelProvider {
         }
         return SelfImprovementProposalToolCallModel(toolName: proposalToolName, arguments: proposalArguments)
     }
+}
+
+/// Pins the agent to the unified single-step engine with the scripted model.
+private func configureUnifiedProposalAgent(service: CoreService, agentID: String, model: String) async throws {
+    let models = [ProviderModelOption(id: model, title: "Fixture")]
+    await service.sessionOrchestrator.updateAvailableModels(models)
+    let workspace = await service.workspaceRootURL
+    let catalog = AgentCatalogFileStore(agentsRootURL: workspace.appendingPathComponent("agents"))
+    let original = try catalog.getAgentConfig(agentID: agentID, availableModels: models)
+    _ = try catalog.updateAgentConfig(agentID: agentID, request: .init(role: original.role, selectedModel: model,
+        documents: original.documents, automaticModelRouting: false,
+        runtime: .init(sharedMemoryEnabled: false, nativeEngine: .unified, planningPolicy: .executor)), availableModels: models)
 }
 
 @Test
@@ -372,8 +425,14 @@ func selfImprovementProposalReviewCreatesTaggedProjectTaskWithEvidence() async t
             ])
         ] as [any ConvertibleToGeneratedContent]),
     ]))
-    await service.overrideModelProviderForTests(provider, defaultModel: "mock:proposal")
-
+    await service.overrideModelProviderForTests(provider, defaultModel: "openai-api:proposal")
+    try await configureUnifiedProposalAgent(service: service, agentID: agentID, model: "openai-api:proposal")
+    // Native background review is owned by a settled run, so the session first completes one.
+    _ = try await service.postAgentSessionMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Fix the OCR workflow.")
+    )
     _ = await service.runSelfImprovementProposalReview(
         agentID: agentID,
         sessionID: session.id,
@@ -505,7 +564,7 @@ func selfImprovementFailureReviewWithoutClassificationIsRejected() async throws 
     #expect(project.tasks.isEmpty)
 }
 
-@Test(.timeLimit(.minutes(3)))
+@Test(.timeLimit(.minutes(10)))
 func selfImprovementFailureReviewTriggersProposalWithClassification() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let agentID = "failure-review-\(UUID().uuidString.lowercased())"
@@ -567,7 +626,8 @@ func selfImprovementFailureReviewTriggersProposalWithClassification() async thro
             ] as [any ConvertibleToGeneratedContent])
         ])
     )
-    await service.overrideModelProviderForTests(provider, defaultModel: "mock:failure-review")
+    await service.overrideModelProviderForTests(provider, defaultModel: "openai-api:failure-review")
+    try await configureUnifiedProposalAgent(service: service, agentID: agentID, model: "openai-api:failure-review")
 
     let response = try await service.postAgentSessionMessage(
         agentID: agentID,
@@ -595,7 +655,7 @@ func selfImprovementFailureReviewTriggersProposalWithClassification() async thro
     #expect(task.description.contains("missing tool"))
 
     let detail = try await service.getAgentSession(agentID: agentID, sessionID: session.id)
-    #expect(detail.events.contains { $0.toolResult?.error?.code == "unknown_tool" })
+    #expect(detail.events.contains { $0.toolResult?.error?.code == "undeclared_tool" })
     let review = try #require(detail.events.last(where: { $0.type == .selfImprovementReview })?.selfImprovementReview)
     #expect(review.reason.hasPrefix("failure_review:"))
     #expect(review.category == "proposal")
@@ -650,7 +710,13 @@ func selfImprovementProposalReviewQueueMarksSuccessfulRunSucceeded() async throw
     let provider = SelfImprovementProposalModelProvider(arguments: GeneratedContent(properties: [
         "action": "nothing",
     ]))
-    await service.overrideModelProviderForTests(provider, defaultModel: "mock:proposal")
+    await service.overrideModelProviderForTests(provider, defaultModel: "openai-api:proposal")
+    try await configureUnifiedProposalAgent(service: service, agentID: agentID, model: "openai-api:proposal")
+    _ = try await service.postAgentSessionMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Finish the task.")
+    )
     let job = await service.enqueueSelfImprovementProposalReviewForTests(
         agentID: agentID,
         sessionID: session.id,

@@ -88,8 +88,8 @@ struct SessionToolsTests {
         )
     }
 
-    @Test("createSession default title includes UUID suffix")
-    func createSessionDefaultTitleIncludesUUIDSuffix() throws {
+    @Test("createSession without a title uses the fallback until a title is generated")
+    func createSessionDefaultTitleUsesFallback() throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("default-session-title-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -102,10 +102,8 @@ struct SessionToolsTests {
 
         let store = makeSessionStore(rootURL: rootURL)
         let session = try store.createSession(agentID: "test-agent", request: AgentSessionCreateRequest())
-        let expectedSuffix = String(session.id.dropFirst("session-".count).prefix(8))
 
-        #expect(session.title == "Session \(expectedSuffix)")
-        #expect(session.title != "Session session-")
+        #expect(session.title == AgentSessionTitleGenerator.fallbackTitle)
     }
 
     @Test("sessions.history loads current session")

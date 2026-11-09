@@ -91,7 +91,9 @@ struct DebugReadLogsToolTests {
     @Test("rejects path outside workspace")
     func rejectsPathOutsideWorkspace() async throws {
         let workspace = try makeWorkspace()
-        let outside = try makeWorkspace()
+        let outside = outsideImplicitRootsURL("sloppy-debug-logs-outside")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
         let outsideLog = outside.appendingPathComponent("debug.log")
         try "{}\n".write(to: outsideLog, atomically: true, encoding: .utf8)
 

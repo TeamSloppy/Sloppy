@@ -517,7 +517,7 @@ enum SloppyTUIExternalURLOpener {
         process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
         process.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
         process.standardError = FileHandle(forWritingAtPath: "/dev/null")
-        try process.run()
+        try process.runSerialized()
         #endif
     }
 

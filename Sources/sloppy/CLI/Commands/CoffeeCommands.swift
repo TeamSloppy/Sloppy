@@ -144,7 +144,7 @@ struct LiveCoffeeSystemCommandRunner: CoffeeSystemCommandRunning {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        try process.run()
+        try process.runSerialized()
         process.waitUntilExit()
 
         let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()

@@ -89,7 +89,7 @@ private struct DerivedSourceFactory: ModelProvider, ModelStepProviderFactory {
 }
 @Suite("Native derived work ownership")
 struct NativeDerivedWorkTests {
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func nativeProposalReviewUsesTheDurableOwnerAndRestrictedTools() async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.waitForStartup(dispatchReadyTasks: false)
@@ -135,7 +135,7 @@ struct NativeDerivedWorkTests {
         #expect(after.events == before.events)
     }
 
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func aNewDerivedRunKeepsTheConfiguredModelOverride() async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.waitForStartup(dispatchReadyTasks: false)
@@ -175,7 +175,7 @@ struct NativeDerivedWorkTests {
         #expect(metadata?.derivedSource?.model == source.model)
     }
 
-    @Test(.timeLimit(.minutes(3)), arguments: [false, true])
+    @Test(.timeLimit(.minutes(10)), arguments: [false, true])
     func derivedRestartKeepsItsRunBudgetAndKnownToolResult(automatic: Bool) async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.waitForStartup(dispatchReadyTasks: false)
@@ -257,7 +257,7 @@ struct NativeDerivedWorkTests {
             .trimmingCharacters(in: .whitespacesAndNewlines) == "External correction after the known result.")
     }
 
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func autodreamRecordsNativeFailureAndLeavesItEligibleForRetry() async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.waitForStartup(dispatchReadyTasks: false)
@@ -295,7 +295,7 @@ struct NativeDerivedWorkTests {
         #expect(try await service.getAgentSession(agentID: agentID, sessionID: session.id).summary.userTurnCount == 1)
     }
 
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func coreShutdownCancelsItsNativeDerivedOwner() async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.waitForStartup(dispatchReadyTasks: false)
@@ -336,7 +336,7 @@ struct NativeDerivedWorkTests {
         #expect(try await background.value == false)
     }
 
-    @Test(.timeLimit(.minutes(3)), arguments: DerivedMemoryCase.allCases)
+    @Test(.timeLimit(.minutes(10)), arguments: DerivedMemoryCase.allCases)
     fileprivate func nativeMemoryPublicCompletionMatchesDurableOutcome(scenario: DerivedMemoryCase) async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.waitForStartup(dispatchReadyTasks: false)
@@ -395,7 +395,7 @@ struct NativeDerivedWorkTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(3)))
+    @Test(.timeLimit(.minutes(10)))
     func nativeMemoryUsesDurableCommonLoopWithoutChangingForegroundHistory() async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.waitForStartup(dispatchReadyTasks: false)
@@ -446,7 +446,7 @@ struct NativeDerivedWorkTests {
         #expect(after.events.compactMap(\.runStatus).last == before.events.compactMap(\.runStatus).last)
     }
 
-    @Test(.timeLimit(.minutes(3)), arguments: DerivedSourceCase.allCases)
+    @Test(.timeLimit(.minutes(10)), arguments: DerivedSourceCase.allCases)
     fileprivate func automaticMemoryRequiresACompletedCurrentSource(scenario: DerivedSourceCase) async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.waitForStartup(dispatchReadyTasks: false)

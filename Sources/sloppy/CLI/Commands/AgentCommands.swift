@@ -80,9 +80,14 @@ struct AgentCreateCommand: AsyncParsableCommand {
         let client = SloppyCLIClient.resolve(url: url, token: token, verbose: verbose)
         var payload: [String: Any] = [:]
         if let id { payload["id"] = id }
-        if !name.isEmpty { payload["name"] = name }
-        if let role { payload["role"] = role }
-        if let model { payload["selectedModel"] = model }
+        // The API requires id, displayName and role; the model is set afterwards via `agent config set`.
+        payload["displayName"] = name.isEmpty ? (id ?? "Agent") : name
+        payload["role"] = role ?? ""
+        payload["isSystem"] = false
+        if model != nil {
+            CLIStyle.error("--model is not part of agent creation; use `sloppy agent config set` after creating the agent.")
+            throw ExitCode.failure
+        }
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)
             let data = try await client.post("/v1/agents", body: body)
@@ -396,7 +401,12 @@ struct AgentSessionMessageCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let client = SloppyCLIClient.resolve(url: url, token: token, verbose: verbose)
-        let payload: [String: Any] = ["content": content, "userId": userId]
+        let payload: [String: Any] = [
+            "content": content,
+            "userId": userId,
+            "attachments": [Any](),
+            "spawnSubSession": false,
+        ]
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)
             let data = try await client.post("/v1/agents/\(agentId)/sessions/\(sessionId)/messages", body: body)

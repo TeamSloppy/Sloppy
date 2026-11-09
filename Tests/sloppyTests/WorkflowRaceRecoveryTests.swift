@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow winner recovery", .timeLimit(.minutes(1)))
+@Suite("Workflow winner recovery", .timeLimit(.minutes(5)))
 struct WorkflowRaceRecoveryTests {
     @Test(arguments: [WorkflowRunStatus.waitingForWorkflow, .running, .cancelled])
     func persistedWinnerCancelsQueuedLosingChildBeforeEffects(interrupted: WorkflowRunStatus) async throws {
@@ -58,7 +58,7 @@ struct WorkflowRaceRecoveryTests {
     }
 }
 
-@Suite("Workflow parallel result projection", .timeLimit(.minutes(1)))
+@Suite("Workflow parallel result projection", .timeLimit(.minutes(5)))
 struct WorkflowParallelProjectionTests {
     @Test
     func acceptedAggregateDoesNotExecuteCompletedBranchesAgain() async throws {

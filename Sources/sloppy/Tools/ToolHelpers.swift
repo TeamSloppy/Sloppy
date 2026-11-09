@@ -375,7 +375,7 @@ func runForegroundProcess(
         stderrReader.drain()
     }
 
-    do { try process.run() }
+    do { try process.runSerialized() }
     catch {
         stdout.fileHandleForReading.readabilityHandler = nil
         stderr.fileHandleForReading.readabilityHandler = nil

@@ -301,7 +301,7 @@ struct SloppyTUIUndoManager {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
+        do { try process.runSerialized() } catch { return nil }
         // Drain before waiting: a large repository can fill the pipe buffer.
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()

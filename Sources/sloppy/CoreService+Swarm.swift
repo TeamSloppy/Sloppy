@@ -936,9 +936,9 @@ extension CoreService {
 
         let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
         let links = board?.links ?? []
-        
+
         var nextActorID: String?
-        
+
         for link in links {
             guard link.communicationType == .task else { continue }
             if link.sourceActorId == currentActorID, team.memberActorIds.contains(link.targetActorId) {
@@ -950,7 +950,7 @@ extension CoreService {
                 break
             }
         }
-        
+
         if nextActorID == nil {
             let nextIndex = currentIndex + 1
             guard nextIndex < team.memberActorIds.count else {

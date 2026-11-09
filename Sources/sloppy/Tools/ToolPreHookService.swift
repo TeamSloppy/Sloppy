@@ -214,7 +214,7 @@ final class ToolPreHookService: @unchecked Sendable {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        try process.run()
+        try process.runSerialized()
         try stdin.fileHandleForWriting.write(contentsOf: input)
         try? stdin.fileHandleForWriting.close()
 

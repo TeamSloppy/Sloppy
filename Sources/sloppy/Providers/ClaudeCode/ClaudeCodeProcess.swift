@@ -209,7 +209,7 @@ final class ClaudeCodeProcess: @unchecked Sendable {
         child.standardError = FileHandle.nullDevice
         try lock.withLock {
             guard !cancelled else { throw CancellationError() }
-            try child.run()
+            try child.runSerialized()
             self.process = child
             self.input = input
         }

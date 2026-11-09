@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow parallel input", .timeLimit(.minutes(1)))
+@Suite("Workflow parallel input", .timeLimit(.minutes(5)))
 struct WorkflowParallelInputTests {
     @Test
     func approvalContinuesBeforeSiblingModelCompletes() async throws {

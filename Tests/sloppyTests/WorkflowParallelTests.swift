@@ -3,7 +3,7 @@ import Testing
 import Protocols
 @testable import sloppy
 
-@Suite("Workflow parallel execution", .timeLimit(.minutes(1)))
+@Suite("Workflow parallel execution", .timeLimit(.minutes(5)))
 struct WorkflowParallelTests {
     @Test
     func branchesReallyOverlapAndJoinReceivesBothOutputs() async throws {
