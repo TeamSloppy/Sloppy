@@ -589,9 +589,16 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
 #if os(macOS)
-        guard navigationAction.targetFrame == nil, webView.window != nil,
-              let url = navigationAction.request.url,
+        guard navigationAction.targetFrame == nil, let url = navigationAction.request.url,
               url.absoluteString == "about:blank" || (try? Self.resolveURL(url.absoluteString)) != nil else { return nil }
+        // Keep subframe popups in WebKit's browsing context so sandbox restrictions apply.
+        if navigationAction.sourceFrame.isMainFrame,
+           navigationAction.navigationType == .linkActivated,
+           !navigationAction.shouldPerformDownload {
+            navigationPending = webView.load(navigationAction.request) != nil
+            return nil
+        }
+        guard webView.window != nil else { return nil }
         let id = UUID()
         let popup = BrowserPopupWindow(configuration: configuration, features: windowFeatures, parent: self)
         popup.onClose = { [weak self] in self?.popupWindows.removeValue(forKey: id) }

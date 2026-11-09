@@ -80,7 +80,7 @@ struct BrowserLinkNavigationTests {
         #expect(opened == [url, url])
     }
 
-    @Test(.appKitUI, arguments: ["_self"])
+    @Test(.appKitUI, arguments: ["_self", "_blank"])
     func ordinaryLinksStillNavigateTheCurrentPage(target: String) async throws {
         let server = try BrowserHTTPFixture(responseDelay: 0, html: """
         <!doctype html><title>Links</title><a id="link" href="/destination" target="\(target)">Open</a>
@@ -88,12 +88,18 @@ struct BrowserLinkNavigationTests {
         let url = try await server.start()
         let runtime = WorkspaceBrowserToolRuntime()
         try server.allowHTTP(in: runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = runtime.webView
+        defer { runtime.stop(); window.close() }
         var opened: [URL] = []
         runtime.onOpenLinkInNewTab = { opened.append($0) }
         _ = try await runtime.open(url: url.absoluteString)
         _ = try await runtime.click(selector: "#link")
         #expect(try await runtime.read().url == url.appendingPathComponent("destination").absoluteString)
         #expect(opened.isEmpty)
+        #expect(runtime.popupWindows.isEmpty)
     }
 }
 

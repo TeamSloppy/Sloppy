@@ -112,6 +112,29 @@ struct BrowserNativeUITests {
         #expect(text == "Uploaded through WebKit")
     }
 
+    @Test func sandboxedFrameCanOpenPopupWithoutReplacingThePage() async throws {
+        let frameHTML = """
+        <!doctype html>
+        <a id="link" href="about:blank" target="_blank">Open</a>
+        <script>setTimeout(() => document.getElementById('link').click(), 200)</script>
+        """
+        let server = try BrowserHTTPFixture(
+            responseDelay: 0,
+            html: #"<iframe sandbox="allow-scripts allow-popups" src="/frame"></iframe>"#,
+            responses: ["/frame": (contentType: "text/html", body: Data(frameHTML.utf8))]
+        )
+        let url = try await server.start()
+        let runtime = WorkspaceBrowserToolRuntime()
+        try server.allowHTTP(in: runtime)
+        let window = show(runtime)
+        defer { runtime.stop(); window.close() }
+        _ = try await runtime.open(url: url.absoluteString)
+
+        try await wait { !runtime.popupWindows.isEmpty || runtime.webView.url != url }
+        #expect(runtime.webView.url == url)
+        #expect(runtime.popupWindows.count == 1)
+    }
+
     @Test func oauthPopupRetainsOpenerCookiesAndClosesWithoutReplacingThePage() async throws {
         let server = try BrowserHTTPFixture(responseDelay: 0, html: "<!doctype html><title>Original page</title><script>window.received = ''; addEventListener('message', e => { if (e.origin === location.origin) window.received = e.data; });</script>")
         let url = try await server.start()
