@@ -1,3 +1,4 @@
+import AgentRuntime
 import Protocols
 
 /// Uses server-owned parentage and lifecycle events, never the wording of a report.
@@ -9,6 +10,10 @@ enum SessionWorkerReportPolicy {
             ?? target.events.filter { $0.createdAt >= sender.createdAt }
         // A new human message may merely steer active work. Only a terminal lifecycle event
         // proves that the originating turn ended, even when a subsequent turn is now running.
-        return events.contains { $0.runStatus?.stage == .done || $0.runStatus?.stage == .interrupted }
+        return events.contains { event in
+            guard let status = event.runStatus,
+                  status.diagnostics?.turnExitReason != NativeAgentLoopTurnExitReason.steered.rawValue else { return false }
+            return status.stage == .done || status.stage == .interrupted
+        }
     }
 }

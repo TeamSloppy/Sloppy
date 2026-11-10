@@ -32,7 +32,7 @@ struct ChatRefreshSourceTests {
 
         #expect(source.contains("public internal(set) var isLoadingTranscript = false"))
         #expect(source.contains("transcript.clear()\n        isLoadingTranscript = true"))
-        #expect(source.contains("if isCurrentSession(agentId: agentId, sessionId: sessionId) {\n                isLoadingTranscript = false"))
+        #expect(source.contains("if connectionGeneration == hydrationGeneration, isCurrentSession(agentId: agentId, sessionId: sessionId) {\n                isLoadingTranscript = false"))
     }
 
     @Test("chat stream appends delta chunks and exposes an interrupt path")

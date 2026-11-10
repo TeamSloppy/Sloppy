@@ -174,40 +174,37 @@ struct ChatDeliveryReliabilityTests {
         #expect(fixture.model.sessionActionStatus?.contains("expired") == true)
     }
 
-    @Test("queued messages wait for each turn without interrupting chat or Conversation", arguments: ["chat", "long_chat"])
-    func waitsForNaturalCompletion(kind: String) async throws {
+    @Test("working chat and Conversation send steering in submission order", arguments: ["chat", "long_chat"])
+    func steersWhileWorking(kind: String) async throws {
         let fixture = try await DeliveryFixture.make(kind: kind)
         defer { fixture.finish() }
         #expect(fixture.model.isLongChat == (kind == "long_chat"))
         fixture.model.sendMessage(content: "first")
         try await fixture.wait { fixture.server.posts.count == 1 }
-        fixture.server.historyStage = "thinking"
-        fixture.server.releasePost(0, stage: "thinking")
-        try await fixture.wait { !fixture.model.isSending }
 
         fixture.model.sendMessage(content: "second")
+        #expect(fixture.model.queuedMessages.map(\.content) == ["second"])
+        fixture.model.handleRunStatus(.init(stage: .searching, label: "Executing tool"), sessionId: "one")
+        try await fixture.wait { fixture.server.posts.count == 2 }
         fixture.model.sendMessage(content: "cancelled")
         fixture.model.sendMessage(content: "third")
         let cancelled = try #require(fixture.model.queuedMessages.first { $0.content == "cancelled" })
         fixture.model.cancelQueuedMessage(id: cancelled.id)
         fixture.model.composerDraft.text = "unsent draft"
-        #expect(fixture.model.queuedMessages.map(\.content) == ["second", "third"])
+        #expect(fixture.model.queuedMessages.map(\.content) == ["third"])
         #expect(fixture.model.willQueueMessage)
         #expect(!fixture.model.isStopping)
-        // Let asynchronous HTTP and scheduled drains run before asserting no delivery.
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(fixture.server.posts.count == 1)
-        #expect(fixture.server.interruptCount == 0)
 
-        fixture.done(sessionId: "one", cursor: 1)
-        try await fixture.wait { fixture.server.posts.count == 2 }
-        #expect(fixture.model.queuedMessages.map(\.content) == ["third"])
-        fixture.server.releasePost(1, stage: "thinking")
-        try await fixture.wait { !fixture.model.isSending }
-        #expect(fixture.model.isAwaitingAgentResponse)
-        #expect(fixture.server.posts.count == 2)
-        fixture.done(sessionId: "one", cursor: 2)
+        let secondID = try #require(fixture.server.posts[1].payload["clientMessageId"] as? String)
+        fixture.model.handleStreamUpdate(.init(kind: .sessionEvent, cursor: 1, message: .init(
+            id: secondID, role: .user, segments: [.init(kind: .text, text: "second")]
+        )), agentId: "agent", sessionId: "one")
         try await fixture.wait { fixture.server.posts.count == 3 }
+        fixture.server.releasePost(1, stage: nil)
+        #expect(fixture.model.isSending)
+        #expect(fixture.model.isAwaitingAgentResponse)
+        #expect(fixture.model.activeRunStatus?.stage == .searching)
+        #expect(fixture.model.queuedMessages.isEmpty)
         #expect(fixture.server.posts.map { $0.payload["content"] as? String } == ["first", "second", "third"])
         #expect(fixture.server.interruptCount == 0)
         #expect(fixture.model.composerDraft.text == "unsent draft")
@@ -219,12 +216,12 @@ struct ChatDeliveryReliabilityTests {
         defer { fixture.finish() }
         fixture.model.sendMessage(content: "first")
         try await fixture.wait { fixture.server.posts.count == 1 }
-        fixture.server.historyStage = "thinking"
-        fixture.server.releasePost(0, stage: "thinking")
-        try await fixture.wait { !fixture.model.isSending }
         fixture.model.sendMessage(content: "second")
         fixture.model.pickSession(.init(id: "two", agentId: "agent", title: "Two"))
         try await fixture.wait { fixture.model.selectedSessionId == "two" && !fixture.model.isLoadingTranscript }
+        fixture.server.historyStage = "thinking"
+        fixture.server.releasePost(0, stage: "thinking")
+        try await fixture.wait { fixture.model.suspendedDeliveries["agent:one"]?.isSending == false }
         #expect(fixture.server.posts.count == 1)
         fixture.stream.yield(.init(kind: .sessionEvent, cursor: 1, streamEvent: .init(
             id: "background-done", type: .runStatus, runStatus: .init(stage: .done, label: "Done")
@@ -233,6 +230,22 @@ struct ChatDeliveryReliabilityTests {
         #expect(fixture.server.posts[1].path.contains("/sessions/one/messages"))
         #expect(fixture.server.interruptCount == 0)
         #expect(fixture.model.selectedSessionId == "two")
+    }
+
+    @Test("a rejected steering send restores its text without clearing the active run or a later draft")
+    func rejectedSteeringPreservesRunAndDraft() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        fixture.model.handleRunStatus(.init(stage: .searching, label: "Executing tool"), sessionId: "one")
+        #expect(fixture.model.sendMessage(content: "steer"))
+        try await fixture.wait { fixture.server.posts.count == 1 }
+        fixture.model.composerDraft.text = "later draft"
+        fixture.server.posts[0].request.respond("{}", status: 503)
+        try await fixture.wait { fixture.model.sendErrorMessage != nil }
+        #expect(fixture.model.composerDraft.text == "steer\n\nlater draft")
+        #expect(fixture.model.activeRunStatus?.stage == .searching)
+        #expect(fixture.model.isAwaitingAgentResponse)
+        #expect(!fixture.model.hasSteeringSubmission)
     }
 
     @Test("closing a detached chat preserves delivery and its queued messages")
@@ -778,17 +791,20 @@ private final class DeliveryHTTPState: @unchecked Sendable {
         request.respond("{}", status: 404)
     }
 
-    func releasePost(_ index: Int, echoesClientID: Bool = true, stage: String = "done") {
+    func releasePost(_ index: Int, echoesClientID: Bool = true, stage: String? = "done") {
         guard posts.indices.contains(index) else { return }
         let post = posts[index]
         let id = echoesClientID ? (post.payload["clientMessageId"] as? String ?? "legacy-message") : "legacy-message"
         let content = post.payload["content"] as? String ?? ""
+        var events: [[String: Any]] = [
+            ["id": UUID().uuidString, "type": "message", "message": ["id": id, "role": "user", "createdAt": "2026-10-01T00:00:00Z", "segments": [["kind": "text", "text": content]]]]
+        ]
+        if let stage {
+            events.append(["id": UUID().uuidString, "type": "run_status", "runStatus": ["stage": stage, "label": "Status"]])
+        }
         let payload: [String: Any] = [
             "summary": ["id": String(post.path.components(separatedBy: "/sessions/").last?.split(separator: "/").first ?? "one"), "agentId": "agent", "title": "Chat", "messageCount": 1, "kind": kind, "updatedAt": "2026-10-01T00:00:00Z"],
-            "appendedEvents": [
-                ["id": UUID().uuidString, "type": "message", "message": ["id": id, "role": "user", "createdAt": "2026-10-01T00:00:00Z", "segments": [["kind": "text", "text": content]]]],
-                ["id": UUID().uuidString, "type": "run_status", "runStatus": ["stage": stage, "label": "Status"]]
-            ]
+            "appendedEvents": events
         ]
         post.request.respond(String(data: try! JSONSerialization.data(withJSONObject: payload), encoding: .utf8)!)
     }

@@ -95,6 +95,7 @@ struct ChatTextField: View {
             .onChange(of: isTextFieldFocused) { _, isFocused in
                 onFocusChanged(isFocused)
             }
+#if !os(macOS)
             .onChange(of: draft.text) { oldValue, newValue in
                 let cursorOffset = composerCursorOffset
                     ?? ChatComposerTextEdit.cursorOffsetAfterEdit(
@@ -107,6 +108,7 @@ struct ChatTextField: View {
                     cursorOffset: cursorOffset
                 )
             }
+#endif
     }
 
     @ViewBuilder
@@ -145,7 +147,10 @@ struct ChatTextField: View {
             pasteAttachment: pasteAttachmentsFromSystemPasteboard,
             references: draft.references,
             openReference: { reference in referenceOpenHandler?(reference, viewModel) },
-            registerReferences: viewModel.registerComposerReferences
+            registerReferences: viewModel.registerComposerReferences,
+            onSuggestionContextChanged: { text, offset in
+                viewModel.updateComposerSuggestions(for: offset == nil ? "" : text, cursorOffset: offset)
+            }
         )
         #else
         UIKitChatComposerTextEditor(

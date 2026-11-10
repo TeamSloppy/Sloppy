@@ -24,3 +24,9 @@ enum ExecutionOutcomeClassifier {
         return .completed
     }
 }
+
+extension AgentSessionMessageResponse {
+    var yieldedToSteering: Bool {
+        appendedEvents.last?.runStatus?.diagnostics?.turnExitReason == NativeAgentLoopTurnExitReason.steered.rawValue
+    }
+}

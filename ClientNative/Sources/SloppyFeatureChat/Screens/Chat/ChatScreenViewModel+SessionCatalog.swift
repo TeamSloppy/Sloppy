@@ -24,6 +24,8 @@ extension ChatScreenViewModel {
         guard !didLoadInitialData, !isLoadingInitialData else { return }
 
         isLoadingInitialData = true
+        let expectedSessionID = settings.lastSessionId
+        let expectedProjectID = settings.lastProjectId
         await restoreInitialDataFromCache()
 
         // Cached data is enough to render the workspace. Network refreshes
@@ -32,6 +34,12 @@ extension ChatScreenViewModel {
 
         await revalidateInitialData()
         isLoadingInitialData = false
+        let unresolvedRestoration = isResolvingInitialConversation && selectedSessionId == nil
+            && (expectedSessionID != nil || expectedProjectID != nil)
+        isResolvingInitialConversation = false
+        if (selectedAgent == nil && (pendingSessionSummary != nil || pendingNavigationRequest != nil)) || unresolvedRestoration {
+            transcriptLoadError = "Could not load the conversation catalog. Retry when the connection is available."
+        }
         initialDataTask = nil
     }
 

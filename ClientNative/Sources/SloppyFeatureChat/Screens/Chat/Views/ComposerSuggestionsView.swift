@@ -14,12 +14,29 @@ struct ComposerSuggestionsView: View {
     let selectedSuggestionID: ChatComposerSuggestion.ID?
     let select: @MainActor (ChatComposerSuggestion) -> Void
 
+    var loadState: ChatComposerSuggestionLoadState = .ready
+    var retry: @MainActor () -> Void = {}
+
     @Environment(\.theme) private var theme
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 2) {
+                    if loadState == .loading {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small).tint(theme.colors.textSecondary)
+                            Text("Loading…").font(.callout).foregroundStyle(theme.colors.textSecondary)
+                            Spacer()
+                        }.padding(12).accessibilityIdentifier("chat.suggestions.loading")
+                    } else if case .failed(let message) = loadState {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(message).font(.caption).foregroundStyle(theme.colors.textSecondary)
+                            Button("Retry", action: retry)
+                        }.padding(12)
+                    } else if suggestions.isEmpty {
+                        Text("No results").font(.callout).foregroundStyle(theme.colors.textSecondary).padding(12)
+                    }
                     ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
                         if index == 0 || suggestions[index - 1].kind != suggestion.kind {
                             Text(groupTitle(for: suggestion.kind))

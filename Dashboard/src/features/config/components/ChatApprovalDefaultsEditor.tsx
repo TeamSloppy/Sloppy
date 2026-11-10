@@ -11,6 +11,6 @@ export function ChatApprovalDefaultsEditor({ mode, onChange }: {
     <h3>Default approval mode</h3>
     <ChatApprovalModePicker mode={mode} busy={false} disabled={false} error="" unavailable={false}
       onSelect={onChange} onRetry={() => {}} />
-    <p>Applies to new chats on this server in ClientNative, Dashboard and TUI. Existing chats keep their mode; delegated sessions inherit their parent chat.</p>
+    <p>Applies to new chats and standalone workers on this server. Subagents and workers launched from a chat inherit that chat’s mode. Existing chats keep their saved mode.</p>
   </section>;
 }

@@ -31,7 +31,7 @@ extension ChatScreenViewModel {
                     if !Task.isCancelled {
                         Task { @MainActor in
                             guard approvalModeRevision == revision else { return }
-                            await sendNextQueuedMessageIfIdle()
+                            await sendNextQueuedMessageIfReady()
                         }
                     }
                 }
@@ -95,7 +95,7 @@ extension ChatScreenViewModel {
             defer {
                 if approvalModeRevision == revision {
                     isSavingApprovalMode = false
-                    Task { @MainActor in await sendNextQueuedMessageIfIdle() }
+                    Task { @MainActor in await sendNextQueuedMessageIfReady() }
                 }
             }
             do {

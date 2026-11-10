@@ -6,6 +6,56 @@ import Testing
 @Suite("Chat history pagination", .serialized)
 @MainActor
 struct ChatHistoryPaginationTests {
+    @Test func lifecycleDistinguishesSlowExistingEmptyErrorAndFastSwitch() async throws {
+        let fixture = try await HistoryFixture.make(holdsLatest: true)
+        defer { fixture.finish() }
+        #expect(fixture.model.conversationLoadState == .empty)
+        fixture.model.pickSession(.init(id: "one", agentId: "agent", title: "One"))
+        #expect(fixture.model.conversationLoadState == .loading)
+        try await fixture.wait { fixture.server.latestCount == 1 }
+        fixture.model.pickPersonal()
+        #expect(fixture.model.conversationLoadState == .empty)
+        fixture.server.releaseLatest()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(fixture.model.transcript.isEmpty)
+        #expect(fixture.model.conversationLoadState == .empty)
+        fixture.server.failsLatest = true
+        fixture.model.pickSession(.init(id: "one", agentId: "agent", title: "One"))
+        try await fixture.wait { !fixture.model.isLoadingTranscript }
+        #expect(fixture.model.transcriptLoadError != nil)
+        if case .failed = fixture.model.conversationLoadState {} else { Issue.record("Expected failed state") }
+        fixture.server.failsLatest = false
+        fixture.model.retryTranscriptLoad()
+        try await fixture.wait { !fixture.model.isLoadingTranscript }
+        #expect(fixture.model.conversationLoadState == .content)
+    }
+
+    @Test func delayedSuggestionsAppearImmediatelyAndShareCommandCatalog() async throws {
+        let fixture = try await HistoryFixture.make()
+        defer { fixture.finish() }
+        fixture.server.holdsCommands = true
+        fixture.model.composerDraft.text = "Проверь 👩🏽‍💻\nв середине /r потом"
+        let prefix = "Проверь 👩🏽‍💻\nв середине /r"
+        let start = ContinuousClock.now
+        fixture.model.updateComposerSuggestions(for: fixture.model.composerDraft.text, cursorOffset: prefix.count)
+        #expect(fixture.model.composerSuggestionState == .loading)
+        let feedback = start.duration(to: .now)
+        try await fixture.wait { fixture.server.commandCount == 1 }
+        fixture.model.updateComposerSuggestions(for: fixture.model.composerDraft.text, cursorOffset: prefix.count)
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(fixture.server.commandCount == 1)
+        fixture.server.releaseCommands()
+        try await fixture.wait { fixture.model.composerSuggestionState == .ready }
+        #expect(fixture.model.composerSuggestions.first?.title == "/review")
+        fixture.model.applyComposerSuggestion(try #require(fixture.model.composerSuggestions.first))
+        #expect(fixture.model.composerDraft.text == "Проверь 👩🏽‍💻\nв середине /review потом")
+        #expect(fixture.model.composerSuggestionState == .hidden)
+        fixture.model.updateComposerSuggestions(for: "text /re")
+        try await fixture.wait { fixture.model.composerSuggestionState == .ready }
+        #expect(fixture.server.commandCount == 1)
+        print("SUGGESTION_HTTP_FIXTURE immediateFeedback=\(feedback) resultReady=\(start.duration(to: .now)) requests=\(fixture.server.commandCount), includes controlled 40ms hold; no production speedup claim")
+    }
+
     @Test func initialLoadIsBoundedAndReadyDoesNotDuplicateIt() async throws {
         let fixture = try await HistoryFixture.make(holdsLatest: true)
         defer { fixture.finish() }
@@ -176,6 +226,7 @@ private struct HistoryFixture {
 
     func finish() {
         server.releaseLatest()
+        server.releaseCommands()
         stream.finish()
         model.closeSession()
         settings.lastAgentId = previous.0
@@ -194,6 +245,21 @@ private final class HistoryServer: @unchecked Sendable {
     private let lock = NSLock()
     private var storedQueries: [[String: String]] = []
     private var pending: [HistoryURLProtocol] = []
+    private var commandsHeld = false
+    private var commandRequests = 0
+    private var pendingCommands: [HistoryURLProtocol] = []
+    var commandCount: Int { lock.withLock { commandRequests } }
+    var holdsCommands: Bool {
+        get { lock.withLock { commandsHeld } }
+        set { lock.withLock { commandsHeld = newValue } }
+    }
+    func releaseCommands() {
+        let requests = lock.withLock { let result = pendingCommands; pendingCommands = []; commandsHeld = false; return result }
+        for request in requests { respondCommands(request) }
+    }
+    private func respondCommands(_ request: HistoryURLProtocol) {
+        request.respond(Data(#"{"commands":[{"source":"builtin","name":"review","description":"Review fixture"}]}"#.utf8))
+    }
     private var holds = false
     private var holdsOld = false
     private var fails = false
@@ -226,6 +292,15 @@ private final class HistoryServer: @unchecked Sendable {
 
     func receive(_ request: HistoryURLProtocol) {
         guard let url = request.request.url else { return }
+        if url.path.hasSuffix("/chat-slash-commands") {
+            let held = lock.withLock {
+                commandRequests += 1
+                if commandsHeld { pendingCommands.append(request); return true }
+                return false
+            }
+            if !held { respondCommands(request) }
+            return
+        }
         if url.path == "/v1/agents" { request.respond(Data(#"[{"id":"agent","displayName":"Agent"}]"#.utf8)); return }
         if url.path.hasSuffix("/sessions") { request.respond(Data("[]".utf8)); return }
         guard url.path.hasSuffix("/one") else { request.respond(Data("{}".utf8), status: 404); return }

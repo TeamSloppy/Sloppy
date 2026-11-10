@@ -159,3 +159,47 @@ extension ChatComposerSuggestion {
                               title: summary.displayTitle, target: .session(agentId: summary.agentId, sessionId: summary.id)))
     }
 }
+
+
+enum ChatComposerSuggestionLoadState: Equatable {
+    case hidden, loading, ready
+    case failed(String)
+}
+
+/// Per-view-model caches are also keyed by endpoint, project and agent. Unstructured
+/// fetches are shared across keystrokes; cancelling a consumer never cancels a sibling.
+@MainActor
+final class ChatSuggestionCache<Value: Sendable> {
+    struct Entry { let value: Value; let date: Date }
+    private var entries: [String: Entry] = [:]
+    private var pending: [String: Task<Value, Error>] = [:]
+    private var revision = 0
+    private(set) var requestCount = 0
+    private(set) var lastFetchDuration: Duration?
+    let lifetime: TimeInterval
+    init(lifetime: TimeInterval) { self.lifetime = lifetime }
+    func cached(_ key: String) -> Value? { entries[key]?.value }
+    func invalidate() {
+        revision &+= 1
+        pending.values.forEach { $0.cancel() }
+        pending.removeAll()
+        entries.removeAll()
+    }
+    func load(_ key: String, fetch: @escaping @MainActor () async throws -> Value) async throws -> Value {
+        if let entry = entries[key], Date().timeIntervalSince(entry.date) < lifetime { return entry.value }
+        if let task = pending[key] { return try await task.value }
+        requestCount += 1
+        let generation = revision
+        let started = ContinuousClock.now
+        let task = Task { @MainActor in try await fetch() }
+        pending[key] = task
+        defer {
+            if generation == revision { pending[key] = nil; lastFetchDuration = started.duration(to: .now) }
+        }
+        let value = try await task.value
+        guard generation == revision, !task.isCancelled else { throw CancellationError() }
+        if entries.count >= 80 { entries.removeAll() }
+        entries[key] = Entry(value: value, date: Date())
+        return value
+    }
+}

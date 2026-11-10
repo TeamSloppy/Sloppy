@@ -73,6 +73,7 @@ extension ChatScreenViewModel {
 
     public func openSessionFromSummary(_ session: ChatSessionSummary) {
         if agents.isEmpty {
+            isResolvingInitialConversation = true
             pendingSessionSummary = session
             loadInitialData()
             return

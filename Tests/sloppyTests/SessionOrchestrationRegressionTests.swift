@@ -6,8 +6,31 @@ import Testing
 
 @Suite("Session orchestration regressions")
 struct SessionOrchestrationRegressionTests {
-    @Test func stalledPresenterCannotExtendTheInvocationDeadline() async throws {
+    @Test func ordinaryMessageSteersAnActiveSessionAndIsDeliveredOnce() async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let agent = try await service.createAgent(.init(id: "steering-inbox", displayName: "Agent", role: "Test"))
+        let session = try await service.createAgentSession(agentID: agent.id, request: .init(separateChat: true))
+        await service.holdRegressionInbox(session.id)
+        let messageID = UUID().uuidString
+        let request = AgentSessionPostMessageRequest(userId: "local", content: "Focus on the parser", clientMessageId: messageID)
+        let receipt = try await service.postAgentSessionMessage(agentID: agent.id, sessionID: session.id, request: request)
+        #expect(receipt.appendedEvents.compactMap(\.message).map(\.id) == [messageID])
+        #expect(await service.hasQueuedSteeringMessage(agentID: agent.id, sessionID: session.id))
+
+        _ = try await service.postAgentSessionMessage(agentID: agent.id, sessionID: session.id, request: request)
+        await service.releaseRegressionInbox(agentID: agent.id, sessionID: session.id)
+        await service.waitForRegressionInbox(session.id)
+
+        #expect(try await service.regressionInboxState(messageID) == "delivered")
+        let detail = try await service.getAgentSession(agentID: agent.id, sessionID: session.id)
+        #expect(detail.events.compactMap(\.message).filter { $0.id == messageID }.count == 1)
+        await service.stop()
+    }
+
+    @Test func stalledPresenterCannotExtendTheInvocationDeadline() async throws {
+        var config = CoreConfig.test
+        config.defaultChatApprovalMode = .askForApproval
+        let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
         let agent = try await service.createAgent(.init(id: "stalled-presenter", displayName: "Agent", role: "Test"))
         let session = try await service.createAgentSession(agentID: agent.id, request: .init(separateChat: true))
         let gate = AsyncStream<Void>.makeStream()

@@ -80,7 +80,8 @@ extension CoreService: SessionToolService {
     }
 
     func enqueueSessionInboxMessage(
-        agentID: String, sessionID: String, request: AgentSessionPostMessageRequest, origin: AgentSessionPeerOrigin? = nil
+        agentID: String, sessionID: String, request: AgentSessionPostMessageRequest,
+        origin: AgentSessionPeerOrigin? = nil, steersActiveTurn: Bool = false
     ) throws -> AgentSessionMessageResponse {
         var request = request
         let id = request.clientMessageId ?? UUID().uuidString
@@ -89,6 +90,7 @@ extension CoreService: SessionToolService {
         request.clientMessageId = id
         let storage = try sessionMessageInbox()
         var candidate = SessionMessageInboxFileStore.Entry(id: id, agentId: agentID, sessionId: sessionID, request: request, origin: origin)
+        candidate.steersActiveTurn = steersActiveTurn ? true : nil
         if try shouldRecordLateWorkerReport(candidate) {
             candidate.state = .delivered
             candidate.recordedOnly = true
@@ -98,6 +100,13 @@ extension CoreService: SessionToolService {
         scheduleSessionInbox(agentID: agentID, sessionID: sessionID)
         return .init(summary: try getAgentSession(agentID: agentID, sessionID: sessionID).summary,
                      appendedEvents: event.map { [$0] } ?? [], routeDecision: nil)
+    }
+
+    func hasQueuedSteeringMessage(agentID: String, sessionID: String) -> Bool {
+        guard !sessionMessageIsStopping, activeSessionMessageRuns.contains(sessionID) else { return false }
+        return sessionMessageStorage?.entries.first {
+            $0.agentId == agentID && $0.sessionId == sessionID && $0.state == .queued
+        }?.steersActiveTurn == true
     }
 
     func persistSessionInboxMessage(_ entry: SessionMessageInboxFileStore.Entry) throws -> AgentSessionEvent? {

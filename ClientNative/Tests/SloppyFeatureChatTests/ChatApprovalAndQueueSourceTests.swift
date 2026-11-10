@@ -27,13 +27,13 @@ struct ChatApprovalAndQueueSourceTests {
         #expect(root.contains("desktopOverlay.updateToolApproval(notification)\n            return"))
     }
 
-    @Test("messages submitted during a run enter the local queue")
-    func messagesEnterQueueDuringRun() throws {
+    @Test("the composer can stage messages until server delivery is ready")
+    func messagesCanStageLocally() throws {
         let model = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
         let composer = try source("Sources/SloppyFeatureChat/Screens/Chat/Views/ChatComposerView.swift")
 
         #expect(model.contains("if willQueueMessage"))
-        #expect(model.contains("await sendNextQueuedMessageIfIdle()"))
+        #expect(model.contains("await sendNextQueuedMessageIfReady()"))
         #expect(!model.contains("queuedMessageInterruptRequested"))
         #expect(composer.contains("let hasMessage = !trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty"))
     }

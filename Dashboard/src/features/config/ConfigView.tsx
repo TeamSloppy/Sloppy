@@ -388,6 +388,7 @@ export function ConfigView({
     if (savedDraft) {
       try {
         const parsedDraft = mergeChannelPluginsIntoConfig(normalizeConfig(JSON.parse(savedDraft)), channelPlugins);
+        parsedDraft.defaultChatApprovalMode ??= normalized.defaultChatApprovalMode;
         setDraftConfig(parsedDraft);
         setRawConfig(JSON.stringify(parsedDraft, null, 2));
         setStatusText("Config loaded (with local draft)");

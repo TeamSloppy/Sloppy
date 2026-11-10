@@ -36,6 +36,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
     var references: [ChatComposerReference] = []
     var openReference: (@MainActor (ChatComposerReference) -> Void)? = nil
     var registerReferences: @MainActor ([ChatComposerReference]) -> Void = { _ in }
+    var onSuggestionContextChanged: (@MainActor (String, Int?) -> Void)? = nil
     var onCommittedText: (@MainActor (String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -237,7 +238,12 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
                 in: updatedText
             )
             updateHeight()
-            if !textView.hasMarkedText() { parent.onCommittedText?(updatedText) }
+            if !textView.hasMarkedText() {
+                parent.onCommittedText?(updatedText)
+                parent.onSuggestionContextChanged?(updatedText, updatedRange.length == 0 ? ChatComposerNativeSelection.characterOffset(forUTF16Location: updatedRange.location, in: updatedText) : nil)
+            } else {
+                parent.onSuggestionContextChanged?("", nil)
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -255,6 +261,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
                     in: updatedText
                 )
             )
+            parent.onSuggestionContextChanged?(updatedText, !textView.hasMarkedText() && updatedRange.length == 0 ? ChatComposerNativeSelection.characterOffset(forUTF16Location: updatedRange.location, in: updatedText) : nil)
         }
 
         func textDidBeginEditing(_ notification: Notification) {

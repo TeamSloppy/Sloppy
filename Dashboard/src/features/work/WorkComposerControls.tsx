@@ -44,10 +44,11 @@ export function WorkComposerControls({
   const recording = voice.state === "recording";
   const transcribing = voice.state === "transcribing";
   const live = liveVoice.state === "live" || liveVoice.state === "connecting";
-  const action = busy ? "stop" : recording ? "recording" : transcribing ? "transcribing" : hasContent ? "send" : "dictate";
+  const action = busy && (stopping || !hasContent) ? "stop"
+    : recording ? "recording" : transcribing ? "transcribing" : hasContent ? "send" : "dictate";
   const actionLabel = action === "stop" ? (stopping ? "Stopping…" : "Stop")
     : action === "recording" ? "Stop recording" : action === "transcribing" ? "Transcribing…"
-      : action === "send" ? "Send message" : "Dictate message";
+      : action === "send" ? (busy ? "Steer agent" : "Send message") : "Dictate message";
   const actionIcon = action === "stop" ? "stop" : action === "recording" ? "stop_circle"
     : action === "transcribing" ? "hourglass_top" : action === "send" ? "arrow_upward" : "mic";
   const actionDisabled = action === "stop" ? stopping : action === "send" ? !canSend
@@ -119,7 +120,11 @@ export function WorkComposerControls({
     <ChatApprovalModePicker mode={approvalPolicy.mode} busy={approvalPolicy.busy} disabled={stopping}
       error={approvalPolicy.error} unavailable={!approvalPolicy.known} onSelect={(value) => void approvalPolicy.select(value)} onRetry={approvalPolicy.retry} />
     <div className="work-composer-model">{modelPicker}<span className="material-symbols-rounded work-model-chevron" aria-hidden="true">expand_more</span></div>
-    <button type={action === "send" ? "submit" : "button"} className={`work-composer-action ${busy || recording ? "recording" : ""}`}
+    {busy && action !== "stop" ? <button type="button" className="work-composer-action recording"
+      aria-label="Stop" title="Stop" onClick={onStop}>
+      <span className="material-symbols-rounded" aria-hidden="true">stop</span>
+    </button> : null}
+    <button type={action === "send" ? "submit" : "button"} className={`work-composer-action ${action === "stop" || recording ? "recording" : ""}`}
       data-testid="work-composer-action" aria-label={actionLabel} aria-pressed={recording || undefined} disabled={actionDisabled}
       title={action === "dictate" || recording || transcribing ? voiceTitle : actionLabel}
       onClick={action === "stop" ? onStop : action === "dictate" || action === "recording" ? voice.toggle : undefined}>

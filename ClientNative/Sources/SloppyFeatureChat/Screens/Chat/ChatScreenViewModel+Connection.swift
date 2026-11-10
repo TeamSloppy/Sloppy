@@ -16,7 +16,7 @@ extension ChatScreenViewModel {
         let manager = socketManager
         if let agentId = selectedAgent?.id,
            let sessionId = selectedSessionId ?? activeComposerDraftKey,
-           isSending || !messageQueue.isEmpty {
+           isSending || hasSteeringSubmission || !messageQueue.isEmpty {
             let key = deliveryKey(agentId: agentId, sessionId: sessionId)
             suspendedDeliveries[key] = SuspendedChatDelivery(
                 queue: messageQueue, optimisticMessages: transcript.optimisticMessages,
@@ -55,6 +55,12 @@ extension ChatScreenViewModel {
         isAwaitingAgentResponse = false
         isStopping = false
         isLoadingTranscript = false
+        isResolvingProjectConversation = false
+        isResolvingInitialConversation = false
+        suggestionTask?.cancel()
+        composerSuggestionRequestID &+= 1
+        composerSuggestions = []
+        composerSuggestionState = .hidden
         activeInputRequest = nil
         isSubmittingInputResponse = false
         inputRequestErrorMessage = nil
@@ -73,18 +79,20 @@ extension ChatScreenViewModel {
 
     func connectToSession(agentId: String, sessionId: String) async {
         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+        let connectionGeneration = hydrationGeneration
         defer {
-            if isCurrentSession(agentId: agentId, sessionId: sessionId) {
+            if connectionGeneration == hydrationGeneration, isCurrentSession(agentId: agentId, sessionId: sessionId) {
                 isLoadingTranscript = false
             }
         }
 
         if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
-            guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+            guard connectionGeneration == hydrationGeneration, isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
             applyHydratedSession(cached)
             historyPage = cached.historyPage
         }
 
+        guard connectionGeneration == hydrationGeneration, isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
         let key = deliveryKey(agentId: agentId, sessionId: sessionId)
         backgroundHydrationIDs.removeValue(forKey: key)
         backgroundHydrations.removeValue(forKey: key)?.cancel()
@@ -101,7 +109,7 @@ extension ChatScreenViewModel {
             streamTask = task
             requestSessionHydration(agentId: agentId, sessionId: sessionId)
             await hydrationTask?.value
-            await sendNextQueuedMessageIfIdle()
+            await sendNextQueuedMessageIfReady()
             return
         }
 
@@ -120,7 +128,7 @@ extension ChatScreenViewModel {
             socketManager = socket
             stream = await socket.connect()
         }
-        guard isCurrentSession(agentId: agentId, sessionId: sessionId) else {
+        guard connectionGeneration == hydrationGeneration, isCurrentSession(agentId: agentId, sessionId: sessionId) else {
             await manager?.disconnect()
             return
         }
@@ -140,7 +148,7 @@ extension ChatScreenViewModel {
         // Consume live events while history and auxiliary data are fetched.
         requestSessionHydration(agentId: agentId, sessionId: sessionId)
         await hydrationTask?.value
-        await sendNextQueuedMessageIfIdle()
+        await sendNextQueuedMessageIfReady()
     }
 
     private func requestSessionHydration(agentId: String, sessionId: String) {
@@ -196,7 +204,7 @@ extension ChatScreenViewModel {
         }
         latestHydratedEventIDs = incomingIDs
         scheduleAuxiliaryRefresh(agentId: agentId, sessionId: sessionId)
-        await sendNextQueuedMessageIfIdle()
+        await sendNextQueuedMessageIfReady()
         await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
     }
 
@@ -243,6 +251,13 @@ extension ChatScreenViewModel {
     }
 
     public func retryTranscriptLoad() {
+        if selectedSessionId == nil {
+            transcriptLoadError = nil
+            didLoadInitialData = false
+            isResolvingInitialConversation = true
+            loadInitialData()
+            return
+        }
         if !isEarlierPageLoadError, let agentID = selectedAgent?.id, let sessionID = selectedSessionId {
             isLoadingTranscript = true
             requestSessionHydration(agentId: agentID, sessionId: sessionID)
@@ -309,6 +324,7 @@ extension ChatScreenViewModel {
                 scheduleStreamingAssistantText(text, sessionId: sessionId, mode: .append)
             } else if let msg = update.message {
                 upsertMessage(msg, sessionId: sessionId)
+                acknowledgeSteeringSubmission(msg, agentId: agentId, sessionId: sessionId)
                 updateComputerUseActivity(from: msg)
             }
             if let runStatus = update.streamEvent?.runStatus {

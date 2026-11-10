@@ -670,7 +670,8 @@ extension CoreService {
             if activeSessionMessageRuns.contains(normalizedSessionID)
                 || (!longChatWorkerDelivery && sessionMessageStorage?.entries.contains(where: { $0.sessionId == normalizedSessionID && $0.state == .queued }) == true) {
                 return try enqueueSessionInboxMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID,
-                                                     request: effectiveRequest, origin: peerOrigin)
+                                                     request: effectiveRequest, origin: peerOrigin,
+                                                     steersActiveTurn: !systemDelivery && !longChatWorkerDelivery && peerOrigin == nil)
             }
             activeSessionMessageRuns.insert(normalizedSessionID)
         }
@@ -742,7 +743,11 @@ extension CoreService {
                     + (peerConversation ? "" : (await sessionGoalContext(agentID: normalizedAgentID, sessionID: normalizedSessionID))) + (peerConversation
                     ? "\n[Communication turn] The delegated task is closed. Discuss evidence only; do not change resources or call agent_delegate.finish."
                     : ""),
-                peerOrigin: peerOrigin
+                peerOrigin: peerOrigin,
+                shouldSteer: { [weak self] in
+                    guard !systemDelivery, !peerConversation, peerOrigin == nil else { return false }
+                    return await self?.hasQueuedSteeringMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID) == true
+                }
             )
             if !peerConversation { await reconcileLongChatWorker(agentID: normalizedAgentID, childID: normalizedSessionID) }
             let uid = effectiveRequest.userId.lowercased()
@@ -767,7 +772,7 @@ extension CoreService {
                     )
                 }
             }
-            if peerOrigin == nil {
+            if peerOrigin == nil, !response.yieldedToSteering {
                 maybeScheduleSelfImprovementProposalReviewAfterTurn(
                     agentID: normalizedAgentID,
                     sessionID: normalizedSessionID,
@@ -780,7 +785,9 @@ extension CoreService {
                         response: response, expectedGoalID: executingGoal.id)
                 }
             }
-            await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, response: response)
+            if !response.yieldedToSteering {
+                await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, response: response)
+            }
             return response
         } catch {
             throw mapSessionOrchestratorError(error)

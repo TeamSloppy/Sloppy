@@ -3124,9 +3124,9 @@ function AgentChatComposer({
           ? "Dictate message"
           : voiceInput.unavailableReason || "Voice input is not available";
   const hasComposeContent = String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || sourceControlDiffComposeTags.length > 0;
-  const canSend = !inputLocked && !approvalPolicy.busy && hasComposeContent
+  const canSend = !inputLocked && !isStopPending && !approvalPolicy.busy && hasComposeContent
     && (!workLayout || (!isRecording && voiceInput.state !== "transcribing"));
-  const isInputDisabled = isBusy || inputLocked;
+  const isInputDisabled = isStopPending || inputLocked;
   const [caretIndex, setCaretIndex] = useState(0);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
@@ -4148,19 +4148,20 @@ function AgentChatComposer({
                     stop
                   </span>
                 </button>
-              ) : (
+              ) : null}
+              {!isBusy || hasComposeContent ? (
                 <button
                   type="submit"
                   className="agent-chat-icon-button agent-chat-send-button"
                   data-testid="agent-chat-send"
                   disabled={!canSend}
-                  title="Send"
+                  title={isBusy ? "Steer agent" : "Send"}
                 >
                   <span className="material-symbols-rounded" aria-hidden="true">
                     arrow_upward
                   </span>
                 </button>
-              )}
+              ) : null}
             </div>
           </div>}
         </form>
@@ -6157,7 +6158,7 @@ export function AgentChatTab({
 
   async function handleSend(event) {
     event?.preventDefault?.();
-    if (isWorkerSession || isSending || approvalPolicy.busy || preparingMessage.current) { return; }
+    if (isWorkerSession || isStopping || approvalPolicy.busy || preparingMessage.current) { return; }
 
     const trimmed = String(inputText || "").trim();
     const tagMarkdown = sourceControlDiffComposeTags.map((t) => t.markdown).join("\n\n");
@@ -6202,6 +6203,7 @@ export function AgentChatTab({
       }
     }
 
+    const steering = sessionId === activeSessionId && (isActiveSessionBusy || runStateRef.current.sessionId === sessionId);
     const localMessageSegments = [];
     const previewLines = [];
     if (trimmed) {
@@ -6225,24 +6227,28 @@ export function AgentChatTab({
         }
       }))
     );
-    setOptimisticUserEvent({
-      id: `local-user-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      type: "message",
-      message: {
-        role: "user",
+    if (!steering) {
+      setOptimisticUserEvent({
+        id: `local-user-${Date.now()}`,
         createdAt: new Date().toISOString(),
-        segments: localMessageSegments
-      }
-    });
-    setOptimisticAssistantTextImmediate("");
-    setIsSending(true);
-    setStatusText("Thinking...");
+        type: "message",
+        message: {
+          role: "user",
+          createdAt: new Date().toISOString(),
+          segments: localMessageSegments
+        }
+      });
+      setOptimisticAssistantTextImmediate("");
+      setIsSending(true);
+      setStatusText("Thinking...");
+    }
     setInputText("");
     setSourceControlDiffComposeTags([]);
     setPendingFiles([]);
     setReplyTarget(null);
 
+    preparingMessage.current = true;
+    setIsPreparingMessage(true);
     let oversizedCount = 0;
     const uploads = await Promise.all(
       pendingFiles.map(async (file) => {
@@ -6276,6 +6282,43 @@ export function AgentChatTab({
       })
     );
 
+    const payload = {
+      userId: activeSession?.summary?.kind === "long_chat" ? "user" : "dashboard",
+      clientMessageId: crypto.randomUUID?.(),
+      content: contentForSend,
+      attachments: uploads,
+      spawnSubSession: false,
+      mode: modeForSend,
+      reasoningEffort: supportsReasoningEffort ? explicitReasoningEffort(reasoningEffort) : undefined,
+      selectedModel: selectedModel || undefined
+    };
+    preparingMessage.current = false;
+    setIsPreparingMessage(false);
+    if (steering) {
+      try {
+        const response = await postAgentSessionMessage(agentId, sessionId, payload);
+        if (!response) throw new Error("Message was not accepted");
+        if (activeSessionIdRef.current === sessionId) {
+          mergeSessionSummary(response.summary);
+          for (const event of Array.isArray(response.appendedEvents) ? response.appendedEvents : []) {
+            applyStreamEvent(response.summary, event);
+          }
+          setStatusText("Message sent.");
+        }
+      } catch {
+        if (activeSessionIdRef.current === sessionId) {
+          setInputText((current) => current || inputText);
+          setPendingFiles((current) => current.length ? current : pendingFiles);
+          setSourceControlDiffComposeTags((current) => current.length ? current : sourceControlDiffComposeTags);
+          setReplyTarget((current) => current || replyTarget);
+          setStatusText("Failed to send message.");
+        }
+      } finally {
+        composeInputRef.current?.focus();
+      }
+      return;
+    }
+
     runStateRef.current.sessionId = sessionId;
     runStateRef.current.abortController = new AbortController();
 
@@ -6283,15 +6326,7 @@ export function AgentChatTab({
       const response = await postAgentSessionMessage(
         agentId,
         sessionId,
-        {
-          userId: activeSession?.summary?.kind === "long_chat" ? "user" : "dashboard",
-          content: contentForSend,
-          attachments: uploads,
-          spawnSubSession: false,
-          mode: modeForSend,
-          reasoningEffort: supportsReasoningEffort ? explicitReasoningEffort(reasoningEffort) : undefined,
-          selectedModel: selectedModel || undefined
-        },
+        payload,
         { signal: runStateRef.current.abortController.signal }
       );
 

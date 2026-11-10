@@ -282,7 +282,7 @@ func fullAccessSandboxBypassesMissingDirectoryAccessApproval() async throws {
 func temporaryDirectoryBypassesMissingDirectoryAccessApproval() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(service: service, agentID: "approval-temp-directory")
-    let file = URL(fileURLWithPath: "/tmp", isDirectory: true)
+    let file = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-approval-\(UUID().uuidString)")
         .appendingPathComponent("fixture.txt")
         .standardizedFileURL
@@ -434,7 +434,9 @@ func riskyToolWaitsForApprovalBeforeExecution() async throws {
 
 @Test
 func toolApprovalPausesSessionAndMarksLinkedTaskWaitingInput() async throws {
-    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    var config = CoreConfig.test
+    config.defaultChatApprovalMode = .askForApproval
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let agentID = "approval-task-link"
     _ = try await service.createAgent(AgentCreateRequest(
         id: agentID,
@@ -712,7 +714,7 @@ func alwaysScopedDirectoryApprovalPersistsAcrossSessionsAndKeepsToolAndRootBound
     let saved = try await service.getAgentToolsPolicy(agentID: agentID)
     #expect(saved.approvalGrants.contains(where: { $0.tool == "files.read" && $0.resource == allowedDir.path }))
     #expect(saved.guardrails.allowedWriteRoots.contains(allowedDir.path) == false)
-    let nextSession = try await service.createAgentSession(agentID: agentID, request: AgentSessionCreateRequest(title: "Another chat"))
+    let nextSession = try await service.sessionStore.createSession(agentID: agentID, request: .init(title: "Another chat"))
     let next = await service.invokeToolFromRuntime(
         agentID: agentID, sessionID: nextSession.id,
         request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(file.path)]),
@@ -856,7 +858,7 @@ func subagentApprovalDisplaysOnParentSessionButScopesToChildSession() async thro
         displayName: agentID,
         role: "Tests delegated tool approvals"
     ))
-    let parent = try await service.createAgentSession(
+    let parent = try await service.sessionStore.createSession(
         agentID: agentID,
         request: AgentSessionCreateRequest(title: "Parent")
     )
@@ -1043,7 +1045,8 @@ private func makeApprovalSession(
         displayName: agentID,
         role: "Tests tool approvals"
     ))
-    return try await service.createAgentSession(
+    // These tests exercise the agent-level policy used by chats without a saved chat mode.
+    return try await service.sessionStore.createSession(
         agentID: agentID,
         request: AgentSessionCreateRequest(title: title)
     )

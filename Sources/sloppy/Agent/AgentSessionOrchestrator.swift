@@ -475,12 +475,16 @@ actor AgentSessionOrchestrator {
         additionalContext: String? = nil,
         responseMessageID: String? = nil,
         peerOrigin: AgentSessionPeerOrigin? = nil,
-        isWorkerNotification: Bool = false
+        isWorkerNotification: Bool = false,
+        shouldSteer: (@Sendable () async -> Bool)? = nil
     ) async throws -> AgentSessionMessageResponse {
         let effectiveRequest = Self.requestByApplyingOneShotModeCommand(request)
         let preResponseStartedAt = Date()
         do {
-            try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId)
+            try await ensureSessionContextLoaded(
+                agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId,
+                excludingMessageID: userMessageAlreadyPersisted ? effectiveRequest.clientMessageId : nil
+            )
         } catch {
             throw OrchestratorError.storageFailure
         }
@@ -752,12 +756,14 @@ actor AgentSessionOrchestrator {
                     content: content,
                     turnContext: turnContext,
                     attachmentNames: attachments.map(\.name)
-                )
+                ),
+                shouldSteer: shouldSteer
             )
             if isCoordinator {
                 for _ in 0..<2 {
                     guard !runtimeOutcome.wasInterrupted, runtimeOutcome.pausedInputRequestID == nil,
                           !runtimeOutcome.hitTurnLimit, runtimeOutcome.turnExitReason != .toolLoopDetected,
+                          runtimeOutcome.turnExitReason != .steered,
                           let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else { break }
                     let ledger = SessionActionLedger(events: Array(detail.events.dropFirst(coordinatorEventStart)))
                     let handoffRequired = (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .build || (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .debug
@@ -775,10 +781,11 @@ actor AgentSessionOrchestrator {
                         """,
                         selectedModel: selectedModel, reasoningEffort: reasoningEffort,
                         mode: runtimeOutcome.selectedAutoRouteMode ?? requestMode,
-                        publishResponseChunks: false)
+                        publishResponseChunks: false, shouldSteer: shouldSteer)
                     runtimeOutcome = Self.mergingCompletionRecovery(initial: runtimeOutcome, recovery: recovered, selectedMode: runtimeOutcome.selectedAutoRouteMode ?? requestMode)
                 }
                 if !runtimeOutcome.wasInterrupted, runtimeOutcome.pausedInputRequestID == nil,
+                   runtimeOutcome.turnExitReason != .steered,
                    let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) {
                     let currentLedger = SessionActionLedger(events: Array(detail.events.dropFirst(coordinatorEventStart)))
                     let handoffRequired = (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .build || (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .debug
@@ -829,7 +836,8 @@ actor AgentSessionOrchestrator {
                         ),
                         selectedModel: selectedModel,
                         reasoningEffort: reasoningEffort,
-                        mode: completionMode
+                        mode: completionMode,
+                        shouldSteer: shouldSteer
                     )
                     lastAttemptToolRounds = recoveryOutcome.toolRoundsUsed
                     runtimeOutcome = Self.mergingCompletionRecovery(
@@ -1016,6 +1024,7 @@ actor AgentSessionOrchestrator {
             let effectiveMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
             let shouldRecordPlanArtifact = effectiveMode == .plan &&
                 !runtimeOutcome.wasInterrupted &&
+                runtimeOutcome.turnExitReason != .steered &&
                 !runtimeOutcome.hitTurnLimit &&
                 ExecutionOutcomeClassifier.classify(reason: runtimeOutcome.turnExitReason).state == .completed
             if shouldRecordPlanArtifact,
@@ -1071,6 +1080,13 @@ actor AgentSessionOrchestrator {
                 stage: .interrupted,
                 label: "Interrupted",
                 details: "Response generation stopped.",
+                tokenUsage: runtimeOutcome.tokenUsage
+            )
+        } else if runtimeOutcome.turnExitReason == .steered {
+            completionStatus = AgentRunStatusEvent(
+                stage: .done,
+                label: "Steered",
+                details: "Continuing with the next user message.",
                 tokenUsage: runtimeOutcome.tokenUsage
             )
         } else if runtimeOutcome.turnExitReason == .toolLoopDetected {
@@ -1673,7 +1689,8 @@ actor AgentSessionOrchestrator {
         continuationMode: AgentChatMode? = nil,
         images: [Transcript.ImageSegment] = [],
         publishResponseChunks: Bool = true,
-        memoryQuery: String? = nil
+        memoryQuery: String? = nil,
+        shouldSteer: (@Sendable () async -> Bool)? = nil
     ) async -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         if mode == .auto, let continuationMode {
@@ -1971,6 +1988,11 @@ actor AgentSessionOrchestrator {
             nativeLoopConfig: nativeLoopConfig,
             nativeLoopOutcomeHandler: { outcome in
                 await nativeLoopOutcomeBox.set(outcome)
+            },
+            shouldYieldAtToolBoundary: { [weak self] in
+                guard let self, let shouldSteer,
+                      await self.canSteerSessionRun(channelID: channelID, runID: runID) else { return false }
+                return await shouldSteer()
             }
         )
 
@@ -1987,7 +2009,9 @@ actor AgentSessionOrchestrator {
         let didExplicitlyComplete = completedSessionRunChannels.contains(channelID)
         let completionRecord = sessionCompletionRecordByChannel[channelID]
         let wasInterrupted = interruptedSessionRunChannels.contains(channelID)
-        let assistantText = !streamedAssistantText.isEmpty
+        let assistantText = nativeLoopOutcome?.turnExitReason == .steered
+            ? streamedAssistantText
+            : !streamedAssistantText.isEmpty
             ? streamedAssistantText
             : (!assistantTextFromSnapshot.isEmpty
                 ? assistantTextFromSnapshot
@@ -2761,6 +2785,7 @@ actor AgentSessionOrchestrator {
             !outcome.wasInterrupted &&
             outcome.pausedInputRequestID == nil &&
             !outcome.hitTurnLimit &&
+            outcome.turnExitReason != .steered &&
             outcome.turnExitReason != .toolLoopDetected &&
             (outcome.maxToolRounds == 0 || outcome.toolRoundsUsed < outcome.maxToolRounds) &&
             ExecutionOutcomeClassifier.classify(reason: outcome.turnExitReason).state == .completed
@@ -2875,6 +2900,12 @@ actor AgentSessionOrchestrator {
         return !interruptedSessionRunChannels.contains(channelID)
     }
 
+    private func canSteerSessionRun(channelID: String, runID: UUID) -> Bool {
+        shouldContinueSessionRun(channelID: channelID, runID: runID)
+            && !completedSessionRunChannels.contains(channelID)
+            && pausedInputRequestByChannel[channelID] == nil
+    }
+
     private static func cancelledToolResult(tool: String) -> ToolInvocationResult {
         ToolInvocationResult(
             tool: tool,
@@ -2964,7 +2995,8 @@ actor AgentSessionOrchestrator {
         agentID: String,
         sessionID: String,
         recoverySourceSessionID explicitRecoverySourceSessionID: String? = nil,
-        userID: String? = nil
+        userID: String? = nil,
+        excludingMessageID: String? = nil
     ) async throws {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         let shouldRefreshBootstrap = channelsRequiringBootstrapRefresh.contains(channelID)
@@ -2977,7 +3009,8 @@ actor AgentSessionOrchestrator {
                 sessionDetail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
             }
         }
-        let pendingIDs = await pendingMessageIDsProvider?(agentID, sessionID) ?? []
+        var pendingIDs = await pendingMessageIDsProvider?(agentID, sessionID) ?? []
+        if let excludingMessageID { pendingIDs.insert(excludingMessageID) }
         sessionDetail?.events.removeAll { event in
             event.message.map { pendingIDs.contains($0.id) } ?? false
         }

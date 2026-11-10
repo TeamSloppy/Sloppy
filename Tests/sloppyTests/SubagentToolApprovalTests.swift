@@ -95,7 +95,8 @@ struct SubagentToolApprovalTests {
         defer { Task { await service.stop() } }
         let worker = try await service.prepareApprovalWorker(readOnly: true)
         await service.setSessionToolApprovalBypass(sessionID: worker.childID, enabled: true)
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            .appendingPathComponent(".build/worker-approval-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var request = echoRequest("directory")
@@ -245,7 +246,11 @@ private extension CoreService {
     ) async throws -> ApprovalTestWorker {
         let agentID = "approval-worker"
         _ = try await createAgent(.init(id: agentID, displayName: "Worker", role: "Test"))
-        let parent = try await openLongChat(agentID: agentID, userID: "user")
+        // Exercise legacy conversation approvals without a saved chat mode.
+        let parent = try sessionStore.createSession(agentID: agentID, request: .init(kind: .longChat))
+        try longChats().transaction {
+            $0.conversations.append(.init(agentId: agentID, userId: "user", sessionId: parent.id, assignments: []))
+        }
         let source = AgentSessionMessage(id: "source", role: notificationSource ? .system : .user,
                                         segments: [.init(kind: .text, text: userRequest)])
         _ = try sessionStore.appendEvents(agentID: agentID, sessionID: parent.id, events: [

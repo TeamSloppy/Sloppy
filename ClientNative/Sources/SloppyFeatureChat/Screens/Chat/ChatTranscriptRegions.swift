@@ -50,15 +50,30 @@ struct ChatTranscriptRegion: View {
     }
 }
 
+enum ChatConversationLoadState: Equatable {
+    case loading, refreshing, content, empty
+    case failed(String)
+}
+
 @MainActor
 struct ChatTranscriptLoadingView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.theme) private var theme
 
     var body: some View {
-        ProgressView()
-        .controlSize(.small)
+        VStack(spacing: 20) {
+            Text("sloppy.")
+                .font(.system(size: 40, weight: .heavy))
+                .tracking(-1.65)
+                .foregroundStyle(theme.colors.textPrimary)
+            HStack(spacing: 10) {
+                if !reduceMotion { ProgressView().controlSize(.small) }
+                Text("Loading messages…").font(.callout).foregroundStyle(theme.colors.textMuted)
+            }
+        }
+        .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityLabel("Loading conversation")
+        .accessibilityLabel("Loading messages…")
         .accessibilityIdentifier("chat.transcript.loading")
     }
 }

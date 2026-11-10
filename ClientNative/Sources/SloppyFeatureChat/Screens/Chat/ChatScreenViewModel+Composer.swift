@@ -44,15 +44,29 @@ extension ChatScreenViewModel {
         guard let query = ChatComposerQuery.parse(text, cursorOffset: cursorOffset),
               let agent = selectedAgent else {
             setComposerSuggestions([])
+            composerSuggestionState = .hidden
             return
         }
+        let scope = composerCatalogScope
+        let projectID = activeProjectId
+        let key = scope + "|" + String(query.trigger) + query.term
+        setComposerSuggestions(composerResultCache.cached(key) ?? localComposerSuggestions(query: query, agentId: agent.id, scope: scope))
+        composerSuggestionState = .loading
 
         suggestionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let suggestions = await loadComposerSuggestions(query: query, agentId: agent.id)
-            guard !Task.isCancelled, composerSuggestionRequestID == requestID else { return }
-            registerComposerReferences(suggestions.compactMap(\.reference))
-            setComposerSuggestions(suggestions)
+            do {
+                let suggestions = try await composerResultCache.load(key) { [self] in
+                    try await loadComposerSuggestions(query: query, agentId: agent.id, projectId: projectID, scope: scope)
+                }
+                guard !Task.isCancelled, composerSuggestionRequestID == requestID, composerCatalogScope == scope else { return }
+                registerComposerReferences(suggestions.compactMap(\.reference))
+                setComposerSuggestions(suggestions)
+                composerSuggestionState = .ready
+            } catch {
+                guard !Task.isCancelled, composerSuggestionRequestID == requestID, composerCatalogScope == scope else { return }
+                composerSuggestionState = .failed(error.localizedDescription)
+            }
         }
     }
 
@@ -83,7 +97,29 @@ extension ChatScreenViewModel {
             offsetBy: application.cursorOffset
         )
         composerDraft.selection = TextSelection(insertionPoint: insertionPoint)
+        suggestionTask?.cancel()
+        composerSuggestionRequestID &+= 1
         setComposerSuggestions([])
+        composerSuggestionState = .hidden
+    }
+
+    func retryComposerSuggestions() {
+        composerResultCache.invalidate()
+        composerCommandCache.invalidate()
+        updateComposerSuggestions(for: composerDraft.text, cursorOffset: composerSuggestionCursorOffset)
+    }
+
+    func preloadComposerCatalog() async {
+        guard let agentID = selectedAgent?.id else { return }
+        _ = try? await cachedComposerCommands(agentId: agentID, scope: composerCatalogScope)
+    }
+
+    private func cachedComposerCommands(agentId: String, scope: String) async throws -> [AgentChatSlashCommandItem] {
+        let key = scope
+        let client = apiClient
+        return try await composerCommandCache.load(key) {
+            try await client.fetchChatSlashCommands(agentId: agentId).commands
+        }
     }
 
     private func setComposerSuggestions(_ suggestions: [ChatComposerSuggestion]) {
@@ -91,25 +127,38 @@ extension ChatScreenViewModel {
         composerSuggestionSelection.reconcile(with: suggestions)
     }
 
-    private func loadComposerSuggestions(query: ChatComposerQuery, agentId: String) async -> [ChatComposerSuggestion] {
+    private func localComposerSuggestions(query: ChatComposerQuery, agentId: String, scope: String) -> [ChatComposerSuggestion] {
+        let commands = composerCommandCache.cached(scope) ?? []
+        if query.trigger == "/" {
+            return filterCommands(commands, query: query.term, skillsOnly: false, agentId: agentId)
+        }
+        guard query.trigger == "@" else { return [] }
+        let summaries = ChatSessionCatalog.merge([sessionCatalog, sessions])
+            .filter { matches(query.term, in: $0.title) || matches(query.term, in: $0.id) }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(8).map(ChatComposerSuggestion.session)
+        return Array(summaries) + filterCommands(commands, query: query.term, skillsOnly: true, agentId: agentId)
+    }
+
+    private func loadComposerSuggestions(query: ChatComposerQuery, agentId: String, projectId: String?, scope: String) async throws -> [ChatComposerSuggestion] {
         switch query.trigger {
         case "/":
-            let response = try? await apiClient.fetchChatSlashCommands(agentId: agentId)
-            return filterCommands(response?.commands ?? [], query: query.term, skillsOnly: false, agentId: agentId)
+            let commands = try await cachedComposerCommands(agentId: agentId, scope: scope)
+            return filterCommands(commands, query: query.term, skillsOnly: false, agentId: agentId)
         case "@":
-            async let commands = try? await apiClient.fetchChatSlashCommands(agentId: agentId)
-            async let files = loadProjectFiles(matching: query.term, projectId: activeProjectId)
-            async let sessionResults = try? apiClient.fetchSessionMentions(query: query.term)
-            let skillItems = filterCommands((await commands)?.commands ?? [], query: query.term, skillsOnly: true, agentId: agentId)
-            let sessionItems = ((await sessionResults) ?? []).sorted { lhs, rhs in
-                let lhsLocal = lhs.projectId == activeProjectId
-                let rhsLocal = rhs.projectId == activeProjectId
+            async let commands = cachedComposerCommands(agentId: agentId, scope: scope)
+            async let files = loadProjectFiles(matching: query.term, projectId: projectId)
+            async let sessionResults = apiClient.fetchSessionMentions(query: query.term)
+            let skillItems = filterCommands(try await commands, query: query.term, skillsOnly: true, agentId: agentId)
+            let sessionItems = (try await sessionResults).sorted { lhs, rhs in
+                let lhsLocal = lhs.projectId == projectId
+                let rhsLocal = rhs.projectId == projectId
                 return lhsLocal == rhsLocal ? lhs.updatedAt > rhs.updatedAt : lhsLocal
             }.prefix(8).map(ChatComposerSuggestion.session)
-            return Array(sessionItems) + Array((await files).prefix(6)) + Array(skillItems.prefix(4))
+            return Array(sessionItems) + Array((try await files).prefix(6)) + Array(skillItems.prefix(4))
         case "#":
-            guard let projectId = activeProjectId,
-                  let project = try? await apiClient.fetchProject(id: projectId) else { return [] }
+            guard let projectId else { return [] }
+            let project = try await apiClient.fetchProject(id: projectId)
             return (project.tasks ?? [])
                 .filter { matches(query.term, in: $0.title) || matches(query.term, in: $0.id) }
                 .prefix(12)
@@ -155,7 +204,7 @@ extension ChatScreenViewModel {
     private func loadProjectFiles(
         matching query: String,
         projectId: String?
-    ) async -> [ChatComposerSuggestion] {
+    ) async throws -> [ChatComposerSuggestion] {
         guard let projectId else { return [] }
 
         do {
@@ -165,18 +214,16 @@ extension ChatScreenViewModel {
                 limit: 50
             )
             .filter { $0.type == .file }
-            .map { projectFileSuggestion(path: $0.path) }
+            .map { projectFileSuggestion(path: $0.path, projectId: projectId) }
         } catch let error as APIError where error.statusCode == 404 {
-            return await loadProjectFilesByWalking(matching: query, projectId: projectId)
-        } catch {
-            return []
+            return try await loadProjectFilesByWalking(matching: query, projectId: projectId)
         }
     }
 
     private func loadProjectFilesByWalking(
         matching query: String,
         projectId: String
-    ) async -> [ChatComposerSuggestion] {
+    ) async throws -> [ChatComposerSuggestion] {
         var pending = [""]
         var results: [ChatComposerSuggestion] = []
         var visitedDirectoryCount = 0
@@ -185,13 +232,13 @@ extension ChatScreenViewModel {
               visitedDirectoryCount < 500,
               !Task.isCancelled {
             visitedDirectoryCount += 1
-            guard let entries = try? await apiClient.fetchProjectFiles(projectId: projectId, path: directory) else { continue }
+            let entries = try await apiClient.fetchProjectFiles(projectId: projectId, path: directory)
             for entry in entries {
                 let path = directory.isEmpty ? entry.name : "\(directory)/\(entry.name)"
                 if entry.type == .directory {
                     pending.append(path)
                 } else if matches(query, in: path) {
-                    results.append(projectFileSuggestion(path: path))
+                    results.append(projectFileSuggestion(path: path, projectId: projectId))
                     if results.count == 12 { break }
                 }
             }
@@ -199,17 +246,15 @@ extension ChatScreenViewModel {
         return results
     }
 
-    private func projectFileSuggestion(path: String) -> ChatComposerSuggestion {
+    private func projectFileSuggestion(path: String, projectId: String) -> ChatComposerSuggestion {
         ChatComposerSuggestion(
             id: "file:\(path)",
             kind: .file,
             title: path,
             subtitle: "Project file",
             insertion: "@\(path)",
-            reference: activeProjectId.map {
-                .init(rawText: "@\(path)", title: URL(fileURLWithPath: path).lastPathComponent,
-                      detail: path, target: .file(projectId: $0, path: path))
-            }
+            reference: .init(rawText: "@\(path)", title: URL(fileURLWithPath: path).lastPathComponent,
+                      detail: path, target: .file(projectId: projectId, path: path))
         )
     }
 

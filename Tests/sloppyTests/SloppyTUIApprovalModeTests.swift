@@ -121,15 +121,18 @@ struct SloppyTUIApprovalModeTests {
         await screen.selectApprovalMode(.approveForMe)
         let workspace = await fixture.service.workspaceRootURL
         let policyURL = workspace.appendingPathComponent("session-approval-policies.json")
+        let savedPolicies = try Data(contentsOf: policyURL)
+        try FileManager.default.removeItem(at: policyURL)
         try FileManager.default.createDirectory(at: policyURL, withIntermediateDirectories: true)
         do {
             _ = try await screen.ensurePersistedSessionForMessage()
             Issue.record("The first message must not proceed when its approval policy cannot be saved")
         } catch {}
-        #expect(screen.pendingApprovalModes[screen.approvalModeKey] == .approveForMe)
+        #expect(!screen.hasPersistedSession)
         try FileManager.default.removeItem(at: policyURL)
+        try savedPolicies.write(to: policyURL, options: .atomic)
         let createdAgain = try await screen.ensurePersistedSessionForMessage()
-        #expect(!createdAgain)
+        #expect(createdAgain)
         #expect(screen.pendingApprovalModes.isEmpty)
         #expect(try await fixture.service.getSessionApprovalPolicy(agentID: screen.agent.id, sessionID: screen.session.id).mode == .approveForMe)
     }
@@ -146,6 +149,7 @@ private struct ApprovalFixture {
     static func make() async throws -> Self {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("sloppy-approvals-\(UUID().uuidString)")
         var config = CoreConfig.test
+        config.defaultChatApprovalMode = .askForApproval
         config.workspace = .init(name: "workspace", basePath: root.path)
         let service = CoreService(config: config, configPath: root.appendingPathComponent("sloppy.json").path,
                                   currentDirectory: root.path, persistenceBuilder: InMemoryCorePersistenceBuilder())

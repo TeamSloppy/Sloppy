@@ -271,7 +271,8 @@ struct ToolPathResolutionTests {
 
     @Test("invokeToolFromRuntime rejects cwd outside workspace when no extra roots registered")
     func invokeToolRejectsCwdWithoutExtraRoots() async throws {
-        let config = CoreConfig.test
+        var config = CoreConfig.test
+        config.defaultChatApprovalMode = .askForApproval
         let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.setToolApprovalPresenter { _ in .reject }
         let router = CoreRouter(service: service)
@@ -292,8 +293,8 @@ struct ToolPathResolutionTests {
         let sessionSummary = try decoder.decode(AgentSessionSummary.self, from: sessionResp.body)
         let sessionID = sessionSummary.id
 
-        let tmp = FileManager.default.temporaryDirectory
-        let outsidePath = tmp.appendingPathComponent("outside-\(UUID().uuidString)").path
+        let outsidePath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            .appendingPathComponent(".build/outside-\(UUID().uuidString)").path
 
         let result = await service.invokeToolFromRuntime(
             agentID: agentID,

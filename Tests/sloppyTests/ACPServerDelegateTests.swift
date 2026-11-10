@@ -282,6 +282,8 @@ func sloppyACPServerRequestsRiskyToolPermissionFromClient() async throws {
     }
     let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
 
+    _ = try await service.setSessionApprovalPolicy(
+        agentID: "dev", sessionID: created.sessionId.value, policy: .init(mode: .askForApproval))
     let result = await service.invokeToolFromRuntime(
         agentID: "dev",
         sessionID: created.sessionId.value,

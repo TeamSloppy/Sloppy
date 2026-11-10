@@ -71,6 +71,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private let emptyArgumentsAllowedTools: Set<String>
     private let executedToolCallHandler: (@Sendable (Transcript.ToolCall, Transcript.ToolOutput) async -> Void)?
     private let malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)?
+    private let shouldYieldAtBoundary: (@Sendable () async -> Bool)?
     private let concurrencySafeTools: Set<String>
     private let preparedDecisionStore = PreparedDecisionStore()
 
@@ -83,6 +84,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)? = nil,
         malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)? = nil,
         executedToolCallHandler: (@Sendable (Transcript.ToolCall, Transcript.ToolOutput) async -> Void)? = nil,
+        shouldYieldAtBoundary: (@Sendable () async -> Bool)? = nil,
         toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
     ) {
         self.toolNameMap = toolNameMap
@@ -93,6 +95,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         self.argumentDiagnosticsHandler = argumentDiagnosticsHandler
         self.malformedArgumentsHandler = malformedArgumentsHandler
         self.executedToolCallHandler = executedToolCallHandler
+        self.shouldYieldAtBoundary = shouldYieldAtBoundary
         self.toolCallHandler = toolCallHandler
     }
 
@@ -159,6 +162,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         if let override = await toolCallDecisionOverride?(toolCall) {
             return override
         }
+        if await yieldToUserMessage() { return .stop }
         let toolName = toolNameMap[toolCall.toolName] ?? toolCall.toolName
         let conversion = await jsonArguments(from: toolCall, toolName: toolName)
         if conversion.diagnostics.usedEmptyArgumentsFallback {
@@ -190,7 +194,14 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
             await preparedDecisionStore.stop()
             return .stop
         }
+        if await yieldToUserMessage() { return .stop }
         return .provideOutput([.text(.init(content: encodedResult(result)))])
+    }
+
+    private func yieldToUserMessage() async -> Bool {
+        guard await shouldYieldAtBoundary?() == true else { return false }
+        await preparedDecisionStore.stop()
+        return true
     }
 
     private func jsonArguments(from toolCall: Transcript.ToolCall, toolName: String) async -> ArgumentConversion {

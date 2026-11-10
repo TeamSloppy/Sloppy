@@ -73,17 +73,22 @@ public struct ChatComposerOverlay: View {
         .task(id: ObjectIdentifier(viewModel)) {
             viewModel.requestComposerFocus()
         }
+        .task(id: viewModel.composerCatalogScope) {
+            await viewModel.preloadComposerCatalog()
+        }
     }
 
     @ViewBuilder
     private var composerBar: some View {
 #if os(macOS)
         VStack(spacing: theme.spacing.s) {
-            if !viewModel.isWorkerSession, !viewModel.composerSuggestions.isEmpty {
+            if !viewModel.isWorkerSession, viewModel.composerSuggestionState != .hidden || !viewModel.composerSuggestions.isEmpty {
                 ComposerSuggestionsView(
                     suggestions: viewModel.composerSuggestions,
                     selectedSuggestionID: viewModel.composerSuggestionSelection.selectedID,
-                    select: viewModel.applyComposerSuggestion
+                    select: viewModel.applyComposerSuggestion,
+                    loadState: viewModel.composerSuggestionState,
+                    retry: viewModel.retryComposerSuggestions
                 )
                 .frame(maxWidth: maximumComposerWidth)
                 .disabled(viewModel.activeInputRequest != nil)

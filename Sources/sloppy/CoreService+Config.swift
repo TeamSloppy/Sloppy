@@ -191,10 +191,13 @@ extension CoreService {
             )
         }
 
-        return currentConfig
+        return getConfig()
     }
+
     public func getConfig() -> CoreConfig {
-        currentConfig
+        var config = currentConfig
+        config.defaultChatApprovalMode = config.effectiveDefaultChatApprovalMode
+        return config
     }
 
     public func runWorkspaceGitSyncNow() async throws -> WorkspaceGitSyncResponse {

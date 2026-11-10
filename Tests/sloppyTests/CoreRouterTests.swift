@@ -4232,7 +4232,8 @@ func agentToolsUpdateRejectsInvalidSchemaVersion() async throws {
 
 @Test
 func invokeToolEndpointRespectsPolicy() async throws {
-    let config = CoreConfig.test
+    var config = CoreConfig.test
+    config.defaultChatApprovalMode = .askForApproval
     let service = CoreService(config: config)
     await service.setToolApprovalPresenter { _ in .reject }
     let router = CoreRouter(service: service)

@@ -6,14 +6,17 @@ import Testing
 
 @Suite("Worker approval inheritance")
 struct WorkerApprovalInheritanceTests {
-    @Test(arguments: [SessionApprovalMode.askForApproval, .approveForMe, .fullAccess])
-    func runtimeWorkerInheritsCallingChat(mode: SessionApprovalMode) async throws {
+    @Test(arguments: [nil, .askForApproval, .approveForMe] as [SessionApprovalMode?])
+    func runtimeWorkerInheritsCallingChat(override: SessionApprovalMode?) async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
         defer { Task { await service.stop() } }
         let agentID = "worker-inheritance"
         _ = try await service.createAgent(.init(id: agentID, displayName: "Worker", role: "Test"))
         let parent = try await service.createAgentSession(agentID: agentID, request: .init())
-        _ = try await service.setSessionApprovalPolicy(agentID: agentID, sessionID: parent.id, policy: .init(mode: mode))
+        if let override {
+            _ = try await service.setSessionApprovalPolicy(agentID: agentID, sessionID: parent.id, policy: .init(mode: override))
+        }
+        let mode = override ?? .fullAccess
         let taskID = UUID().uuidString
         _ = await service.runtime.createWorker(spec: .init(
             taskId: taskID, channelId: sessionChannelID(agentID: agentID, sessionID: parent.id),

@@ -10,6 +10,9 @@ extension StructuredText {
       self.content = content
     }
 
+    /// Plain rendered code, without Markdown fences.
+    public var plainText: String { String(content.characters) }
+
     /// Copies the code block contents to the system pasteboard.
     ///
     /// Textual writes both a plain-text and an HTML representation when possible.

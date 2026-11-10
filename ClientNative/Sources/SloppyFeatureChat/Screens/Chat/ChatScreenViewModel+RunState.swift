@@ -47,7 +47,7 @@ extension ChatScreenViewModel {
                 )
             }
             refreshWorkingTreeSourceControl()
-            if status.stage == .done, let completedMessageId {
+            if status.stage == .done, status.diagnostics?.turnExitReason != "steered", let completedMessageId {
                 scheduleResponseCompletionNotification(
                     sessionId: sessionId,
                     messageId: completedMessageId
@@ -58,7 +58,7 @@ extension ChatScreenViewModel {
                     Task { @MainActor in
                         await refreshPendingToolApproval(agentId: agentId, sessionId: sessionId)
                         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
-                        await sendNextQueuedMessageIfIdle()
+                        await sendNextQueuedMessageIfReady()
                     }
                 }
             } else {
@@ -66,7 +66,7 @@ extension ChatScreenViewModel {
                 if let agentId = selectedAgent?.id {
                     Task { @MainActor in
                         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
-                        await sendNextQueuedMessageIfIdle()
+                        await sendNextQueuedMessageIfReady()
                     }
                 }
             }
@@ -82,7 +82,7 @@ extension ChatScreenViewModel {
                 guard !Task.isCancelled, isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
                 Task { @MainActor in
                     guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
-                    await sendNextQueuedMessageIfIdle()
+                    await sendNextQueuedMessageIfReady()
                 }
             }
         }

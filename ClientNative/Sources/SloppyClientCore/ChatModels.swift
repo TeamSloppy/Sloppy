@@ -911,6 +911,10 @@ public enum ChatRunStage: String, Codable, Sendable {
 }
 
 public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
+    public struct Diagnostics: Codable, Sendable, Equatable {
+        public let turnExitReason: String?
+    }
+
     public var stage: ChatRunStage
     public var label: String
     public var details: String?
@@ -918,6 +922,7 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
     public var tokenUsage: ChatTokenUsage?
     public var selectedModel: String?
     public var createdAt: Date?
+    public var diagnostics: Diagnostics?
 
     public init(
         stage: ChatRunStage,

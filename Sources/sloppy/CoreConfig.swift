@@ -2329,6 +2329,7 @@ public struct CoreConfig: Codable, Sendable {
     public var opencode: OpenCode
     public var disableModelInference: Bool
     public var defaultChatApprovalMode: SessionApprovalMode?
+    var effectiveDefaultChatApprovalMode: SessionApprovalMode { defaultChatApprovalMode ?? .fullAccess }
     public var sessionRetention: SessionRetention
     public var agentRuntimeContext: AgentRuntimeContextConfig
     public var memory: Memory

@@ -318,7 +318,6 @@ targets:
       path: SupportingFiles/iOS/SloppyClient-iOS.entitlements
       properties:
         com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)team.sloppy.client
-        com.apple.developer.web-browser: true
         com.apple.security.app-sandbox: false
         aps-environment: development
     settings:

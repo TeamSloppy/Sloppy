@@ -299,7 +299,7 @@ struct SessionApprovalPolicyTests {
         let child = try await service.createAgentSession(agentID: "policy-test", request: .init(parentSessionId: parent.id))
         let other = try await service.createAgentSession(agentID: "policy-test", request: .init())
         #expect(await service.sessionApprovalMode(agentID: "policy-test", sessionID: child.id) == .approveForMe)
-        #expect(await service.sessionApprovalMode(agentID: "policy-test", sessionID: other.id) == nil)
+        #expect(await service.sessionApprovalMode(agentID: "policy-test", sessionID: other.id) == .fullAccess)
         _ = try await service.setSessionApprovalPolicy(agentID: "policy-test", sessionID: child.id, policy: .init(mode: .askForApproval))
         #expect(try await service.getSessionApprovalPolicy(agentID: "policy-test", sessionID: child.id).mode == .askForApproval)
         #expect(try await service.getSessionApprovalPolicy(agentID: "policy-test", sessionID: parent.id).mode == .approveForMe)

@@ -25,7 +25,7 @@ public struct NotchChatView: View {
     public var body: some View {
         VStack(spacing: 8) {
             GeometryReader { geometry in
-                if viewModel.isLoadingTranscript && viewModel.transcript.isEmpty {
+                if viewModel.conversationLoadState == .loading {
                     ProgressView("Loading chat…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if viewModel.transcript.isEmpty && viewModel.activeInputRequest == nil {
@@ -130,8 +130,8 @@ public struct NotchChatView: View {
             .buttonStyle(.plain)
             .disabled(draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                       || viewModel.selectedAgent == nil || viewModel.activeInputRequest != nil)
-            .help(viewModel.willQueueMessage ? "Queue message after current turn" : "Send message")
-            .accessibilityLabel(viewModel.willQueueMessage ? "Queue message after current turn" : "Send message")
+            .help(viewModel.messageSendLabel)
+            .accessibilityLabel(viewModel.messageSendLabel)
             .accessibilityIdentifier("notch.chat.send")
         }
         .padding(8)

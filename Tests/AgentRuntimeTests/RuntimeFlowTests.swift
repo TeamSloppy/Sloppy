@@ -1131,6 +1131,38 @@ func respondInlineStopsBeforeExecutingToolsWhenToolRoundLimitIsReached() async t
 }
 
 @Test(arguments: [false, true])
+func respondInlineYieldsToSteeringAtToolBoundary(messageArrivesDuringTool: Bool) async throws {
+    let provider = NativeToolSequenceModelProvider(
+        toolNames: ["files.list", "files.list"],
+        finalText: "The original turn should not continue."
+    )
+    let counter = ToolInvocationCounter()
+    let capture = NativeLoopOutcomeCapture()
+    let system = RuntimeSystem(modelProvider: provider)
+    let channelID = "steering-boundary"
+
+    _ = await system.postMessage(
+        channelId: channelID,
+        request: .init(userId: "test", content: "Inspect the project"),
+        toolInvoker: { request in
+            await counter.increment(tool: request.tool)
+            return .init(tool: request.tool, ok: true)
+        },
+        nativeLoopOutcomeHandler: { await capture.store($0) },
+        shouldYieldAtToolBoundary: {
+            guard messageArrivesDuringTool else { return true }
+            return await counter.value() > 0
+        }
+    )
+
+    let outcome = try #require(await capture.value())
+    #expect(outcome.turnExitReason == .steered)
+    #expect(await counter.value() == (messageArrivesDuringTool ? 1 : 0))
+    #expect(await !system.hasCachedChannelSession(channelId: channelID))
+    #expect(await system.channelState(channelId: channelID)?.messages.contains(where: { $0.userId == "system" }) == false)
+}
+
+@Test(arguments: [false, true])
 func respondInlineStopsToolLoopWithoutEmptyResponseRetry(failStreaming: Bool) async throws {
     let provider = NativeToolSequenceModelProvider(
         toolNames: ["memory.save", "memory.save", "memory.save"],

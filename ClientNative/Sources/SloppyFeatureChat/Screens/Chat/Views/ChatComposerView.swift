@@ -559,7 +559,7 @@ public struct ChatComposerView: View {
     private var trailingActionLabel: String {
         if !trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty
             || !viewModel.composerQuotes.isEmpty {
-            return viewModel.willQueueMessage ? "Queue message after current turn" : "Send message"
+            return viewModel.messageSendLabel
         }
         return viewModel.shouldShowStopButton ? "Stop agent" : "Start dictation"
     }

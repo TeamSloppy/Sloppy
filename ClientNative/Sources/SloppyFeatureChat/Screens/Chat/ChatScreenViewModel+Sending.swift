@@ -48,12 +48,12 @@ extension ChatScreenViewModel {
         if willQueueMessage {
             enqueueMessage(content: content, attachments: attachments, quotes: quotes)
             Task { @MainActor in
-                await sendNextQueuedMessageIfIdle()
+                await sendNextQueuedMessageIfReady()
             }
             return true
         }
 
-        sendMessageImmediately(content: content, attachments: attachments, quotes: quotes, agent: agent)
+        sendMessageImmediately(content: content, attachments: attachments, quotes: quotes, agent: agent, steering: canSteerActiveRun)
         return true
     }
 
@@ -79,7 +79,8 @@ extension ChatScreenViewModel {
         agent: APIAgentRecord,
         clearsComposer: Bool = true,
         references: [ChatComposerReference]? = nil,
-        restoresComposerOnFailure: Bool = true
+        restoresComposerOnFailure: Bool = true,
+        steering: Bool = false
     ) {
         let references = references ?? composerDraft.references
         let messageContent = ChatComposerQuote.messageContent(content, quotes: quotes, attachments: attachments)
@@ -87,11 +88,13 @@ extension ChatScreenViewModel {
         clearWorkingTreeSourceControl()
         if clearsComposer { clearActiveComposerDraft() }
         streamStateRevision &+= 1
-        isSending = true
-        isAwaitingAgentResponse = true
-        activeRunStatus = nil
-        Task { @MainActor [responseNotificationScheduler] in
-            await responseNotificationScheduler.prepareAuthorization()
+        if !steering {
+            isSending = true
+            isAwaitingAgentResponse = true
+            activeRunStatus = nil
+            Task { @MainActor [responseNotificationScheduler] in
+                await responseNotificationScheduler.prepareAuthorization()
+            }
         }
         var optimisticSegments: [ChatMessageSegment] = []
         if !messageContent.isEmpty {
@@ -110,7 +113,11 @@ extension ChatScreenViewModel {
             segments: optimisticSegments
         )
         if let sessionId = selectedSessionId {
-            beginStreamingAssistantTurn(for: sessionId)
+            if steering {
+                steeringSubmissions[deliveryKey(agentId: agent.id, sessionId: sessionId)] = optimistic.id
+            } else {
+                beginStreamingAssistantTurn(for: sessionId)
+            }
         }
         transcript.append(optimistic)
 
@@ -212,7 +219,7 @@ extension ChatScreenViewModel {
                 agentId: agent.id,
                 sessionId: sessionId,
                 optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references,
-                restoresComposerOnFailure: restoresComposerOnFailure
+                restoresComposerOnFailure: restoresComposerOnFailure, steering: steering
             )
         }
     }
@@ -289,23 +296,25 @@ extension ChatScreenViewModel {
         selectedModel: String?,
         reasoningEffort: String?,
         references: [ChatComposerReference] = [],
-        restoresComposerOnFailure: Bool = true
+        restoresComposerOnFailure: Bool = true,
+        steering: Bool = false
     ) async {
         let key = deliveryKey(agentId: agentId, sessionId: sessionId)
         defer {
+            if steering, steeringSubmissions[key] == optimistic.id { steeringSubmissions[key] = nil }
             if isCurrentSession(agentId: agentId, sessionId: sessionId) {
-                isSending = false
+                if !steering { isSending = false }
                 Task { @MainActor in
                     guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
-                    await sendNextQueuedMessageIfIdle()
+                    await sendNextQueuedMessageIfReady()
                 }
             } else {
-                suspendedDeliveries[key]?.isSending = false
+                if !steering { suspendedDeliveries[key]?.isSending = false }
                 drainBackgroundQueue(agentId: agentId, sessionId: sessionId)
             }
         }
         do {
-            if let mode = approvalModesBySession[key] {
+            if !steering, let mode = approvalModesBySession[key] {
                 try await apiClient.setChatApprovalPolicy(agentId: agentId, sessionId: sessionId, mode: mode)
             }
             let receipt = try await apiClient.postSessionMessageWithReceipt(
@@ -322,7 +331,9 @@ extension ChatScreenViewModel {
                 if let persisted {
                     transcript.acknowledgeUserMessage(persisted, optimisticID: optimistic.id)
                 }
-                await hydrateSession(agentId: agentId, sessionId: sessionId)
+                if !steering || persisted == nil || receipt.appendedEvents.contains(where: { $0.runStatus != nil }) {
+                    await hydrateSession(agentId: agentId, sessionId: sessionId)
+                }
             } else {
                 if persisted != nil {
                     suspendedDeliveries[key]?.optimisticMessages.removeAll { $0.id == optimistic.id }
@@ -343,22 +354,36 @@ extension ChatScreenViewModel {
                 after: error, optimisticMessageIsPresent: isPresent
             ) else { return }
             let errorMessage = "Message was not sent: \(error.localizedDescription)"
+            let draftKey = "session:\(sessionId)"
+            var draft = StoredComposerDraft(text: draftContent, attachments: attachments, quotes: quotes, references: references)
+            if steering, restoresComposerOnFailure {
+                let laterDraft = isCurrent
+                    ? StoredComposerDraft(text: composerDraft.text, attachments: composerAttachments,
+                                          quotes: composerQuotes, references: composerDraft.references)
+                    : composerDraftsByKey[draftKey]
+                if let laterDraft {
+                    draft.text = [draft.text, laterDraft.text].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                    draft.attachments += laterDraft.attachments
+                    draft.quotes += laterDraft.quotes
+                    draft.references += laterDraft.references
+                }
+            }
             if isCurrent {
                 transcript.removeAll { $0.id == optimistic.id }
-                isAwaitingAgentResponse = false
-                activeRunStatus = nil
+                if !steering {
+                    isAwaitingAgentResponse = false
+                    activeRunStatus = nil
+                }
                 if restoresComposerOnFailure {
-                    restoreComposerDraft(content: draftContent, attachments: attachments, quotes: quotes, references: references)
+                    restoreComposerDraft(content: draft.text, attachments: draft.attachments, quotes: draft.quotes, references: draft.references)
                 }
                 sendErrorMessage = errorMessage
             } else {
                 suspendedDeliveries[key]?.optimisticMessages.removeAll { $0.id == optimistic.id }
-                suspendedDeliveries[key]?.isAwaitingResponse = false
+                if !steering { suspendedDeliveries[key]?.isAwaitingResponse = false }
                 suspendedDeliveries[key]?.errorMessage = errorMessage
                 if restoresComposerOnFailure {
-                    composerDraftsByKey["session:\(sessionId)"] = StoredComposerDraft(
-                        text: draftContent, attachments: attachments, quotes: quotes, references: references
-                    )
+                    composerDraftsByKey[draftKey] = draft
                 }
             }
         }
@@ -366,6 +391,18 @@ extension ChatScreenViewModel {
 
     func deliveryKey(agentId: String, sessionId: String) -> String {
         "\(agentId):\(sessionId)"
+    }
+
+    func acknowledgeSteeringSubmission(_ message: ChatMessage, agentId: String, sessionId: String) {
+        let key = deliveryKey(agentId: agentId, sessionId: sessionId)
+        guard message.role == .user, steeringSubmissions[key] == "optimistic-user-\(message.id)" else { return }
+        steeringSubmissions[key] = nil
+        if isCurrentSession(agentId: agentId, sessionId: sessionId) {
+            Task { @MainActor in
+                guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+                await sendNextQueuedMessageIfReady()
+            }
+        }
     }
 
     func handleBackgroundStreamUpdate(_ update: ChatStreamUpdate, agentId: String, sessionId: String) {
@@ -377,6 +414,7 @@ extension ChatScreenViewModel {
         if update.kind == .sessionEvent { suspendedDeliveries[key]?.revision &+= 1 }
         if let message = update.message, message.role == .user {
             suspendedDeliveries[key]?.optimisticMessages.removeAll { $0.id == "optimistic-user-\(message.id)" }
+            acknowledgeSteeringSubmission(message, agentId: agentId, sessionId: sessionId)
         }
         if let status = update.streamEvent?.runStatus {
             if status.stage == .paused { refreshBackgroundDelivery(agentId: agentId, sessionId: sessionId) }
@@ -422,7 +460,7 @@ extension ChatScreenViewModel {
 
     private func drainBackgroundQueue(agentId: String, sessionId: String) {
         let key = deliveryKey(agentId: agentId, sessionId: sessionId)
-        guard var delivery = suspendedDeliveries[key], !delivery.isSending,
+        guard var delivery = suspendedDeliveries[key], steeringSubmissions[key] == nil, !delivery.isSending,
               !delivery.isAwaitingResponse else { return }
         guard let message = delivery.queue.dequeue() else {
             if let (manager, task) = backgroundStreams.removeValue(forKey: key) {
@@ -450,10 +488,11 @@ extension ChatScreenViewModel {
         }
     }
 
-    func sendNextQueuedMessageIfIdle() async {
-        guard !isWorkerSession, !isSending,
+    func sendNextQueuedMessageIfReady() async {
+        let steering = canSteerActiveRun
+        guard !isWorkerSession, !hasSteeringSubmission,
               approvalModeAllowsSending,
-              !isAwaitingAgentResponse,
+              steering || (!isSending && !isAwaitingAgentResponse),
               !isStopping,
               !isDrainingQueuedMessages,
               approvalRefreshTask == nil,
@@ -470,7 +509,7 @@ extension ChatScreenViewModel {
             content: message.content,
             attachments: message.attachments,
             quotes: message.quotes,
-            agent: agent, clearsComposer: false, references: message.references
+            agent: agent, clearsComposer: false, references: message.references, steering: steering
         )
         isDrainingQueuedMessages = false
     }

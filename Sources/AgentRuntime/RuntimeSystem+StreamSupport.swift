@@ -18,6 +18,7 @@ actor StreamActivityTracker {
     private(set) var toolRoundsUsed: Int = 0
     private(set) var hitToolRoundLimit: Bool = false
     private(set) var toolLoopStopMessage: String?
+    private(set) var yieldedToUserMessage = false
     var toolErrors: [ToolInvocationResult] = []
     private(set) var toolTranscriptEntries: [Transcript.Entry] = []
     private var firstChunkAt: Date?
@@ -99,6 +100,10 @@ actor StreamActivityTracker {
         let message = "Stopped repeated tool calls to \(result.tool). \(result.error?.message ?? "The operation needs corrected arguments.")"
         toolLoopStopMessage = message
         latestContent = message
+    }
+
+    func yieldToUserMessage() {
+        yieldedToUserMessage = true
     }
 
     nonisolated static func isToolTimeout(_ result: ToolInvocationResult) -> Bool {

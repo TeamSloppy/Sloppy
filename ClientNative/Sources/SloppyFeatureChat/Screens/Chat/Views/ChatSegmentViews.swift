@@ -41,6 +41,7 @@ struct ChatMarkdownTextStack: View {
         let ty = theme.typography
 
         return StructuredText(markdown: text, renderImmediately: renderImmediately)
+            .textual.codeBlockStyle(ChatCodeBlockStyle(blocks: ChatFencedCode.blocks(in: text)))
             .textual.structuredTextStyle(.gitHub)
             .font(.system(size: ty.body))
             .lineSpacing(4)
@@ -341,6 +342,107 @@ struct ChatShimmerText: View {
                         .accessibilityHidden(true)
                     }
             }
+        }
+    }
+}
+
+// Keep the source bytes (including CRLF and the final newline) for clipboard actions.
+// The renderer may normalize newlines for highlighting; never use highlighted text as a script.
+struct ChatFencedCode: Equatable, Sendable {
+    let language: String
+    let code: String
+    let isComplete: Bool
+    var isBash: Bool { language == "bash" }
+
+    static func blocks(in source: String) -> [Self] {
+        let ns = source as NSString
+        guard let expression = try? NSRegularExpression(pattern: #"(?m)^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$"#) else { return [] }
+        let matches = expression.matches(in: source, range: NSRange(location: 0, length: ns.length))
+        var result: [Self] = []
+        var next = 0
+        while next < matches.count {
+            let opener = matches[next]
+            let fence = ns.substring(with: opener.range(at: 1))
+            let info = ns.substring(with: opener.range(at: 2)).trimmingCharacters(in: .whitespaces)
+            var start = NSMaxRange(opener.range)
+            if start < ns.length, ns.character(at: start) == 13 { start += 1 }
+            if start < ns.length, ns.character(at: start) == 10 { start += 1 }
+            var end = ns.length
+            var complete = false
+            var closing = next + 1
+            while closing < matches.count {
+                let candidate = matches[closing]
+                let marker = ns.substring(with: candidate.range(at: 1))
+                let tail = ns.substring(with: candidate.range(at: 2)).trimmingCharacters(in: .whitespaces)
+                if marker.first == fence.first, marker.count >= fence.count, tail.isEmpty {
+                    end = candidate.range.location
+                    complete = true
+                    break
+                }
+                closing += 1
+            }
+            result.append(Self(language: info, code: ns.substring(with: NSRange(location: min(start, end), length: max(0, end - start))), isComplete: complete))
+            next = complete ? closing + 1 : matches.count
+        }
+        return result
+    }
+
+    static func normalized(_ value: String) -> String {
+        var result = value.replacingOccurrences(of: "\r\n", with: "\n")
+        if result.hasSuffix("\n") { result.removeLast() }
+        return result
+    }
+}
+
+private struct ChatCodeBlockStyle: StructuredText.CodeBlockStyle {
+    let blocks: [ChatFencedCode]
+    func makeBody(configuration: Configuration) -> some View {
+        let original = blocks.first {
+            $0.language == (configuration.languageHint ?? "") && ChatFencedCode.normalized($0.code) == configuration.codeBlock.plainText
+        }
+        ChatCodeBlockContent(configuration: configuration, original: original)
+    }
+}
+
+private struct ChatCodeBlockContent: View {
+    let configuration: StructuredText.CodeBlockStyleConfiguration
+    let original: ChatFencedCode?
+    @State private var copied = false
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Text(configuration.languageHint ?? "Code").font(.caption).foregroundStyle(theme.colors.textMuted)
+                Spacer(minLength: 12)
+                if original?.isBash == true {
+                    Button("Run", systemImage: "play") {}.disabled(true)
+                        .foregroundStyle(theme.colors.textMuted).opacity(0.55)
+                        .help("Run unavailable: this transcript has no approval-aware project terminal execution binding. Copy and review the script in the correct project terminal.")
+                        .accessibilityLabel("Run bash unavailable: no verified execution target")
+                        .accessibilityIdentifier("chat.code.run")
+                }
+                Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
+                    UIClipboard.setString(original?.code ?? configuration.codeBlock.plainText)
+                    copied = true
+                }
+                .accessibilityLabel(copied ? "Code copied" : "Copy code")
+                .accessibilityIdentifier("chat.code.copy")
+            }
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            if original?.isBash == true {
+                Text("Run unavailable — no verified project execution target.")
+                    .font(.caption).foregroundStyle(theme.colors.textMuted)
+                    .padding(.horizontal, 12).padding(.bottom, 8)
+            }
+            StructuredText.GitHubCodeBlockStyle().makeBody(configuration: configuration)
+        }
+        .background(theme.colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 6))
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled { copied = false }
         }
     }
 }

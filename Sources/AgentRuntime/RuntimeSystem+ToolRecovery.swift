@@ -9,6 +9,16 @@ extension RuntimeSystem {
         onResponseChunk: (@Sendable (String) async -> Bool)?,
         outcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)?
     ) async -> Bool {
+        if await tracker.yieldedToUserMessage {
+            sessionsByChannel.removeValue(forKey: channelId)
+            await outcomeHandler?(await tracker.nativeLoopOutcome(
+                maxToolRounds: config.maxToolRounds,
+                finishedNaturally: false,
+                lastAssistantText: await tracker.latestContent,
+                turnExitReason: .steered
+            ))
+            return true
+        }
         guard let message = await tracker.toolLoopStopMessage else { return false }
         sessionsByChannel.removeValue(forKey: channelId)
         if let onResponseChunk { _ = await onResponseChunk(message) }

@@ -262,6 +262,7 @@ extension RuntimeSystem {
         let emptyArgumentsAllowed = Set(session.tools.compactMap { tool -> String? in
             ModelToolSchemaNormalizer.acceptsEmptyArguments(tool.parameters) ? tool.name : nil
         })
+        let yieldAtBoundary = Self.shouldYieldAtToolBoundary
         return SloppyToolExecutionDelegate(
             toolNameMap: resolvedNameMap,
             emptyArgumentsAllowedTools: emptyArgumentsAllowed,
@@ -289,6 +290,13 @@ extension RuntimeSystem {
             },
             executedToolCallHandler: { call, output in
                 await loopTracker?.recordExecuted(call, output)
+            },
+            shouldYieldAtBoundary: {
+                guard let yieldAtBoundary, let loopTracker,
+                      !Task.isCancelled, await loopTracker.toolLoopStopMessage == nil,
+                      await yieldAtBoundary() else { return false }
+                await loopTracker.yieldToUserMessage()
+                return true
             },
             toolCallHandler: { request in
                 let result = await toolCallHandler(request)
@@ -582,6 +590,7 @@ extension RuntimeSystem {
             return nil
         }
 
+        if await loopTracker?.yieldedToUserMessage == true { return nil }
         if let message = await loopTracker?.toolLoopStopMessage {
             sessionsByChannel.removeValue(forKey: channelId)
             return message

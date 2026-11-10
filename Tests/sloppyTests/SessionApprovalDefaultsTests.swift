@@ -5,13 +5,15 @@ import Testing
 
 @Suite("Chat approval defaults")
 struct SessionApprovalDefaultsTests {
-    @Test(arguments: [SessionApprovalMode.approveForMe, .fullAccess])
+    @Test(arguments: [SessionApprovalMode.askForApproval, .approveForMe, .fullAccess])
     func configurationRemainsBackwardCompatible(mode: SessionApprovalMode) throws {
         let encoded = try JSONEncoder().encode(CoreConfig.test)
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object["defaultChatApprovalMode"] = nil
         let legacy = try JSONSerialization.data(withJSONObject: object)
-        #expect(try JSONDecoder().decode(CoreConfig.self, from: legacy).defaultChatApprovalMode == nil)
+        let legacyConfig = try JSONDecoder().decode(CoreConfig.self, from: legacy)
+        #expect(legacyConfig.defaultChatApprovalMode == nil)
+        #expect(legacyConfig.effectiveDefaultChatApprovalMode == .fullAccess)
         object["defaultChatApprovalMode"] = mode.rawValue
         let chosen = try JSONDecoder().decode(CoreConfig.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(chosen.defaultChatApprovalMode == mode)
@@ -27,12 +29,14 @@ struct SessionApprovalDefaultsTests {
         defer { Task { await service.stop() } }
         let legacy = try await service.sessionStore.createSession(agentID: "defaults-agent", request: .init())
         let first = try await service.createAgentSession(agentID: "defaults-agent", request: .init())
+        let standalone = try await service.createAgentSession(agentID: "defaults-agent", request: .init(kind: .worker))
         var config = await service.getConfig()
         config.defaultChatApprovalMode = .approveForMe
         _ = try await service.updateConfig(config)
         let second = try await service.createAgentSession(agentID: "defaults-agent", request: .init())
         #expect(try await mode(legacy, service) == .askForApproval)
-        #expect(try await mode(first, service) == .askForApproval)
+        #expect(try await mode(first, service) == .fullAccess)
+        #expect(try await mode(standalone, service) == .fullAccess)
         #expect(try await mode(second, service) == .approveForMe)
         config.defaultChatApprovalMode = .askForApproval
         _ = try await service.updateConfig(config)
@@ -49,24 +53,23 @@ struct SessionApprovalDefaultsTests {
         config.defaultChatApprovalMode = .approveForMe
         _ = try await service.updateConfig(config)
         let child = try await service.createAgentSession(agentID: "defaults-agent", request: .init(parentSessionId: parent.id))
+        #expect(try await mode(child, service) == .fullAccess)
+        _ = try await service.setSessionApprovalPolicy(agentID: parent.agentId, sessionID: parent.id, policy: .init(mode: .askForApproval))
         #expect(try await mode(child, service) == .askForApproval)
-        _ = try await service.setSessionApprovalPolicy(agentID: parent.agentId, sessionID: parent.id, policy: .init(mode: .approveForMe))
-        #expect(try await mode(child, service) == .approveForMe)
     }
 
     @Test func newPersistentConversationsUseTheDefaultAndReopeningPreservesIt() async throws {
         let service = try await makeService()
         defer { Task { await service.stop() } }
-        var config = await service.getConfig()
-        config.defaultChatApprovalMode = .approveForMe
-        _ = try await service.updateConfig(config)
         let conversation = try await service.openLongChat(agentID: "defaults-agent", userID: "user-one")
-        #expect(try await mode(conversation, service) == .approveForMe)
-        config.defaultChatApprovalMode = .askForApproval
-        _ = try await service.updateConfig(config)
+        let worker = try await service.sessionStore.createSession(
+            agentID: conversation.agentId, request: .init(parentSessionId: conversation.id, kind: .longChatWorker))
+        #expect(try await mode(conversation, service) == .fullAccess)
+        #expect(try await mode(worker, service) == .fullAccess)
+        _ = try await service.setDefaultChatApprovalPolicy(.init(mode: .askForApproval))
         let reopened = try await service.openLongChat(agentID: "defaults-agent", userID: "user-one")
         #expect(reopened.id == conversation.id)
-        #expect(try await mode(reopened, service) == .approveForMe)
+        #expect(try await mode(reopened, service) == .fullAccess)
         let other = try await service.openLongChat(agentID: "defaults-agent", userID: "user-two")
         #expect(try await mode(other, service) == .askForApproval)
     }
@@ -78,7 +81,11 @@ struct SessionApprovalDefaultsTests {
         let router = CoreRouter(service: service)
         let endpoint = "/v1/config/chat-approval-default"
         let before = await service.getConfig()
-        #expect(await router.handle(method: "GET", path: endpoint, body: nil).status == 200)
+        let initial = await router.handle(method: "GET", path: endpoint, body: nil)
+        #expect(initial.status == 200)
+        #expect(try JSONDecoder().decode(SessionApprovalPolicy.self, from: initial.body).mode == .fullAccess)
+        let runtimeConfig = await router.handle(method: "GET", path: "/v1/config", body: nil)
+        #expect(try JSONDecoder().decode(CoreConfig.self, from: runtimeConfig.body).defaultChatApprovalMode == .fullAccess)
         let response = await router.handle(method: "PUT", path: endpoint, body: Data(#"{"mode":"approve_for_me"}"#.utf8))
         #expect(response.status == 200)
         #expect(try JSONDecoder().decode(SessionApprovalPolicy.self, from: response.body).mode == .approveForMe)

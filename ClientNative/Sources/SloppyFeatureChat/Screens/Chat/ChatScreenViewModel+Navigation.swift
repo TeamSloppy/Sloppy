@@ -11,6 +11,7 @@ extension ChatScreenViewModel {
         guard lastAppliedNavigationRequestId != request.id else { return }
 
         if agents.isEmpty {
+            isResolvingInitialConversation = request.opensPreferredSession
             // Show the requested context immediately; bind its agent after bootstrap.
             pendingNavigationRequest = request
         } else {
@@ -261,10 +262,15 @@ extension ChatScreenViewModel {
             agentId: agent.id
         )
 
+        isResolvingProjectConversation = opensPreferredSession
+        let contextGeneration = hydrationGeneration
         requestComposerFocus()
         Task { @MainActor in
+            defer {
+                if contextGeneration == hydrationGeneration { isResolvingProjectConversation = false }
+            }
             await loadSessions(for: agent, projectId: preferredTaskId == nil ? projectId : nil)
-            guard selectedAgent?.id == agent.id,
+            guard contextGeneration == hydrationGeneration, selectedAgent?.id == agent.id,
                   activeProjectId == projectId,
                   activeTaskId == preferredTaskId,
                   !createsSeparateProjectChat,
@@ -279,7 +285,7 @@ extension ChatScreenViewModel {
             if preferredTaskId == nil {
                 do {
                     let session = try await apiClient.openLongChat(agentId: agent.id, projectId: projectId)
-                    guard selectedAgent?.id == agent.id, activeProjectId == projectId,
+                    guard contextGeneration == hydrationGeneration, selectedAgent?.id == agent.id, activeProjectId == projectId,
                           activeTaskId == nil, !createsSeparateProjectChat,
                           selectedSessionId == nil else { return }
                     upsertSessionSummary(session)
@@ -290,7 +296,10 @@ extension ChatScreenViewModel {
                                                       projectId: projectId, allowsFallback: true) {
                         selectSession(session.id, contextTitle: contextTitle, projectId: projectId)
                     }
-                } catch { sendErrorMessage = error.localizedDescription }
+                } catch {
+                    guard contextGeneration == hydrationGeneration else { return }
+                    transcriptLoadError = error.localizedDescription
+                }
                 return
             }
 

@@ -39,7 +39,7 @@ struct ChatChrome: View {
         let heroWidth = heroWidth(for: contentWidth)
 
         return ZStack(alignment: .bottom) {
-            if viewModel.isLoadingTranscript, viewModel.transcript.isEmpty {
+            if viewModel.conversationLoadState == .loading {
                 ChatTranscriptLoadingView()
             } else if viewModel.transcript.isEmpty, let error = viewModel.transcriptLoadError {
                 VStack(spacing: theme.spacing.s) {

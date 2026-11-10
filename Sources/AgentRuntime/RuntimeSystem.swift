@@ -103,6 +103,7 @@ public enum NativeAgentLoopTurnExitReason: String, Sendable, Equatable {
     case modelProviderError
     case modelCancelled
     case consumerCancelled
+    case steered
 }
 
 public struct NativeAgentLoopOutcome: Sendable, Equatable {

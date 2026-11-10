@@ -199,7 +199,7 @@ struct ChatScreenRenderingTests {
     func emptyTranscriptShowsLoadingProgress() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("viewModel.isLoadingTranscript, viewModel.transcript.isEmpty"))
+        #expect(source.contains("viewModel.conversationLoadState == .loading"))
         #expect(source.contains("struct ChatTranscriptLoadingView"))
         #expect(source.contains(".accessibilityLabel(\"Loading conversation\")"))
         #expect(source.contains("chat.transcript.loading"))

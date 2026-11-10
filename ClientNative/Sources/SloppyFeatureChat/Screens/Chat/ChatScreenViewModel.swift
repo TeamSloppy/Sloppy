@@ -29,6 +29,14 @@ public final class ChatScreenViewModel {
     public internal(set) var sessionActionStatus: String?
     public internal(set) var sendErrorMessage: String?
     public internal(set) var isLoadingSessions = false
+    var isResolvingInitialConversation = false
+    var isResolvingProjectConversation = false
+    var conversationLoadState: ChatConversationLoadState {
+        if !transcript.isEmpty { return isLoadingTranscript ? .refreshing : .content }
+        if isLoadingTranscript || isResolvingInitialConversation || isResolvingProjectConversation { return .loading }
+        if let transcriptLoadError { return .failed(transcriptLoadError) }
+        return .empty
+    }
     public internal(set) var isLoadingTranscript = false
     public internal(set) var isLoadingEarlierMessages = false
     public internal(set) var transcriptLoadError: String?
@@ -69,6 +77,12 @@ public final class ChatScreenViewModel {
     public private(set) var isMobileComposerExpanded = false
     public internal(set) var isMobileComposerFullscreen = false
     public private(set) var composerPanelHeight: CGFloat?
+    var composerSuggestionState = ChatComposerSuggestionLoadState.hidden
+    @ObservationIgnored let composerResultCache = ChatSuggestionCache<[ChatComposerSuggestion]>(lifetime: 30)
+    @ObservationIgnored let composerCommandCache = ChatSuggestionCache<[AgentChatSlashCommandItem]>(lifetime: 120)
+    var composerCatalogScope: String {
+        [apiClient.endpoint.cacheNamespace, activeProjectId ?? "", selectedAgent?.id ?? ""].joined(separator: "|")
+    }
     internal(set) var composerSuggestions: [ChatComposerSuggestion] = []
     internal(set) var composerSuggestionSelection = ChatComposerSuggestionSelection()
     public let transcript = ChatTranscriptState()
@@ -249,8 +263,23 @@ public final class ChatScreenViewModel {
     }
 
     public var willQueueMessage: Bool {
-        isSending || isAwaitingAgentResponse || isStopping || pendingToolApproval != nil
-            || !queuedMessages.isEmpty
+        hasSteeringSubmission || !queuedMessages.isEmpty
+            || (!canSteerActiveRun && (isSending || isAwaitingAgentResponse || isStopping || pendingToolApproval != nil))
+    }
+
+    var messageSendLabel: String {
+        if willQueueMessage { return "Queue message" }
+        return canSteerActiveRun ? "Steer agent" : "Send message"
+    }
+
+    var canSteerActiveRun: Bool {
+        selectedSessionId != nil && activeRunStatus?.stage.isWorking == true
+            && !isStopping && activeInputRequest == nil && pendingToolApproval == nil
+    }
+
+    var hasSteeringSubmission: Bool {
+        guard let agentId = selectedAgent?.id, let sessionId = selectedSessionId else { return false }
+        return steeringSubmissions[deliveryKey(agentId: agentId, sessionId: sessionId)] != nil
     }
 
     public var activeRunStatusLabel: String {
@@ -357,6 +386,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored var composerSuggestionRequestID: UInt = 0
     @ObservationIgnored var presentedPlanArtifactEventIDs: Set<String> = []
     @ObservationIgnored var messageQueue = ChatMessageQueue()
+    var steeringSubmissions: [String: String] = [:]
     @ObservationIgnored var isDrainingQueuedMessages = false
     @ObservationIgnored var approvalExpirationTask: Task<Void, Never>?
     @ObservationIgnored var resolvedToolApprovalIDs: Set<String> = []
@@ -385,6 +415,7 @@ public final class ChatScreenViewModel {
         self.connectionMonitor = connectionMonitor
         self.modelPreferences = modelPreferences
         self.restoresLastSession = restoresLastSession
+        self.isResolvingInitialConversation = restoresLastSession
         self.loadsGlobalSessionCatalog = loadsGlobalSessionCatalog
         self.onSessionSummaryChange = onSessionSummaryChange
         self.onPlanArtifact = onPlanArtifact

@@ -16,6 +16,7 @@ final class SessionMessageInboxFileStore {
         var error: String?
         // Optional so existing queues decode unchanged and older Core versions can still read them.
         var recordedOnly: Bool?
+        var steersActiveTurn: Bool?
         var receiptState: String { recordedOnly == true ? "recorded" : state.rawValue }
     }
 

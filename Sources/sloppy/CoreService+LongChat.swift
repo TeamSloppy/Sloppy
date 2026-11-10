@@ -208,9 +208,12 @@ extension CoreService {
                                 + "\n[Current assignments — authoritative persisted state]\n" + snapshot + "\n" + actionLedger
                                 + (turn.peerOrigin == nil ? (await sessionGoalContext(agentID: turn.agentId, sessionID: sessionID)) : ""),
                             responseMessageID: responseID, peerOrigin: turn.peerOrigin,
-                            isWorkerNotification: turn.isNotification)
+                            isWorkerNotification: turn.isNotification,
+                            shouldSteer: { [weak self] in
+                                await self?.hasQueuedLongChatSteeringMessage(sessionID: sessionID) == true
+                            })
                         try recordLongChatModel(agentID: turn.agentId, sessionID: sessionID, turnID: turn.id)
-                        if turn.peerOrigin == nil, let executingGoal {
+                        if turn.peerOrigin == nil, !response.yieldedToSteering, let executingGoal {
                             await scheduleGoalContinuationIfNeeded(agentID: turn.agentId, sessionID: sessionID,
                                 request: request, response: response, expectedGoalID: executingGoal.id)
                         }
@@ -245,6 +248,14 @@ extension CoreService {
     private func nextLongChatTurn(storage: LongChatFileStore, sessionID: String) -> LongChatFileStore.Turn? {
         let pending = storage.state.turns.filter { $0.sessionId == sessionID && !$0.delivered }
         return pending.first { !$0.isNotification } ?? pending.first
+    }
+
+    private func hasQueuedLongChatSteeringMessage(sessionID: String) -> Bool {
+        guard !longChatIsStopping else { return false }
+        guard let next = longChatStorage?.state.turns.first(where: {
+            $0.sessionId == sessionID && !$0.delivered && !$0.processing && !$0.isNotification
+        }) else { return false }
+        return next.peerOrigin == nil && next.goalId == nil
     }
 
     func recordLongChatModel(agentID: String, sessionID: String, turnID: String) throws {

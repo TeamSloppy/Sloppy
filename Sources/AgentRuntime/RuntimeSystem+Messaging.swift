@@ -4,6 +4,10 @@ import Logging
 import PluginSDK
 import Protocols
 
+extension RuntimeSystem {
+    @TaskLocal static var shouldYieldAtToolBoundary: (@Sendable () async -> Bool)?
+}
+
 public extension RuntimeSystem {
     func generateText(
         prompt: String,
@@ -58,7 +62,8 @@ public extension RuntimeSystem {
         observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)? = nil,
         forceInlineResponse: Bool = false,
         nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig(),
-        nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)? = nil
+        nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)? = nil,
+        shouldYieldAtToolBoundary: (@Sendable () async -> Bool)? = nil
     ) async -> ChannelRouteDecision {
         let ingest = await channels.ingest(channelId: channelId, request: request)
         let decision = forceInlineResponse
@@ -70,17 +75,19 @@ public extension RuntimeSystem {
             let taskID = UUID()
             let responseTask = Task { [weak self] in
                 guard let self else { return }
-                await self.respondInline(
-                    channelId: channelId,
-                    userMessage: Self.contentForModel(content: request.content, attachments: request.attachments),
-                    model: request.model,
-                    reasoningEffort: request.reasoningEffort,
-                    onResponseChunk: onResponseChunk,
-                    toolInvoker: toolInvoker,
-                    observationHandler: observationHandler,
-                    nativeLoopConfig: nativeLoopConfig,
-                    nativeLoopOutcomeHandler: nativeLoopOutcomeHandler
-                )
+                await Self.$shouldYieldAtToolBoundary.withValue(shouldYieldAtToolBoundary) {
+                    await self.respondInline(
+                        channelId: channelId,
+                        userMessage: Self.contentForModel(content: request.content, attachments: request.attachments),
+                        model: request.model,
+                        reasoningEffort: request.reasoningEffort,
+                        onResponseChunk: onResponseChunk,
+                        toolInvoker: toolInvoker,
+                        observationHandler: observationHandler,
+                        nativeLoopConfig: nativeLoopConfig,
+                        nativeLoopOutcomeHandler: nativeLoopOutcomeHandler
+                    )
+                }
             }
             activeResponseTasks[channelId] = ActiveResponseTask(id: taskID, task: responseTask)
             await withTaskCancellationHandler {
