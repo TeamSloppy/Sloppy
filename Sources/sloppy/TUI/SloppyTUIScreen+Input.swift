@@ -84,6 +84,10 @@ extension SloppyTUIScreen {
     func scrollList(_ target: SloppyTUIScrollTarget?, by delta: Int) -> Bool {
         guard let target else { return false }
         switch target {
+        case .buildProgress:
+            buildProgressScrollOffset = max(0, buildProgressScrollOffset + delta)
+            requestRender()
+            return true
         case .workspaceDiff:
             workspaceDiffScrollOffset = max(0, workspaceDiffScrollOffset + delta)
             requestRender()
@@ -663,7 +667,7 @@ extension SloppyTUIScreen {
                 projectName: project.name,
                 agentName: agent.displayName
             )
-            let chatLines = renderChatBody(width: chatWidth, height: height)
+            let chatLines = renderChatBody(width: chatWidth, height: height, startColumn: listWidth + 1)
             return Self.zippedPaneLines(
                 left: listLines,
                 right: chatLines,
@@ -675,27 +679,6 @@ extension SloppyTUIScreen {
         }
 
         return renderChatBody(width: width, height: height)
-    }
-
-    func renderChatBody(width: Int, height: Int) -> [String] {
-        guard let paneWidth = SloppyTUIChangesPane.width(for: width, hasChanges: workspaceDiffPreview != nil),
-              let preview = workspaceDiffPreview else {
-            return renderChatTimelineBody(width: width, height: height)
-        }
-        let chatWidth = width - paneWidth - 1
-        let chatLines = renderChatTimelineBody(width: chatWidth, height: height, hidesDiff: true)
-        let diffLines = renderTimelineLines([preview.timelineBlock], width: paneWidth)
-        let contentHeight = max(1, height - 1)
-        workspaceDiffScrollOffset = min(workspaceDiffScrollOffset, max(0, diffLines.count - contentHeight))
-        let paneLines = [SloppyTUITheme.fittedLine("Changes · scroll to review", width: paneWidth)]
-            + Array(diffLines.dropFirst(workspaceDiffScrollOffset).prefix(contentHeight))
-        let startColumn = sessionListMode == .side
-            ? min(max(36, (terminal?.columns ?? width) / 3), min(72, max(1, (terminal?.columns ?? width) - 24))) + 1
-            : 0
-        registerScrollRegion(startRow: 0, endRow: height, startColumn: startColumn + chatWidth + 1,
-                             endColumn: startColumn + width, target: .workspaceDiff)
-        return Self.zippedPaneLines(left: chatLines, right: paneLines, leftWidth: chatWidth,
-                                    rightWidth: paneWidth, separator: "│", height: height)
     }
 
     func renderChatTimelineBody(width: Int, height: Int, hidesDiff: Bool = false) -> [String] {

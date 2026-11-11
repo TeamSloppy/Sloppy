@@ -417,11 +417,12 @@ extension CoreService {
         contentForModel: String,
         topicId: String?,
         mode: AgentChatMode? = nil,
-        attachments: [ChannelAttachment] = []
+        attachments: [ChannelAttachment] = [],
+        widgetOwner: TelegramWidgetOwner? = nil
     ) async {
         var slot = inboundChannelPluginQueues[channelId] ?? InboundChannelPluginQueueSlot()
         if slot.processing {
-            slot.fifo.append((userId: userId, content: contentForModel, topicId: topicId, mode: mode, attachments: attachments))
+            slot.fifo.append((userId: userId, content: contentForModel, topicId: topicId, mode: mode, attachments: attachments, widgetOwner: widgetOwner))
             inboundChannelPluginQueues[channelId] = slot
             await deliverToChannelPlugin(
                 channelId: channelId,
@@ -440,7 +441,8 @@ extension CoreService {
                 initialContent: contentForModel,
                 initialTopicId: topicId,
                 initialMode: mode,
-                initialAttachments: attachments
+                initialAttachments: attachments,
+                initialWidgetOwner: widgetOwner
             )
         }
     }
@@ -451,13 +453,15 @@ extension CoreService {
         initialContent: String,
         initialTopicId: String?,
         initialMode: AgentChatMode?,
-        initialAttachments: [ChannelAttachment]
+        initialAttachments: [ChannelAttachment],
+        initialWidgetOwner: TelegramWidgetOwner?
     ) async {
         var userId = initialUserId
         var content = initialContent
         var topicId = initialTopicId
         var mode = initialMode
         var attachments = initialAttachments
+        var widgetOwner = initialWidgetOwner
         while true {
             await executeSingleInboundChannelPluginTurn(
                 channelId: channelId,
@@ -465,7 +469,8 @@ extension CoreService {
                 contentForModel: content,
                 topicId: topicId,
                 mode: mode,
-                attachments: attachments
+                attachments: attachments,
+                widgetOwner: widgetOwner
             )
             guard var slot = inboundChannelPluginQueues[channelId] else {
                 return
@@ -482,6 +487,7 @@ extension CoreService {
             topicId = next.topicId
             mode = next.mode
             attachments = next.attachments
+            widgetOwner = next.widgetOwner
         }
     }
 
@@ -491,8 +497,18 @@ extension CoreService {
         contentForModel: String,
         topicId: String?,
         mode forcedMode: AgentChatMode?,
-        attachments: [ChannelAttachment]
+        attachments: [ChannelAttachment],
+        widgetOwner: TelegramWidgetOwner? = nil
     ) async {
+        if let widgetOwner {
+            // Revalidate at dequeue, not just at arrival: a session may have closed while queued.
+            guard (try? await telegramWidgetOwner(channelID: channelId)) == widgetOwner else { return }
+            do {
+                try await channelSessionStore.recordWidgetAction(owner: widgetOwner, content: contentForModel)
+            } catch { return }
+        }
+        activeTelegramWidgetOwners[channelId] = try? await telegramWidgetOwner(channelID: channelId, userID: userId)
+        defer { activeTelegramWidgetOwners[channelId] = nil }
         await channelStreamCancelRegistry.clearCancel(channelId: channelId)
 
         let bindingChannelId = ChannelGatewayScope.parse(channelId).baseChannelId
@@ -1088,7 +1104,7 @@ extension CoreService: InboundMessageReceiver {
             }
 
             if var slot = inboundChannelPluginQueues[sessionChannelId], slot.processing {
-                slot.fifo.insert((userId: userId, content: btwTail, topicId: topicId, mode: nil, attachments: []), at: 0)
+                slot.fifo.insert((userId: userId, content: btwTail, topicId: topicId, mode: nil, attachments: [], widgetOwner: nil), at: 0)
                 inboundChannelPluginQueues[sessionChannelId] = slot
                 return true
             }

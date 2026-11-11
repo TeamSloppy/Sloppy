@@ -43,11 +43,13 @@ actor TelegramBotAPI {
         let updateId: Int64
         let message: Message?
         let callbackQuery: CallbackQuery?
+        let widgetQuery: WidgetQuery?
 
         enum CodingKeys: String, CodingKey {
             case updateId = "update_id"
             case message
             case callbackQuery = "callback_query"
+            case widgetQuery = "widget_query"
         }
     }
 
@@ -158,6 +160,7 @@ actor TelegramBotAPI {
         let document: MediaFile?
         let video: MediaFile?
         let animation: MediaFile?
+        let widget: Widget?
         let date: Int
         /// Present for messages in forum topic threads (supergroups).
         let messageThreadId: Int?
@@ -181,6 +184,7 @@ actor TelegramBotAPI {
             case forwardFromChat = "forward_from_chat"
             case forwardSenderName = "forward_sender_name"
             case forwardSignature = "forward_signature"
+            case widget
             case forwardDate = "forward_date"
         }
     }
@@ -212,7 +216,10 @@ actor TelegramBotAPI {
     }
 
     func getUpdates(offset: Int64?, timeout: Int = 60) async throws -> [Update] {
-        var params: [String: Any] = ["timeout": timeout]
+        var params: [String: Any] = [
+            "timeout": timeout,
+            "allowed_updates": ["message", "callback_query", "widget_query"]
+        ]
         if let offset { params["offset"] = offset }
         let data = try await post(method: "getUpdates", params: params)
         let decoded = try JSONDecoder().decode(GetUpdatesResponse.self, from: data)
@@ -221,6 +228,79 @@ actor TelegramBotAPI {
             logger.debug("getUpdates: received \(updates.count) update(s), offset=\(offset.map(String.init) ?? "nil")")
         }
         return updates
+    }
+
+    struct Widget: Decodable {
+        let id: String?
+        let html: String
+        let width: Int?
+        let height: Int?
+        let chatData: String?
+        let publicData: String?
+        enum CodingKeys: String, CodingKey {
+            case id, html, width, height
+            case chatData = "chat_data", publicData = "public_data"
+        }
+    }
+
+    struct WidgetQuery: Decodable {
+        struct QueryType: Decodable {
+            let type: String
+            let hasWallet: Bool
+            enum CodingKeys: String, CodingKey { case type, walletCard = "wallet_card" }
+            init(from decoder: any Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                type = try c.decode(String.self, forKey: .type)
+                hasWallet = c.contains(.walletCard)
+            }
+        }
+        let id: String
+        let from: User
+        let chat: Chat?
+        let messageId: Int64?
+        let data: String
+        let type: QueryType?
+        enum CodingKeys: String, CodingKey {
+            case id, from, chat, data, type
+            case messageId = "message_id"
+        }
+    }
+
+    func sendWidget(chatId: Int64, html: String, caption: String, chatData: String?, allowQueries: Bool, messageThreadId: Int?) async throws -> Message {
+        try TelegramWidgetValidation.validate(html: html, caption: caption, chatData: chatData)
+        var params: [String: Any] = ["chat_id": chatId, "html": html, "caption": caption, "allow_queries": allowQueries]
+        if let chatData { params["chat_data"] = chatData }
+        if let messageThreadId { params["message_thread_id"] = messageThreadId }
+        let data = try await post(method: "sendWidget", params: params)
+        let response = try JSONDecoder().decode(SendMessageResponse.self, from: data)
+        guard response.ok, let message = response.result else { throw TelegramAPIError.invalidResponse(method: "sendWidget") }
+        return message
+    }
+
+    func answerWidgetQuery(id: String, data: String) async throws {
+        try TelegramWidgetValidation.validateData(data)
+        let result = try await post(method: "answerWidgetQuery", params: ["widget_query_id": id, "data": data])
+        let response = try JSONDecoder().decode(DeleteMessageResponse.self, from: result)
+        guard response.ok, response.result == true else { throw TelegramAPIError.invalidResponse(method: "answerWidgetQuery") }
+    }
+
+    func editMessageWidgetData(chatId: Int64, messageId: Int64, chatData: String) async throws {
+        try TelegramWidgetValidation.validateData(chatData)
+        do {
+            let result = try await post(method: "editMessageWidgetData", params: ["chat_id": chatId, "message_id": messageId, "chat_data": chatData])
+            let response = try JSONDecoder().decode(DeleteMessageResponse.self, from: result)
+            guard response.ok, response.result == true else { throw TelegramAPIError.invalidResponse(method: "editMessageWidgetData") }
+        } catch TelegramAPIError.httpError(let status, let body) where status == 400 && Self.isUnchangedWidgetData(body) {
+            // Idempotent update; this error does not mean the requested state was rejected.
+            return
+        }
+    }
+
+    static func isUnchangedWidgetData(_ body: String) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+              let description = object["description"] as? String else { return false }
+        return description == "Bad Request: message is not modified"
+            || description.hasPrefix("Bad Request: message is not modified:")
     }
 
     // MARK: - sendChatAction
@@ -512,6 +592,7 @@ actor TelegramBotAPI {
         let url = baseURL.appendingPathComponent(method)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        if method == "answerWidgetQuery" { request.timeoutInterval = 5 }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: params)
         return try await perform(request: request, method: method)

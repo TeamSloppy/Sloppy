@@ -168,6 +168,13 @@ extension ChatScreenViewModel {
     func hydrateSession(agentId: String, sessionId: String) async {
         let generation = hydrationGeneration
         let revision = streamStateRevision
+        // #region agent debug
+#if DEBUG
+        let hydrationTraceStart = ContinuousClock.now
+        ChatLatencyTrace.record("H2", "hydrateSession", "started", data: ["chat": sessionId])
+        defer { ChatLatencyTrace.record("H2", "hydrateSession", "finished", data: ["chat": sessionId, "elapsed_ms": ChatLatencyTrace.milliseconds(since: hydrationTraceStart)]) }
+#endif
+// #endregion
         var detail: ChatSessionDetail
         do {
             detail = try await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId, eventLimit: 64)
@@ -310,6 +317,13 @@ extension ChatScreenViewModel {
         sessionId: String
     ) {
         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+        // #region agent debug
+#if DEBUG
+        if update.kind != .heartbeat {
+            ChatLatencyTrace.record("H3", "handleStreamUpdate", "received", data: ["chat": sessionId, "kind": String(describing: update.kind)])
+        }
+#endif
+// #endregion
         if streamCursorTracker.observe(update) {
             requestSessionHydration(agentId: agentId, sessionId: sessionId)
         }
@@ -328,7 +342,7 @@ extension ChatScreenViewModel {
                 updateComputerUseActivity(from: msg)
             }
             if let runStatus = update.streamEvent?.runStatus {
-                handleRunStatus(runStatus, sessionId: sessionId)
+                handleRunStatus(runStatus, sessionId: sessionId, allowsCompletionNotification: true)
                 if runStatus.selectedModel != nil {
                     scheduleAuxiliaryRefresh(agentId: agentId, sessionId: sessionId)
                 }
@@ -459,6 +473,11 @@ extension ChatScreenViewModel {
         pendingStreamingTextUpdateMode = nil
         streamingFlushTask = nil
         applyStreamingAssistantText(text, messageId: messageId, mode: mode)
+        // #region agent debug
+#if DEBUG
+        ChatLatencyTrace.record("H3", "flushPendingStreamingAssistantText", "state-applied")
+#endif
+// #endregion
     }
 
     private func cancelPendingStreamingAssistantText(for sessionId: String? = nil) {

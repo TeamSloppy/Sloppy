@@ -89,6 +89,8 @@ struct ToolRegistry: Sendable {
             ImagesInspectTool(),
             WidgetArtifactGenerateTool(),
             WebArtifactCreateTool(),
+            TelegramWidgetSendTool(),
+            TelegramWidgetUpdateTool(),
             SitesListTool(),
             SitesPublishTool(),
             SitesUpdateTool(),

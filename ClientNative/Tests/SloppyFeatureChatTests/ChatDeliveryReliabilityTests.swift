@@ -435,6 +435,41 @@ struct ChatDeliveryReliabilityTests {
         try await fixture.wait { fixture.model.transcript.messages.contains { $0.id == "missed" } }
     }
 
+    @Test("restoring an old done status during a new submission never sends a completion notification")
+    func hydratedDoneDoesNotNotify() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        fixture.server.historyStage = "done"
+        fixture.server.historyMessages = [.init(id: "previous-reply", role: .assistant,
+            segments: [.init(kind: .text, text: "Previous answer")])]
+        fixture.model.beginStreamingAssistantTurn(for: "one")
+        await fixture.model.hydrateSession(agentId: "agent", sessionId: "one")
+        // Drain the notification task enqueued by the old completion handler.
+        for _ in 0..<10 { await Task.yield() }
+        #expect(fixture.notifications.completions.isEmpty)
+    }
+
+    @Test("thinking and responding stay silent; a live done event notifies only once")
+    func onlyLiveCompletionNotifies() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        for (index, stage) in [ChatRunStage.thinking, .responding].enumerated() {
+            fixture.model.handleStreamUpdate(.init(kind: .sessionEvent, cursor: index + 1, streamEvent: .init(
+                id: "stage-\(index)", type: .runStatus, runStatus: .init(stage: stage, label: "Working")
+            )), agentId: "agent", sessionId: "one")
+        }
+        for _ in 0..<10 { await Task.yield() }
+        #expect(fixture.notifications.completions.isEmpty)
+        fixture.model.transcript.append(.init(id: "final-reply", role: .assistant,
+            segments: [.init(kind: .text, text: "Final answer")]))
+        fixture.done(sessionId: "one", cursor: 3)
+        try await fixture.wait { fixture.notifications.completions.count == 1 }
+        fixture.done(sessionId: "one", cursor: 4)
+        for _ in 0..<10 { await Task.yield() }
+        #expect(fixture.notifications.completions.count == 1)
+        #expect(fixture.notifications.completions.first?.responsePreview == "Final answer")
+    }
+
     @Test("a delayed history response cannot roll a live run back to done")
     func staleHistoryDoesNotOverrideLiveStatus() async throws {
         let fixture = try await DeliveryFixture.make()
@@ -571,12 +606,13 @@ private actor DeliveryStreamGate {
 
 @MainActor
 private final class DeliveryNotifications: AgentResponseNotificationScheduling {
+    var completions: [AgentResponseCompletionNotification] = []
     var approvals: [AgentToolApprovalNotification] = []
     var dismissed: [String] = []
     func scheduleApproval(_ notification: AgentToolApprovalNotification) async { approvals.append(notification) }
     func dismissApproval(id: String) { dismissed.append(id) }
     func prepareAuthorization() async {}
-    func schedule(_ notification: AgentResponseCompletionNotification) async {}
+    func schedule(_ notification: AgentResponseCompletionNotification) async { completions.append(notification) }
 }
 
 private final class DeliveryHTTPState: @unchecked Sendable {

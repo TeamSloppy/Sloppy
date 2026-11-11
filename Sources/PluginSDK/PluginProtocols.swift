@@ -56,6 +56,9 @@ public enum ChannelProjectLinkResult: Sendable, Equatable {
 /// Receives inbound messages from external channels and routes them into sloppy.
 /// Implementations bridge external platforms (Telegram, Slack, etc.) to channel runtime.
 public protocol InboundMessageReceiver: Sendable {
+    /// Symbolic widget event, not a slash command, plan answer or approval.
+    func receiveTelegramWidgetAction(owner: TelegramWidgetOwner, handle: String, action: String) async -> Bool
+
     /// - Parameters:
     ///   - topicId: Optional platform-specific thread/topic scope (e.g. Telegram forum `message_thread_id` as decimal string).
     ///   - inboundContext: When non-`nil`, Core may apply per-agent activation policy (mention/reply-only). Pass `nil` for non-gateway callers.
@@ -498,4 +501,8 @@ public extension ModelProvider {
     func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         GenerationOptions(maximumResponseTokens: maxTokens)
     }
+}
+
+public extension InboundMessageReceiver {
+    func receiveTelegramWidgetAction(owner: TelegramWidgetOwner, handle: String, action: String) async -> Bool { false }
 }

@@ -70,6 +70,15 @@ actor ChannelDeliveryService {
         return nil
     }
 
+    func sendWidget(owner: TelegramWidgetOwner, request: TelegramWidgetRequest) async throws -> String {
+        guard let plugin = resolvedInProcessPlugin(channelId: owner.channelID) as? any TelegramWidgetGateway else { throw URLError(.unsupportedURL) }
+        return try await plugin.sendWidget(owner: owner, request: request)
+    }
+    func updateWidget(owner: TelegramWidgetOwner, handle: String, chatData: String) async throws {
+        guard let plugin = resolvedInProcessPlugin(channelId: owner.channelID) as? any TelegramWidgetGateway else { throw URLError(.unsupportedURL) }
+        try await plugin.updateWidget(owner: owner, handle: handle, chatData: chatData)
+    }
+
     func beginStream(channelId: String, userId: String, topicId: String? = nil) async -> UUID? {
         if let plugin = resolvedInProcessPlugin(channelId: channelId) as? any StreamingGatewayPlugin {
             do {

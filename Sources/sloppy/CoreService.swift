@@ -88,9 +88,11 @@ public actor CoreService {
     static let agentMemoryGraphNeighborLimit = 150
 
     struct InboundChannelPluginQueueSlot: Sendable {
-        var fifo: [(userId: String, content: String, topicId: String?, mode: AgentChatMode?, attachments: [ChannelAttachment])] = []
+        var fifo: [(userId: String, content: String, topicId: String?, mode: AgentChatMode?, attachments: [ChannelAttachment], widgetOwner: TelegramWidgetOwner?)] = []
         var processing: Bool = false
     }
+
+    var activeTelegramWidgetOwners: [String: TelegramWidgetOwner] = [:]
 
     public enum AgentStorageError: Error {
         case invalidID

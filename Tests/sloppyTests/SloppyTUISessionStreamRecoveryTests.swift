@@ -7,6 +7,139 @@ import Testing
 @Suite("TUI session stream recovery")
 @MainActor
 struct SloppyTUISessionStreamRecoveryTests {
+    @Test("build goals stay in a scrollable side pane, never in messages")
+    func buildGoalsInSidePane() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        let progress = AgentBuildProgressEvent(title: "Sidebar goals", items: [
+            .init(id: "inspect", title: "Inspect layout", status: .done, definitionOfDone: "Found renderer"),
+            .init(id: "verify", title: "Verify layout", status: .inProgress, definitionOfDone: "Tests pass")
+        ])
+        screen.sessionCards = [.message(role: .assistant, text: "Chat response"), .buildProgress(progress)]
+        screen.invalidateSessionTimelineCache()
+        let transcript = screen.renderTimelineLines(screen.sessionCards, width: 120).joined(separator: "\n")
+        #expect(!transcript.contains("Sidebar goals"))
+        #expect(!transcript.contains("Inspect layout"))
+        let lines = screen.renderChatBody(width: 120, height: 28).map(SloppyTUISelectionRenderer.stripANSI)
+        let goalsRow = try #require(lines.first { $0.contains("Sidebar goals") })
+        #expect(goalsRow.contains("│"))
+        #expect(goalsRow.components(separatedBy: "│").last?.contains("Sidebar goals") == true)
+        #expect(lines.count == 28)
+        #expect(lines.allSatisfy { VisibleWidth.measure($0) <= 120 })
+        #expect(lines.joined(separator: "\n").contains("Chat response"))
+    }
+
+    @Test("goals and live changes share the side column without hiding each other")
+    func buildGoalsAlongsideChanges() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        screen.sessionCards = [.buildProgress(.init(title: "Sidebar goals", items: [
+            .init(id: "verify", title: "Verify layout", status: .inProgress, definitionOfDone: "Tests pass")
+        ]))]
+        screen.workspaceDiffPreview = .init(branch: "main", linesAdded: 1, linesDeleted: 0,
+                                            diff: "+changed code", truncated: false)
+        let lines = screen.renderChatBody(width: 120, height: 28).map(SloppyTUISelectionRenderer.stripANSI)
+        #expect(lines.contains { $0.contains("Sidebar goals") })
+        #expect(lines.contains { $0.contains("Changes ·") })
+        #expect(lines.contains { $0.contains("+changed code") })
+        #expect(lines.count == 28)
+        #expect(lines.allSatisfy { VisibleWidth.measure($0) <= 120 })
+    }
+
+    @Test("narrow terminals keep goals outside the transcript")
+    func buildGoalsNarrowTerminal() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        screen.sessionCards = [.message(role: .assistant, text: "Chat response"), .buildProgress(.init(
+            title: "Sidebar goals", items: (0..<12).map {
+                .init(id: "item-\($0)", title: "Goal \($0)", status: .pending, definitionOfDone: "Verified")
+            }
+        ))]
+        for width in [24, 60, 109] {
+            screen.scrollRegions = []
+            let lines = screen.renderChatBody(width: width, height: 18).map(SloppyTUISelectionRenderer.stripANSI)
+            #expect(lines.first?.contains("Goals") == true)
+            #expect(lines.joined(separator: "\n").contains("Chat response"))
+            #expect(lines.count == 18)
+            #expect(lines.allSatisfy { VisibleWidth.measure($0) <= width })
+            #expect(!screen.scrollRegions.isEmpty)
+        }
+    }
+
+    @Test("history restores only the latest goals and a new session does not retain them")
+    func buildGoalsRestoreLatest() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let store = await fixture.service.sessionStore
+        let events = ["Old goals", "Latest goals"].map { title in
+            AgentSessionEvent(agentId: fixture.agentID, sessionId: fixture.sessionID, type: .buildProgress,
+                              buildProgress: .init(title: title, items: [
+                                .init(id: "verify", title: "Verify", status: .done, definitionOfDone: "Passed")
+                              ]))
+        }
+        _ = try store.appendEvents(agentID: fixture.agentID, sessionID: fixture.sessionID, events: events)
+        await fixture.screen.reloadSession()
+        let rendered = fixture.screen.renderChatBody(width: 120, height: 28).joined(separator: "\n")
+        #expect(rendered.contains("Latest goals"))
+        #expect(!rendered.contains("Old goals"))
+        fixture.screen.resetToDraftSession()
+        #expect(fixture.screen.latestBuildProgress == nil)
+        #expect(!fixture.screen.renderChatBody(width: 120, height: 28).joined(separator: "\n").contains("Latest goals"))
+    }
+
+    @Test("goals scroll independently and hit regions include the session-list offset")
+    func buildGoalsIndependentScroll() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        screen.sessionCards = [.buildProgress(.init(title: "Sidebar goals", items: (0..<12).map {
+            .init(id: "item-\($0)", title: "Goal \($0)", status: .pending, definitionOfDone: "Verified")
+        }))]
+        screen.workspaceDiffPreview = .init(branch: "main", linesAdded: 1, linesDeleted: 0,
+                                            diff: "+changed code", truncated: false)
+        _ = screen.renderChatBody(width: 120, height: 28, startColumn: 40)
+        let goals = try #require(screen.scrollRegions.first { $0.target == .buildProgress })
+        let diff = try #require(screen.scrollRegions.first { $0.target == .workspaceDiff })
+        #expect(goals.startColumn == 112)
+        #expect(goals.endColumn == 160)
+        #expect(goals.endRow == diff.startRow)
+        #expect(screen.scrollList(.buildProgress, by: 300))
+        let rendered = screen.renderChatBody(width: 120, height: 28, startColumn: 40).joined(separator: "\n")
+        #expect(rendered.contains("Goal 11"))
+        #expect(screen.workspaceDiffScrollOffset == 0)
+        #expect(screen.timelineScrollOffset == 0)
+    }
+
+    @Test("seeded goal layouts can be captured without launching an agent")
+    func buildGoalsRenderCapture() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        screen.sessionCards = [.message(role: .user, text: "Move goals to the side"),
+                               .message(role: .assistant, text: "Goals are pinned in the right column. Messages stay here."),
+                               .buildProgress(.init(title: "TUI layout", items: [
+                                .init(id: "inspect", title: "Inspect rendering", status: .done, definitionOfDone: "Renderer located"),
+                                .init(id: "move", title: "Move goals to sidebar", status: .done, definitionOfDone: "No duplicate in chat"),
+                                .init(id: "verify", title: "Verify tests and build", status: .inProgress, definitionOfDone: "Tests and build pass")
+                               ]))]
+        screen.workspaceDiffPreview = .init(branch: "main", linesAdded: 1, linesDeleted: 1,
+                                            diff: "-inline goals\n+sidebar goals", truncated: false)
+        for width in [120, 60] {
+            let lines = screen.renderBaseScreen(width: width, height: 40)
+            #expect(lines.count == 40)
+            #expect(lines.allSatisfy { VisibleWidth.measure($0) <= width })
+            if let directory = ProcessInfo.processInfo.environment["SLOPPY_TUI_CAPTURE_DIR"] {
+                let url = URL(fileURLWithPath: directory, isDirectory: true)
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                try lines.joined(separator: "\n").write(to: url.appendingPathComponent("goals-\(width).ansi"),
+                                                      atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
     #if !os(Windows)
     @Test("runtime.exec persists and streams an OS stop with the command still visible")
     func runtimeExecPublishesStoppedProcess() async throws {

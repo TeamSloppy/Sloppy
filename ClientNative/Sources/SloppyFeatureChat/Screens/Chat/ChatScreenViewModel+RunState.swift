@@ -6,7 +6,11 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension ChatScreenViewModel {
-    func handleRunStatus(_ status: ChatRunStatusEvent, sessionId: String) {
+    func handleRunStatus(
+        _ status: ChatRunStatusEvent,
+        sessionId: String,
+        allowsCompletionNotification: Bool = false
+    ) {
         if let tokenUsage = status.tokenUsage {
             contextTokenUsage = tokenUsage
         }
@@ -47,7 +51,10 @@ extension ChatScreenViewModel {
                 )
             }
             refreshWorkingTreeSourceControl()
-            if status.stage == .done, status.diagnostics?.turnExitReason != "steered", let completedMessageId {
+            // Restoring history/cache is not a new completion: an old done status
+            // can arrive after a new local submission has already begun.
+            if allowsCompletionNotification, status.stage == .done,
+               status.diagnostics?.turnExitReason != "steered", let completedMessageId {
                 scheduleResponseCompletionNotification(
                     sessionId: sessionId,
                     messageId: completedMessageId

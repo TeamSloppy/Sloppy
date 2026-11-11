@@ -164,3 +164,53 @@ Once connected, the following slash commands are available in the Telegram chat:
 Regular messages use build mode by default. `/ask`, `/plan`, and `/auto` apply only to one message and do not persist a mode change.
 
 Any other text is forwarded to the linked Sloppy channel as a regular message.
+
+## HTML widgets (Bot API 10.4)
+
+In an explicitly bound private Telegram chat, ask the agent to send a compact HTML
+widget. Enable `telegram.widget.send` and `telegram.widget.update` in the agent's tool
+policy if using an explicit allowlist. Ordinary tool approvals still apply.
+
+`telegram.widget.send` takes `html`, a required plain `caption`, `chatData` (a string,
+empty for no state), and `actions` (a JSON-array **string**, such as `["refresh"]`).
+The result contains an opaque `handle`; save it for `telegram.widget.update`, which
+takes `handle` and the new `chatData` string. Do not use Telegram message IDs as handles.
+
+Example widget HTML:
+
+```html
+<p id="status">Ready</p><button id="refresh">Refresh</button>
+<script>
+const W=window.TelegramWidget, status=document.getElementById('status');
+function draw(){status.textContent=W.chatData||'Ready'}
+W.onEvent('chatDataChanged',draw);draw();
+document.getElementById('refresh').onclick=()=>{
+  status.textContent='Sending…';
+  W.request('refresh').then(()=>{status.textContent='Received; waiting for update'},
+    error=>{status.textContent='Not sent: '+error.code});
+};
+</script>
+```
+
+Send with action list `["refresh"]`. A click becomes an untrusted symbolic event in
+the original channel session. `received` means receipt only; the agent then updates
+the same message's data with the returned handle. It does not bypass approvals.
+
+Limits: HTML 32768 UTF-8 bytes **and** 4096 bytes after zlib level 9; state 1024 UTF-8
+bytes; action token 1–64 UTF-8 bytes. Always include a meaningful caption, also used
+by unsupported Telegram clients. Use inline CSS/JS only; no network/CDN, keyboard or
+text inputs. HTML cannot be changed after sending; send a new widget for a new layout.
+
+Catch-all bindings (`chat_id: 0`) are rejected for widgets. Explicit group bindings
+receive only caption text. Handles expire after gateway restart/stop, after 24 hours,
+or registry eviction: request a fresh widget. Wallet/TON, shared and inline widgets
+are not supported in this stage. See [the security decision](../architecture/adr/0008-bind-telegram-widget-capabilities.md).
+
+Validate size independently:
+
+```bash
+python3 -c 'import sys,zlib; h=sys.stdin.buffer.read(); print(len(h),len(zlib.compress(h,9)))' < widget.html
+```
+
+Test on an up-to-date Telegram client in both themes and narrow screen widths.
+Browser previews do not enforce Telegram's restricted widget profile.

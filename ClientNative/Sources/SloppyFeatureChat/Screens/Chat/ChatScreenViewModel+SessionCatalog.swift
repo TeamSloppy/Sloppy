@@ -88,12 +88,21 @@ extension ChatScreenViewModel {
         isLoadingSessions = true
 
         var cachedBatches: [[ChatSessionSummary]] = []
+        var batchesByAgent: [String: [ChatSessionSummary]] = [:]
         for agent in agents {
-            cachedBatches.append(await cacheStore.loadSessions(agentId: agent.id))
+            let cached = await cacheStore.loadSessions(agentId: agent.id)
+            cachedBatches.append(cached)
+            batchesByAgent[agent.id] = cached
         }
         guard generation == sessionLoadGeneration else { return }
         sessionCatalog = sortSessions(ChatSessionCatalog.merge(cachedBatches))
 
+        // #region agent debug
+#if DEBUG
+        let catalogTraceStart = ContinuousClock.now
+        ChatLatencyTrace.record("H1", "catalog", "fetch-started", data: ["agents": String(agents.count), "generation": String(generation)])
+#endif
+// #endregion
         let apiClient = apiClient
         let results = await withTaskGroup(
             of: SessionCatalogFetchResult.self,
@@ -110,12 +119,32 @@ extension ChatScreenViewModel {
 
             var results: [SessionCatalogFetchResult] = []
             for await result in group {
+                // #region agent debug
+#if DEBUG
+                ChatLatencyTrace.record("H1", "catalog", "agent-result", data: ["agent": result.agentId, "count": String(result.sessions?.count ?? 0), "success": String(result.sessions != nil), "elapsed_ms": ChatLatencyTrace.milliseconds(since: catalogTraceStart), "generation": String(generation)])
+#endif
+// #endregion
+                guard generation == sessionLoadGeneration, !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
+                if let fetched = result.sessions {
+                    batchesByAgent[result.agentId] = fetched.filter { $0.kind != "heartbeat" }
+                    // A slow or unavailable agent must not hide already fetched chats.
+                    // Preserve the other agents' cached snapshots until their replies arrive.
+                    sessionCatalog = sortSessions(ChatSessionCatalog.merge(Array(batchesByAgent.values)))
+                    // #region agent debug
+                    #if DEBUG
+                    ChatLatencyTrace.record("H1", "catalog", "partial-published", data: ["count": String(sessionCatalog.count), "elapsed_ms": ChatLatencyTrace.milliseconds(since: catalogTraceStart), "generation": String(generation)])
+                    #endif
+                    // #endregion
+                }
                 results.append(result)
             }
             return results
         }
 
-        guard generation == sessionLoadGeneration else { return }
+        guard generation == sessionLoadGeneration, !Task.isCancelled else { return }
         var batches: [[ChatSessionSummary]] = []
         for result in results {
             if let fetched = result.sessions {
@@ -133,6 +162,11 @@ extension ChatScreenViewModel {
 
         guard generation == sessionLoadGeneration else { return }
         sessionCatalog = sortSessions(ChatSessionCatalog.merge(batches))
+        // #region agent debug
+#if DEBUG
+        ChatLatencyTrace.record("H1", "catalog", "published", data: ["count": String(sessionCatalog.count), "elapsed_ms": ChatLatencyTrace.milliseconds(since: catalogTraceStart), "generation": String(generation)])
+#endif
+// #endregion
         isLoadingSessions = false
     }
 

@@ -171,6 +171,11 @@ extension SloppyTUIScreen {
         var index = 0
         while index < blocks.count {
             let block = blocks[index]
+            // Progress is session context, not a transcript message.
+            if case .buildProgress = block {
+                index += 1
+                continue
+            }
             if !lines.isEmpty {
                 lines.append("")
             }
@@ -209,8 +214,8 @@ extension SloppyTUIScreen {
                 ))
             case .memoryCheckpoint(let checkpoint):
                 lines.append(SloppyTUITheme.memoryCheckpointLine(checkpoint, frame: thinkingFrame, width: width))
-            case .buildProgress(let progress):
-                lines.append(contentsOf: SloppyTUITheme.buildProgressLines(progress, width: width))
+            case .buildProgress:
+                break
             case .planArtifact(let artifact):
                 let target = SloppyTUIPlanWebTargetResolver.target(for: artifact, runtime: runtime, service: service)
                 lines.append(contentsOf: renderMarkdown("""

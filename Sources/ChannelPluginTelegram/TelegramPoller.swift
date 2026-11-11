@@ -36,6 +36,7 @@ actor TelegramPoller {
     private let onMessageRouted: (@Sendable (String, Int64) async -> Void)?
     private let modelPickerBridge: (any TelegramModelPickerBridge)?
     private let toolApprovalBridge: (any ToolApprovalBridge)?
+    private let widgetSessions: TelegramWidgetSessionStore?
     private let planInputSessions: TelegramPlanInputSessionStore?
     private var offset: Int64? = nil
     /// Resolved via `getMe` for `/cmd@bot` routing and mention detection.
@@ -56,6 +57,7 @@ actor TelegramPoller {
         onMessageRouted: (@Sendable (String, Int64) async -> Void)? = nil,
         modelPickerBridge: (any TelegramModelPickerBridge)? = nil,
         toolApprovalBridge: (any ToolApprovalBridge)? = nil,
+        widgetSessions: TelegramWidgetSessionStore? = nil,
         planInputSessions: TelegramPlanInputSessionStore? = nil
     ) {
         self.bot = bot
@@ -66,6 +68,7 @@ actor TelegramPoller {
         self.onMessageRouted = onMessageRouted
         self.modelPickerBridge = modelPickerBridge
         self.toolApprovalBridge = toolApprovalBridge
+        self.widgetSessions = widgetSessions
         self.planInputSessions = planInputSessions
     }
 
@@ -84,7 +87,9 @@ actor TelegramPoller {
                 let updates = try await bot.getUpdates(offset: offset, timeout: 60)
                 for update in updates {
                     offset = update.updateId + 1
-                    if let query = update.callbackQuery {
+                    if let query = update.widgetQuery {
+                        await handleWidgetQuery(query)
+                    } else if let query = update.callbackQuery {
                         await handleCallbackQuery(query)
                     } else if let message = update.message {
                         await handleMessage(message)
@@ -106,6 +111,23 @@ actor TelegramPoller {
             }
         }
         logger.info("Telegram poller stopped.")
+    }
+
+    func handleWidgetQuery(_ query: TelegramBotAPI.WidgetQuery) async {
+        // Acknowledge receipt first, before access lookup or any model work. This is not approval or acceptance.
+        do { try await bot.answerWidgetQuery(id: query.id, data: "received") }
+        catch { logger.warning("Widget acknowledgement failed: \(error)"); return }
+        guard let entry = await widgetSessions?.claim(query: query),
+              config.isAllowed(userId: query.from.id),
+              config.allowedChatIds.isEmpty || config.allowedChatIds.contains(entry.chatID),
+              config.channelId(forChatId: entry.chatID, topicId: ChannelGatewayScope.parse(entry.owner.channelID).topicKey)
+                  == ChannelGatewayScope.parse(entry.owner.channelID).baseChannelId
+        else { return }
+        let access = await receiver.checkAccess(platform: "telegram", platformUserId: String(query.from.id),
+            displayName: query.from.displayName, chatId: String(entry.chatID))
+        guard case .allowed = access else { return }
+        let accepted = await receiver.receiveTelegramWidgetAction(owner: entry.owner, handle: entry.handle, action: query.data)
+        if !accepted { logger.warning("Widget event rejected for expired or unavailable source session.") }
     }
 
     // MARK: - Callbacks (inline keyboard)

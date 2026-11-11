@@ -232,6 +232,26 @@ public actor BackendHTTPClient {
         timeout: TimeInterval? = nil,
         contentType: String = "application/json"
     ) async throws -> Data {
+        // #region agent debug
+#if DEBUG
+        let traceStart = ContinuousClock.now
+        let traceID = UUID().uuidString
+        let traceRoute = path.hasPrefix("/v1/agent-sessions") ? "catalog"
+            : path.contains("/sessions") ? "session"
+            : path.hasPrefix("/v1/agents") ? "agents"
+            : path.hasPrefix("/v1/projects") ? "projects" : "other"
+        let traceTopology: String
+        switch endpoint {
+        case .direct: traceTopology = "direct"
+        case .relay: traceTopology = "relay"
+        case .managed: traceTopology = "managed"
+        }
+        ChatLatencyTrace.record("H2", "http.data", "started", data: ["id": traceID, "route": traceRoute, "method": method, "topology": traceTopology])
+        defer {
+            ChatLatencyTrace.record("H2", "http.data", "finished", data: ["id": traceID, "elapsed_ms": ChatLatencyTrace.milliseconds(since: traceStart)])
+        }
+#endif
+// #endregion
         if case .managed(_, let targetDeviceID) = endpoint {
             let startedAt = Date()
             let response: RemoteCoreResponse

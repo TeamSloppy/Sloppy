@@ -107,6 +107,7 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main"),
     ] + platformDependencies,
     targets: [
+        .systemLibrary(name: "CWidgetZlib", pkgConfig: "zlib", providers: [.apt(["zlib1g-dev"]), .brew(["zlib"])]),
         .target(
             name: "Protocols",
             dependencies: [
@@ -231,6 +232,7 @@ let package = Package(
         .target(
             name: "ChannelPluginTelegram",
             dependencies: [
+                .target(name: "CWidgetZlib", condition: .when(platforms: [.macOS, .linux])),
                 "ChannelPluginSupport",
                 "Protocols",
                 "PluginSDK",

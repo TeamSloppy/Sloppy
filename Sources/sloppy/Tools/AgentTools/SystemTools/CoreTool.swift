@@ -183,6 +183,9 @@ protocol SiteToolService: Sendable {
 /// Operations backed by CoreService that project and actor tools require.
 /// CoreService conforms to this protocol to provide actor-isolated access.
 protocol ProjectToolService: Sendable {
+    func sendTelegramWidget(channelID: String, request: TelegramWidgetRequest) async throws -> String
+    func updateTelegramWidget(channelID: String, handle: String, chatData: String) async throws
+
     func findProjectForChannel(channelId: String, topicId: String?) async -> ProjectRecord?
     func getProject(id: String) async throws -> ProjectRecord
     func createTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord
@@ -269,6 +272,9 @@ enum ProjectToolServiceWorkflowError: Error {
 }
 
 extension ProjectToolService {
+    func sendTelegramWidget(channelID: String, request: TelegramWidgetRequest) async throws -> String { throw URLError(.unsupportedURL) }
+    func updateTelegramWidget(channelID: String, handle: String, chatData: String) async throws { throw URLError(.unsupportedURL) }
+
     func listCanvasWorkspaces(
         principalKind _: WorkspacePrincipalKind,
         principalId _: String,

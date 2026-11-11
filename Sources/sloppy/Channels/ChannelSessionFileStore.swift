@@ -218,6 +218,17 @@ actor ChannelSessionFileStore {
         )
     }
 
+    /// Atomic generation check and append, so a stale widget never creates a new session.
+    func recordWidgetAction(owner: TelegramWidgetOwner, content: String) throws {
+        guard let open = try currentOpenSession(channelId: owner.channelID), open.sessionId == owner.sessionID else {
+            throw StoreError.sessionNotFound
+        }
+        let fileURL = try existingSessionFileURL(sessionID: owner.sessionID)
+        let event = ChannelSessionEvent(channelId: owner.channelID, type: .userMessage,
+            userId: "tg:\(owner.userID)", content: content, createdAt: Date())
+        try append(events: [event], to: fileURL, createIfMissing: false)
+    }
+
     @discardableResult
     func recordAssistantMessage(
         channelId: String,

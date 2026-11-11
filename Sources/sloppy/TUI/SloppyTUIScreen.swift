@@ -408,6 +408,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var transientNoticeLine: String?
     var transientNoticeTask: Task<Void, Never>?
     var activeDiffBaseline: SloppyTUISessionUndoManagers.Baseline?
+    var buildProgressScrollOffset = 0
     var workspaceDiffScrollOffset = 0
     var workspaceDiffPreview: SloppyTUIWorkspaceDiffPreview?
     var lastAgentToolActivityAt: Date?

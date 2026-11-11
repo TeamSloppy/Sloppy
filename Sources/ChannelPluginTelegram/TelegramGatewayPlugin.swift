@@ -27,7 +27,7 @@ actor TelegramPlanInputSessionStore {
     }
 }
 
-public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayPlugin, PlanInputGatewayPlugin {
+public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayPlugin, PlanInputGatewayPlugin, TelegramWidgetGateway {
     static let thinkingDraftHTML = "<tg-thinking>Thinking...</tg-thinking>"
 
     private struct StreamState: Sendable {
@@ -60,6 +60,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
     private let logger: Logger
     private let modelPickerBridge: (any TelegramModelPickerBridge)?
     private let toolApprovalBridge: (any ToolApprovalBridge)?
+    private let widgetSessions = TelegramWidgetSessionStore()
     private let planInputSessions = TelegramPlanInputSessionStore()
     private var pollerTask: Task<Void, Never>?
     private var streams: [String: StreamState] = [:]
@@ -90,6 +91,16 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
         self.bot = TelegramBotAPI(botToken: botToken, logger: resolvedLogger)
         self.modelPickerBridge = modelPickerBridge
         self.toolApprovalBridge = toolApprovalBridge
+    }
+
+    // Internal transport injection for isolated gateway integration tests.
+    init(config: TelegramPluginConfig, bot: TelegramBotAPI) {
+        self.config = config
+        self.channelIds = Array(Set(config.channelChatMap.keys).union(config.topicChannelMap.values))
+        self.logger = Logger(label: "sloppy.plugin.telegram")
+        self.bot = bot
+        self.modelPickerBridge = nil
+        self.toolApprovalBridge = nil
     }
 
     func setActiveChatId(channelId: String, chatId: Int64) {
@@ -137,6 +148,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
             },
             modelPickerBridge: modelPickerBridge,
             toolApprovalBridge: toolApprovalBridge,
+            widgetSessions: widgetSessions,
             planInputSessions: planInputSessions
         )
         pollerTask = Task { await poller.run() }
@@ -145,6 +157,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
     public func stop() async {
         pollerTask?.cancel()
         pollerTask = nil
+        await widgetSessions.clear()
         streams.removeAll()
         approvalMessages.removeAll()
         logger.info("Telegram gateway plugin stopped.")
@@ -183,6 +196,43 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
                 showTyping: index == 0
             )
         }
+    }
+
+    public func sendWidget(owner: TelegramWidgetOwner, request: TelegramWidgetRequest) async throws -> String {
+        let binding = ChannelGatewayScope.parse(owner.channelID).baseChannelId
+        // A catch-all's last-active-chat is not an authenticated destination. Fail closed.
+        guard let chatID = config.chatId(forChannelId: binding), chatID != 0,
+              config.allowedChatIds.isEmpty || config.allowedChatIds.contains(chatID),
+              config.isAllowed(userId: owner.userID) else { throw TelegramWidgetError.forbidden }
+        try TelegramWidgetValidation.validate(html: request.html, caption: request.caption, chatData: request.chatData)
+        guard request.actions.count <= 32, Set(request.actions).count == request.actions.count,
+              request.actions.allSatisfy({ (1...64).contains($0.utf8.count) && !$0.contains("\0") })
+        else { throw TelegramWidgetError.invalidPayload }
+        let threadID = effectiveMessageThreadId(channelId: owner.channelID, topicId: nil)
+        if chatID < 0 {
+            _ = try await bot.sendMessage(chatId: chatID, text: request.caption, messageThreadId: threadID)
+            return "text_fallback"
+        }
+        guard chatID == owner.userID else { throw TelegramWidgetError.forbidden }
+        do {
+            let message = try await bot.sendWidget(chatId: chatID, html: request.html, caption: request.caption,
+                chatData: request.chatData, allowQueries: !request.actions.isEmpty, messageThreadId: threadID)
+            return await widgetSessions.register(owner: owner, chatID: chatID, messageID: message.messageId, actions: request.actions)
+        } catch TelegramAPIError.httpError(let status, let body) where status == 404 && Self.isUnknownWidgetMethod(body) {
+            _ = try await bot.sendMessage(chatId: chatID, text: request.caption, messageThreadId: threadID)
+            return "text_fallback"
+        }
+    }
+
+    static func isUnknownWidgetMethod(_ body: String) -> Bool {
+        // Exact Telegram protocol error, not arbitrary network/authentication failures.
+        guard let object = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] else { return false }
+        return object["description"] as? String == "Not Found"
+    }
+
+    public func updateWidget(owner: TelegramWidgetOwner, handle: String, chatData: String) async throws {
+        guard let entry = await widgetSessions.entry(handle: handle, owner: owner) else { throw TelegramWidgetError.unknownHandle }
+        try await bot.editMessageWidgetData(chatId: entry.chatID, messageId: entry.messageID, chatData: chatData)
     }
 
     public func presentPlanInputRequest(

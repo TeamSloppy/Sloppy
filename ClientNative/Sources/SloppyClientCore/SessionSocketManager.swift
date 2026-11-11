@@ -127,6 +127,11 @@ public actor SessionSocketManager {
             return
         }
 
+        // #region agent debug
+#if DEBUG
+        ChatLatencyTrace.record("H3", "socket", "opening", data: ["chat": sessionId])
+#endif
+// #endregion
         socketAttempt += 1
         logger.info("Opening session socket attempt \(socketAttempt): \(wsURL.absoluteString)")
         var request = URLRequest(url: wsURL)
@@ -168,6 +173,11 @@ public actor SessionSocketManager {
             guard !disposed, !Task.isCancelled else { return }
             continuation?.yield(ChatStreamUpdate(kind: .sessionReady, cursor: 0))
             let delay = reconnectDelay
+            // #region agent debug
+#if DEBUG
+            ChatLatencyTrace.record("H3", "socket.managed", "reconnecting", data: ["chat": sessionId, "delay_seconds": String(delay)])
+#endif
+// #endregion
             reconnectDelay = min(delay * 2, 30)
             do { try await retrySleep(.seconds(delay)) }
             catch { return }
@@ -199,6 +209,11 @@ public actor SessionSocketManager {
             } catch {
                 guard !disposed else { return }
                 let delay = reconnectDelay
+                // #region agent debug
+#if DEBUG
+                ChatLatencyTrace.record("H3", "socket.direct", "reconnecting", data: ["chat": sessionId, "delay_seconds": String(delay)])
+#endif
+// #endregion
                 logger.warning("Session socket attempt \(socketAttempt) disconnected: \(error). Reconnecting in \(delay)s")
                 self.task = nil
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -220,3 +235,52 @@ public actor SessionSocketManager {
         return segment.addingPercentEncoding(withAllowedCharacters: allowed) ?? segment
     }
 }
+
+// #region agent debug
+#if DEBUG
+/// Opt-in, bounded diagnostics. No URLs, payloads, credentials or raw errors.
+public enum ChatLatencyTrace {
+    private static let enabled = ProcessInfo.processInfo.environment["SLOPPY_CHAT_LATENCY_TRACE"] == "1"
+    private static let queue = DispatchQueue(label: "sloppy.chat-latency.trace", qos: .utility)
+    private static let output: URL = {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { root.deleteLastPathComponent() }
+        return root.appendingPathComponent(".sloppy/debug/debug-eec0d79c.log")
+    }()
+
+    public static func milliseconds(since start: ContinuousClock.Instant) -> String {
+        let elapsed = start.duration(to: .now).components
+        return String(Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15)
+    }
+
+    public static func record(_ hypothesis: String, _ location: String, _ message: String,
+                              data: [String: String] = [:]) {
+        guard enabled else { return }
+        let timestamp = Date().timeIntervalSince1970
+        let uptime = ProcessInfo.processInfo.systemUptime
+        queue.async {
+            let record: [String: Any] = [
+                "sessionId": "session-eec0d79c-623c-4d3b-bfcc-b19c1002aa5b",
+                "timestamp": timestamp, "hypothesisId": hypothesis,
+                "location": location, "message": message, "uptimeSeconds": uptime, "data": data
+            ]
+            guard var bytes = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]) else { return }
+            bytes.append(10)
+            let manager = FileManager.default
+            do {
+                try manager.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                            attributes: [.posixPermissions: 0o700])
+                if !manager.fileExists(atPath: output.path) {
+                    guard manager.createFile(atPath: output.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return }
+                }
+                // Stop rather than discard evidence once the bounded file is full.
+                let handle = try FileHandle(forWritingTo: output)
+                defer { try? handle.close() }
+                guard try handle.seekToEnd() < 2 * 1_024 * 1_024 else { return }
+                try handle.write(contentsOf: bytes)
+            } catch { /* Diagnostics must never interrupt chat delivery. */ }
+        }
+    }
+}
+#endif
+// #endregion
