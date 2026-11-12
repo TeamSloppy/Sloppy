@@ -42,6 +42,12 @@ extension Bundle {
       }
     }
 
-    return nil
+    #if SWIFT_PACKAGE
+      // Swift Testing's runner may be outside the build products directory.
+      // SwiftPM provides the authoritative resource location for that case.
+      return Bundle.module
+    #else
+      return nil
+    #endif
   }()
 }

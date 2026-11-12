@@ -153,6 +153,21 @@ struct WorkspaceSourceFileTests {
         #expect(!model.isLoading)
     }
 
+    @Test func linkedExternalFileUsesConversationEndpointAndSeparateTabIdentity() async throws {
+        let fixture = SourceFileFixture()
+        let model = WorkspaceSourceFileViewModel(reference: .init(path: "/remote/File.swift", line: 2),
+            apiClient: fixture.api, scope: .session(agentID: "agent", sessionID: "session"))
+        await model.loadIfNeeded()
+        #expect(fixture.requests.first?.url?.path == "/v1/agents/agent/sessions/session/linked-file")
+        #expect(model.lines == ["first", "second", "third", ""])
+        #expect(model.targetLine == 2)
+        let dock = WorkspaceDockState()
+        let ref = SourceFileReference(path: "/remote/File.swift")
+        dock.openSourceFile(ref, apiClient: fixture.api, scope: .session(agentID: "agent", sessionID: "one"))
+        dock.openSourceFile(ref, apiClient: fixture.api, scope: .session(agentID: "agent", sessionID: "two"))
+        #expect(dock.tabs.count == 2)
+    }
+
     @Test func agentWorkspaceAndFailureStayInPanel() async throws {
         let fixture = SourceFileFixture()
         let model = WorkspaceSourceFileViewModel(reference: .init(path: "missing.swift"),

@@ -24,6 +24,8 @@ public final class CoreHTTPServer {
     private let group: MultiThreadedEventLoopGroup
     private var channel: Channel?
 
+    var eventLoopGroup: any EventLoopGroup { group }
+
     public init(host: String, port: Int, router: CoreRouter, logger: Logger) {
         self.host = host
         self.port = port
@@ -37,6 +39,11 @@ public final class CoreHTTPServer {
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .serverChannelInitializer { channel in
+                channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(AcceptBackoffHandler(shouldForwardIOErrorCaught: false))
+                }
+            }
             .childChannelInitializer { [router, logger] channel in
                 let httpHandler = CoreHTTPHandler(router: router, logger: logger)
                 let webSocketUpgrader = NIOWebSocketServerUpgrader(
@@ -118,10 +125,18 @@ public final class CoreHTTPServer {
 
     /// Shuts server down and releases event loops.
     public func shutdown() throws {
+        var closeError: (any Error)?
         if let channel {
-            try channel.close().wait()
+            do {
+                try channel.close().wait()
+            } catch ChannelError.alreadyClosed {
+                // The listener may already have closed before waitUntilClosed returns.
+            } catch {
+                closeError = error
+            }
         }
         try group.syncShutdownGracefully()
+        if let closeError { throw closeError }
     }
 }
 

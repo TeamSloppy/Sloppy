@@ -17,7 +17,7 @@ struct SidebarAgentAvatarTests {
         #expect(SidebarSessionActivity.completed.avatarEmotion == .happy)
     }
 
-    @Test func nativeChatRowsShowStatusWithoutCharacters() async throws {
+    @Test func inactiveChatStatusRemainsStatic() async throws {
         AppKitTestAccessibility.enable()
         let host = NSHostingView(rootView: SidebarAvatarFixture()
             .environment(\.theme, .sloppyDark)
@@ -35,7 +35,11 @@ struct SidebarAgentAvatarTests {
         let second = try snapshot(host)
         #expect(first.representation(using: .png, properties: [:]) == second.representation(using: .png, properties: [:]))
         #expect(AppKitTestAccessibility.element(in: host, identifier: "sidebar.session.avatar") == nil)
-        #expect(AppKitTestAccessibility.element(in: host, identifier: "sidebar.session.status") != nil)
+        // A native Button merges its label children. Status must remain available
+        // as the row's accessible value rather than requiring a separate child.
+        let row = try #require(AppKitTestAccessibility.element(in: host, identifier: "sidebar.session.fixture-1"))
+        let value = row.perform(NSSelectorFromString("accessibilityValue"))?.takeUnretainedValue() as? String
+        #expect(value == "Task completed")
         if let directory = ProcessInfo.processInfo.environment["SLOPPY_SIDEBAR_SCREENSHOTS"] {
             try #require(second.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent("sidebar-chat-status.png"))
@@ -51,7 +55,7 @@ struct SidebarAgentAvatarTests {
 }
 
 private struct SidebarAvatarFixture: View {
-    private let states: [SidebarSessionActivity?] = [nil, .working, .waitingForInput, .failed, .completed]
+    private let states: [SidebarSessionActivity?] = [nil, .completed, .waitingForInput, .failed, .completed]
     private let titles = ["Plan the release", "Update the client", "Review deployment", "Check the build", "Parallel agents"]
     private let agents = ["a", "b", "c", "d", "a"]
 

@@ -515,6 +515,10 @@ public actor SloppyAPIClient {
         try await projects.searchProjectFiles(projectId: projectId, query: query, limit: limit)
     }
 
+    public func fetchSessionLinkedFile(agentId: String, sessionId: String, path: String) async throws -> ProjectFileContentResponse {
+        try await agents.fetchSessionLinkedFile(agentId: agentId, sessionId: sessionId, path: path)
+    }
+
     public func fetchProjectFileContent(projectId: String, path: String) async throws -> ProjectFileContentResponse {
         try await projects.fetchProjectFileContent(projectId: projectId, path: path)
     }

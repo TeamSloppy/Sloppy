@@ -5,6 +5,7 @@ import SloppyClientUI
 struct WorkspaceSourceFileView: View {
     let viewModel: WorkspaceSourceFileViewModel
     @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     private var foreground: Color { theme.colors.textPrimary }
     private var background: Color { theme.colors.background }
@@ -92,7 +93,7 @@ struct WorkspaceSourceFileView: View {
                                         .foregroundStyle(muted)
                                         .frame(width: gutterWidth, alignment: .trailing)
                                         .accessibilityHidden(true)
-                                    Text(verbatim: viewModel.lines[index].isEmpty ? " " : viewModel.lines[index])
+                                    Text(highlightedLine(index))
                                         .textSelection(.enabled)
                                         .fixedSize(horizontal: true, vertical: false)
                                 }
@@ -115,6 +116,31 @@ struct WorkspaceSourceFileView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func highlightedLine(_ index: Int) -> AttributedString {
+        guard viewModel.syntaxLines.indices.contains(index) else {
+            return AttributedString(viewModel.lines[index].isEmpty ? " " : viewModel.lines[index])
+        }
+        var result = AttributedString()
+        for run in viewModel.syntaxLines[index] {
+            var part = AttributedString(run.text)
+            part.foregroundColor = syntaxColor(run.kind)
+            result.append(part)
+        }
+        return result.characters.isEmpty ? AttributedString(" ") : result
+    }
+
+    private func syntaxColor(_ kind: String) -> Color {
+        let dark = colorScheme == .dark
+        switch kind {
+        case "keyword", "atrule", "boolean": return dark ? Color(red: 0.94, green: 0.55, blue: 0.76) : Color(red: 0.60, green: 0.16, blue: 0.40)
+        case "string", "char", "attr-value": return dark ? Color(red: 0.78, green: 0.89, blue: 0.65) : Color(red: 0.22, green: 0.40, blue: 0.16)
+        case "number", "constant": return dark ? Color(red: 0.91, green: 0.72, blue: 0.48) : Color(red: 0.52, green: 0.28, blue: 0.10)
+        case "function", "class-name", "builtin": return dark ? Color(red: 0.52, green: 0.79, blue: 0.92) : Color(red: 0.12, green: 0.34, blue: 0.56)
+        case "comment", "prolog": return muted
+        default: return foreground
         }
     }
 

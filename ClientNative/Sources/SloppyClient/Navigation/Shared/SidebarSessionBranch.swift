@@ -41,6 +41,16 @@ struct SidebarSessionBranch: View {
                     }
                 }
                 .padding(.leading, CGFloat(depth) * 16)
+                .overlay(alignment: .leading) {
+                    HStack(spacing: 14) {
+                        ForEach(0..<max(0, depth), id: \.self) { _ in
+                            Rectangle().fill(theme.colors.textMuted.opacity(0.45)).frame(width: 2)
+                        }
+                    }
+                    .padding(.leading, 8)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
             if expanded {
                 ForEach(children, id: \.storageID) { child in
                     AnyView(SidebarSessionBranch(viewModel: viewModel, session: child, tree: tree,

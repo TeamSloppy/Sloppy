@@ -427,6 +427,19 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/agents/:agentId/sessions/:sessionId/linked-file", metadata: RouteMetadata(summary: "Preview conversation file link", description: "Read an exact absolute Markdown file link persisted in this session, including outside project roots", tags: ["Agents"])) { request in
+            do {
+                let content = try await service.readSessionLinkedFile(
+                    agentID: request.pathParam("agentId") ?? "",
+                    sessionID: request.pathParam("sessionId") ?? "",
+                    path: request.queryParam("path") ?? ""
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: content)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "linked_file_unavailable"])
+            }
+        }
+
         router.get("/v1/agents/:agentId/sessions/:sessionId/attachments/:attachmentId", metadata: RouteMetadata(summary: "Read session attachment", description: "Returns a bounded attachment belonging to this session", tags: ["Agents"])) { request in
             do {
                 let attachment = try await service.getAgentSessionAttachment(

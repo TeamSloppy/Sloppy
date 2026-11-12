@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import ImageIO
 import SloppyClientCore
+import Textual
 
 @Observable
 @MainActor
@@ -9,6 +10,7 @@ final class WorkspaceSourceFileViewModel {
     enum Scope: Equatable {
         case project(String)
         case agent(String)
+        case session(agentID: String, sessionID: String)
         case unavailable
     }
 
@@ -17,6 +19,7 @@ final class WorkspaceSourceFileViewModel {
     private(set) var reference: SourceFileReference
     private(set) var content: ProjectFileContentResponse?
     private(set) var lines: [String] = []
+    private(set) var syntaxLines: [[SourceSyntaxRun]] = []
     private(set) var image: CGImage?
     private(set) var isLoading = false
     private var activeLoadID: UUID?
@@ -46,6 +49,7 @@ final class WorkspaceSourceFileViewModel {
         content = nil
         image = nil
         lines = []
+        syntaxLines = []
         errorMessage = nil
         loadRevision += 1
         navigationRevision += 1
@@ -70,6 +74,8 @@ final class WorkspaceSourceFileViewModel {
                 response = try await apiClient.fetchProjectFileContent(projectId: id, path: reference.path)
             case .agent(let id):
                 response = try await apiClient.fetchAgentFileContent(agentId: id, path: reference.path)
+            case .session(let agentID, let sessionID):
+                response = try await apiClient.fetchSessionLinkedFile(agentId: agentID, sessionId: sessionID, path: reference.path)
             case .unavailable:
                 errorMessage = "Open this link from a conversation with a project or agent."
                 return
@@ -99,9 +105,57 @@ final class WorkspaceSourceFileViewModel {
             content = response
             lines = prepared.lines
             image = prepared.image
+            // Tokenization runs off MainActor and is cached for lazy line rendering.
+            syntaxLines = []
+            if response.imageData == nil,
+               let language = Self.syntaxLanguage(for: reference.path) {
+                let normalized = prepared.lines.joined(separator: "\n")
+                let tokens = await SyntaxHighlighting.tokens(code: normalized, language: language)
+                let highlighted = await Task.detached(priority: .utility) { Self.splitSyntax(tokens) }.value
+                guard !Task.isCancelled, activeLoadID == loadID else { return }
+                syntaxLines = highlighted
+            }
         } catch {
             guard !Task.isCancelled, activeLoadID == loadID else { return }
-            errorMessage = "Unable to open this file. It may be unavailable, outside the workspace, or in an unsupported format. \(error.localizedDescription)"
+            errorMessage = "Unable to open this file. It may be unavailable, not linked in this conversation, or in an unsupported format. \(error.localizedDescription)"
         }
     }
+    nonisolated static func syntaxLanguage(for path: String) -> String? {
+        switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+        case "swift": "swift"
+        case "kt", "kts": "kotlin"
+        case "js", "jsx": "javascript"
+        case "ts", "tsx": "typescript"
+        case "json": "json"
+        case "py": "python"
+        case "sh", "bash": "bash"
+        case "c", "h": "c"
+        case "cpp", "hpp", "cc": "cpp"
+        case "rs": "rust"
+        case "yaml", "yml": "yaml"
+        case "md": "markdown"
+        case "html", "xml": "markup"
+        case "css": "css"
+        default: nil
+        }
+    }
+
+    nonisolated static func splitSyntax(_ tokens: [SyntaxHighlightToken]) -> [[SourceSyntaxRun]] {
+        var lines: [[SourceSyntaxRun]] = [[]]
+        for token in tokens {
+            let parts = token.content.components(separatedBy: "\n")
+            for (index, part) in parts.enumerated() {
+                if index > 0 { lines.append([]) }
+                if !part.isEmpty { lines[lines.count - 1].append(.init(text: part, kind: token.kind)) }
+            }
+        }
+        return lines
+    }
+
+}
+
+
+struct SourceSyntaxRun: Sendable, Equatable {
+    let text: String
+    let kind: String
 }

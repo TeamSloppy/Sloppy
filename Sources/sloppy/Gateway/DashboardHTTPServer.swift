@@ -186,21 +186,26 @@ final class DashboardHTTPServer {
     private let port: Int
     private let responder: DashboardContentResolver
     private let logger: Logger
-    private let group: MultiThreadedEventLoopGroup
+    private let group: any EventLoopGroup
     private var channel: Channel?
 
-    init(host: String, port: Int, responder: DashboardContentResolver, logger: Logger) {
+    init(host: String, port: Int, responder: DashboardContentResolver, logger: Logger, group: any EventLoopGroup) {
         self.host = host
         self.port = port
         self.responder = responder
         self.logger = logger
-        self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        self.group = group
     }
 
     func start() throws {
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 128)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .serverChannelInitializer { channel in
+                channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(AcceptBackoffHandler(shouldForwardIOErrorCaught: false))
+                }
+            }
             .childChannelInitializer { [responder, logger] channel in
                 channel.pipeline.configureHTTPServerPipeline().flatMap {
                     channel.pipeline.addHandler(DashboardHTTPHandler(responder: responder, logger: logger))
@@ -213,9 +218,9 @@ final class DashboardHTTPServer {
 
     func shutdown() throws {
         if let channel {
+            self.channel = nil
             try channel.close().wait()
         }
-        try group.syncShutdownGracefully()
     }
 
     var boundPort: Int? {

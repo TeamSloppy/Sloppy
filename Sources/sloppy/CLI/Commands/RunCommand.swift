@@ -104,6 +104,7 @@ struct RunCommand: AsyncParsableCommand {
             await ServerLoggingBootstrapper.shared.bootstrapIfNeeded(logFileURL: systemLogFileURL)
             let logger = Logger.sloppy(label: "sloppy.core.main")
             runtimeLogger = logger
+            prepareServerFileDescriptorLimit(logger: logger)
             await CoreObservability.shared.start(logger: logger)
             await ServerFatalSignalLogger.shared.installIfNeeded()
             logger.info("Workspace prepared at \(workspaceRoot.path)")
@@ -125,6 +126,7 @@ struct RunCommand: AsyncParsableCommand {
                 router: router,
                 logger: logger
             )
+            defer { try? server.shutdown() }
 
             if let openapiPath = openapiPath {
                 let data = try await router.generateOpenAPISpec()
@@ -192,6 +194,7 @@ struct RunCommand: AsyncParsableCommand {
                 let launch = startDashboardServerIfAvailable(
                     config: config,
                     logger: logger,
+                    coreServer: server,
                     apiBase: endpoints.dashboardAPIBase,
                     localAPIBase: endpoints.localAPIURL,
                     publicDashboardURL: endpoints.preferredDashboardURL,
@@ -211,7 +214,6 @@ struct RunCommand: AsyncParsableCommand {
             logger.info("sloppy foreground server mode is active")
             defer {
                 try? dashboardServer?.shutdown()
-                try? server.shutdown()
                 Task { await service.shutdownChannelPlugins() }
             }
             try server.waitUntilClosed()
@@ -668,6 +670,35 @@ func emitServerBootstrapWarning(_ message: String) {
     FileHandle.standardError.write(Data(payload.utf8))
 }
 
+private func prepareServerFileDescriptorLimit(logger: Logger) {
+    #if os(macOS) || os(Linux)
+    #if os(Linux)
+    let resource = __rlimit_resource_t(RLIMIT_NOFILE.rawValue)
+    #else
+    let resource = RLIMIT_NOFILE
+    #endif
+    var limit = rlimit()
+    guard getrlimit(resource, &limit) == 0 else {
+        logger.warning("Could not read the open file limit (errno \(errno))")
+        return
+    }
+
+    // Leave room for client sockets, provider connections and worker subprocesses.
+    let desired: rlim_t = 8_192
+    let previous = limit.rlim_cur
+    limit.rlim_cur = min(desired, limit.rlim_max)
+    if limit.rlim_cur > previous {
+        if setrlimit(resource, &limit) == 0 {
+            logger.info("Raised the open file limit from \(previous) to \(limit.rlim_cur)")
+        } else {
+            logger.warning("Could not raise the open file limit from \(previous) to \(limit.rlim_cur) (errno \(errno))")
+        }
+    } else if previous < desired {
+        logger.warning("Open file limit is capped at \(previous) by the process hard limit")
+    }
+    #endif
+}
+
 private struct DashboardLaunch {
     let server: DashboardHTTPServer
     let publicURL: String
@@ -676,6 +707,7 @@ private struct DashboardLaunch {
 private func startDashboardServerIfAvailable(
     config: CoreConfig,
     logger: Logger,
+    coreServer: CoreHTTPServer,
     apiBase: String,
     localAPIBase: String?,
     publicDashboardURL: String?,
@@ -709,7 +741,8 @@ private func startDashboardServerIfAvailable(
         host: config.listen.host,
         port: RunCommand.dashboardPort,
         responder: resolver,
-        logger: logger
+        logger: logger,
+        group: coreServer.eventLoopGroup
     )
 
     do {

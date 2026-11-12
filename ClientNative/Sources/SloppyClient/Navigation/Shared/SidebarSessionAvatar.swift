@@ -29,6 +29,7 @@ struct SidebarSessionAvatar: View {
     var size: CGFloat = 24
 
     @Environment(\.theme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var visibleAgents: [SidebarSessionAvatarAgent] {
         Array(agents.prefix(3))
@@ -89,6 +90,30 @@ struct SidebarSessionAvatar: View {
 
     private var statusBadge: some View {
         ZStack {
+            if isPulsing {
+                TimelineView(.animation(minimumInterval: 1.0 / 20)) { timeline in
+                    badge.opacity(Self.pulseOpacity(at: timeline.date, isActive: true))
+                }
+            } else {
+                badge
+            }
+        }
+        .frame(width: 12, height: 12)
+    }
+
+    private var isPulsing: Bool { Self.shouldPulse(activity: activity, requiresApproval: requiresApproval, reduceMotion: reduceMotion) }
+
+    static func shouldPulse(activity: SidebarSessionActivity?, requiresApproval: Bool, reduceMotion: Bool) -> Bool {
+        activity == .working && !requiresApproval && !reduceMotion
+    }
+
+    static func pulseOpacity(at date: Date, isActive: Bool) -> Double {
+        guard isActive else { return 1 }
+        return 0.65 + 0.35 * cos(date.timeIntervalSinceReferenceDate * 2 * .pi / 1.4)
+    }
+
+    private var badge: some View {
+        ZStack {
             Circle().fill(badgeColor)
             if let symbol = badgeSymbol {
                 Image(systemName: symbol)
@@ -98,6 +123,9 @@ struct SidebarSessionAvatar: View {
         }
         .frame(width: 12, height: 12)
         .overlay { Circle().strokeBorder(theme.colors.background, lineWidth: 2) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(requiresApproval ? "Requires approval" : statusLabel)
+        .accessibilityIdentifier("sidebar.session.status")
     }
 
     private var badgeColor: Color {

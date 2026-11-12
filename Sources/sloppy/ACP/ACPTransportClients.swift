@@ -46,6 +46,12 @@ struct ACPClientFactory: Sendable {
 }
 
 actor LocalProcessACPClient: ACPTransportClient {
+    // The ACP library synchronously loads the login shell on a cold cache.
+    // Warm it off the cooperative executor before concurrent agents launch.
+    private static let shellEnvironmentReady = Task {
+        _ = await ShellEnvironment.loadUserShellEnvironmentAsync()
+    }
+
     private let client = Client()
     private let command: String
     private let arguments: [String]
@@ -82,6 +88,8 @@ actor LocalProcessACPClient: ACPTransportClient {
         timeout: TimeInterval?
     ) async throws -> InitializeResponse {
         try await logged(method: "initialize") {
+            await Self.shellEnvironmentReady.value
+            try Task.checkCancellation()
             try await client.launch(
                 agentPath: command,
                 arguments: arguments,

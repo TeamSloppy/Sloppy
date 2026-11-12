@@ -88,3 +88,20 @@ struct CodeToken: Hashable, Sendable {
 extension Logger.Textual.Category {
   fileprivate static let codeTokenizer = Self(rawValue: "codeTokenizer")
 }
+
+/// Reusable value-only adapter for native source previews.
+public struct SyntaxHighlightToken: Sendable, Equatable {
+  public let content: String
+  public let kind: String
+}
+
+public enum SyntaxHighlighting {
+  public static func tokens(code: String, language: String) async -> [SyntaxHighlightToken] {
+    guard let tokenizer = CodeTokenizer.shared else {
+      return [SyntaxHighlightToken(content: code, kind: "plain")]
+    }
+    return await tokenizer.tokenize(code: code, language: language).map {
+      SyntaxHighlightToken(content: $0.content, kind: $0.type.rawValue)
+    }
+  }
+}

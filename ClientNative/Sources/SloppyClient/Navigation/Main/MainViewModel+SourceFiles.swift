@@ -1,3 +1,4 @@
+import Foundation
 import SloppyClientCore
 import SloppyFeatureChat
 
@@ -71,7 +72,10 @@ extension MainViewModel {
             return
         }
         let scope: WorkspaceSourceFileViewModel.Scope
-        if let projectID = chat.activeProjectIdForWorkspacePanel {
+        if (reference.path as NSString).isAbsolutePath,
+           let agentID = chat.selectedAgent?.id, let sessionID = chat.selectedSessionId {
+            scope = .session(agentID: agentID, sessionID: sessionID)
+        } else if let projectID = chat.activeProjectIdForWorkspacePanel {
             scope = .project(projectID)
         } else if let agentID = chat.selectedAgent?.id {
             scope = .agent(agentID)

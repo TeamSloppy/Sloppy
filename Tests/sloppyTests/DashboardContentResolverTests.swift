@@ -74,7 +74,7 @@ func dashboardRuntimeConfigUsesLoopbackForLocalConnections(localAddress: String?
     )
     let server = DashboardHTTPServer(
         host: "127.0.0.1", port: 0, responder: resolver,
-        logger: logger
+        logger: logger, group: coreServer.eventLoopGroup
     )
     try server.start()
     defer { try? server.shutdown() }
@@ -96,4 +96,8 @@ func dashboardRuntimeConfigUsesLoopbackForLocalConnections(localAddress: String?
 
     #expect((accountResponse as? HTTPURLResponse)?.statusCode == 200)
     #expect(account["signedIn"] as? Bool == false)
+
+    try server.shutdown()
+    let (_, healthResponse) = try await URLSession.shared.data(from: try #require(URL(string: "\(apiBase)/health")))
+    #expect((healthResponse as? HTTPURLResponse)?.statusCode == 200)
 }

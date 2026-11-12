@@ -467,6 +467,10 @@ public actor AgentService {
         return try await http.get("/v1/agents/\(encodedAgent)/files\(query)")
     }
 
+    public func fetchSessionLinkedFile(agentId: String, sessionId: String, path: String) async throws -> ProjectFileContentResponse {
+        try await http.get("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions/\(BackendHTTPClient.encodePathSegment(sessionId))/linked-file?path=\(BackendHTTPClient.encodeQueryValue(path))")
+    }
+
     public func fetchAgentFileContent(agentId: String, path: String) async throws -> ProjectFileContentResponse {
         let encodedAgent = BackendHTTPClient.encodePathSegment(agentId)
         let encodedPath = BackendHTTPClient.encodeQueryValue(path.trimmingCharacters(in: .whitespacesAndNewlines))

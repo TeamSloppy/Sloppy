@@ -75,6 +75,7 @@ struct SidebarSessionRow: View {
         primaryAction
         .buttonStyle(SidebarHoverButtonStyle(isHovered: isHovered, isSelected: isSelected))
         .accessibilityIdentifier("sidebar.session.\(session.storageID)")
+        .accessibilityValue(activityDescription)
         .onHover { isHovered = $0 }
         .sheet(isPresented: $isRenamePresented) {
             ChatRenameSheet(title: session.title) { title in
@@ -113,6 +114,17 @@ struct SidebarSessionRow: View {
             Button("Delete Chat", role: .destructive, action: onDelete)
         }
         .accessibilityHint(projectName.map { "Project \($0)" } ?? "")
+    }
+
+    private var activityDescription: String {
+        if requiresApproval { return "Requires approval" }
+        switch activity {
+        case .working: return "Agent is working"
+        case .completed: return "Task completed"
+        case .waitingForInput: return "Agent is waiting for input"
+        case .failed: return "Task was interrupted"
+        case .none: return ""
+        }
     }
 
     @ViewBuilder
