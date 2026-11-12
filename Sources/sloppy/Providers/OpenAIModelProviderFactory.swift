@@ -4,6 +4,8 @@ import PluginSDK
 
 /// OpenAI model provider factory.
 struct OpenAIModelProviderFactory: ModelProviderFactory {
+    var environmentLookup: @Sendable (String) -> String? = { ProcessInfo.processInfo.environment[$0] }
+
     func buildProvider(from config: ModelProviderBuildConfig) -> (any ModelProvider)? {
         var providers: [any ModelProvider] = []
 
@@ -32,9 +34,11 @@ struct OpenAIModelProviderFactory: ModelProviderFactory {
         let primaryConfig = config.modelConfigs.first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
         }
-        let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
-        let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedStaticKey = configuredKey.isEmpty ? apiKey : configuredKey
+        // An explicit unresolved reference must not become a literal key or fall back to another account.
+        guard let resolution = try? ProviderAPIKeyResolver.resolve(
+            configured: primaryConfig?.apiKey, environmentLookup: environmentLookup
+        ) else { return nil }
+        let resolvedStaticKey = resolution.key
 
         let parsedPrimaryURL = CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
         let allowKeylessLAN = parsedPrimaryURL.map { OpenAICompatibleCatalogEndpoint.hostAllowsKeylessOpenAIProbe(host: $0.host) } ?? false

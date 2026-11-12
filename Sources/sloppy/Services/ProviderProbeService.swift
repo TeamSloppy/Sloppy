@@ -272,48 +272,31 @@ struct ProviderProbeService {
 
         let allowKeylessLAN = OpenAICompatibleCatalogEndpoint.hostAllowsKeylessOpenAIProbe(host: apiURL.host)
 
-        let configuredKey = (primaryOpenAIConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let environmentKey = environmentLookup("OPENAI_API_KEY")?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let requestKey = request.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
         let resolvedKey: String
         let usedEnvironmentKey: Bool
-        switch authMethod {
-        case .apiKey:
-            if !requestKey.isEmpty {
-                resolvedKey = requestKey
-                usedEnvironmentKey = false
-            } else if !configuredKey.isEmpty {
-                resolvedKey = configuredKey
-                usedEnvironmentKey = false
-            } else if !environmentKey.isEmpty {
-                resolvedKey = environmentKey
-                usedEnvironmentKey = true
-            } else if allowKeylessLAN {
-                resolvedKey = ""
-                usedEnvironmentKey = false
-            } else {
-                return ProviderProbeResponse(
-                    providerId: request.providerId,
-                    ok: false,
-                    usedEnvironmentKey: false,
-                    message: "OpenAI API key is missing. Provide a key or set OPENAI_API_KEY.",
-                    models: []
-                )
-            }
-        case .deeplink:
-            guard !environmentKey.isEmpty else {
-                return ProviderProbeResponse(
-                    providerId: request.providerId,
-                    ok: false,
-                    usedEnvironmentKey: false,
-                    message: "OpenAI web login does not authorize sloppy by itself. Set OPENAI_API_KEY for sloppy and try again.",
-                    models: []
-                )
-            }
-            resolvedKey = environmentKey
-            usedEnvironmentKey = true
+        do {
+            let configured = (request.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolution = try ProviderAPIKeyResolver.resolve(
+                configured: authMethod == .apiKey
+                    ? (configured.isEmpty ? primaryOpenAIConfig?.apiKey : configured) : nil,
+                environmentLookup: environmentLookup
+            )
+            resolvedKey = resolution.key
+            usedEnvironmentKey = resolution.usedEnvironmentKey
+        } catch {
+            return ProviderProbeResponse(
+                providerId: request.providerId, ok: false, usedEnvironmentKey: false,
+                message: error.localizedDescription, models: []
+            )
+        }
+        if resolvedKey.isEmpty, authMethod != .apiKey || !allowKeylessLAN {
+            return ProviderProbeResponse(
+                providerId: request.providerId, ok: false, usedEnvironmentKey: false,
+                message: authMethod == .apiKey
+                    ? "OpenAI API key is missing. Provide a key or set OPENAI_API_KEY."
+                    : "OpenAI web login does not authorize sloppy by itself. Set OPENAI_API_KEY for sloppy and try again.",
+                models: []
+            )
         }
 
         do {

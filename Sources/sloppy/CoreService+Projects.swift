@@ -349,15 +349,6 @@ extension CoreService {
             throw ProjectError.invalidProjectID
         }
 
-        let maxBytes = 2 * 1024 * 1024
-        let data = try Data(contentsOf: targetURL)
-        guard data.count <= maxBytes else {
-            throw ProjectError.invalidProjectID
-        }
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw ProjectError.invalidProjectID
-        }
-
         let responsePath: String
         if project?.kind == .workspace || (trimmedPath as NSString).isAbsolutePath {
             responsePath = targetURL.path
@@ -365,7 +356,13 @@ extension CoreService {
             responsePath = String(targetURL.path.dropFirst(rootURL.path.count))
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }
-        return ProjectFileContentResponse(path: responsePath, content: text, sizeBytes: data.count)
+        do {
+            return try await Task.detached(priority: .userInitiated) {
+                try WorkspaceFilePreview.read(url: targetURL, path: responsePath)
+            }.value
+        } catch WorkspaceFilePreview.ReadError.unsupportedFile {
+            throw ProjectError.invalidProjectID
+        }
     }
 
     /// Line stats and unified diff for the project workspace from its configured source-control provider.
@@ -2486,4 +2483,39 @@ extension CoreService {
         return targetPath
     }
 
+}
+
+/// Shared file-preview decoding. Deliberately has no arbitrary file-size cutoff.
+enum WorkspaceFilePreview {
+    enum ReadError: Error { case unsupportedFile }
+
+    static func read(url: URL, path: String) throws -> ProjectFileContentResponse {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+        guard values.isRegularFile == true else { throw ReadError.unsupportedFile }
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        if let mediaType = imageMediaType(data) {
+            return ProjectFileContentResponse(path: path, content: "", sizeBytes: data.count,
+                                              imageData: data, mediaType: mediaType)
+        }
+        guard !data.contains(0), let text = String(data: data, encoding: .utf8) else {
+            throw ReadError.unsupportedFile
+        }
+        return ProjectFileContentResponse(path: path, content: text, sizeBytes: data.count)
+    }
+
+    static func imageMediaType(_ data: Data) -> String? {
+        let prefix = Array(data.prefix(32))
+        if prefix.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) { return "image/png" }
+        if prefix.starts(with: [0xff, 0xd8, 0xff]) { return "image/jpeg" }
+        if prefix.starts(with: Array("GIF87a".utf8)) || prefix.starts(with: Array("GIF89a".utf8)) { return "image/gif" }
+        if prefix.count >= 12, Array(prefix[0..<4]) == Array("RIFF".utf8),
+           Array(prefix[8..<12]) == Array("WEBP".utf8) { return "image/webp" }
+        if prefix.starts(with: [0x49, 0x49, 0x2a, 0]) || prefix.starts(with: [0x4d, 0x4d, 0, 0x2a]) { return "image/tiff" }
+        if prefix.starts(with: [0x42, 0x4d]), data.count >= 26 { return "image/bmp" }
+        if prefix.count >= 12, Array(prefix[4..<8]) == Array("ftyp".utf8),
+           ["heic", "heix", "hevc", "hevx"].contains(String(bytes: prefix[8..<12], encoding: .ascii) ?? "") {
+            return "image/heic"
+        }
+        return nil
+    }
 }

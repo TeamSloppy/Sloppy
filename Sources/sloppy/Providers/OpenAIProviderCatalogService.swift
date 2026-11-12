@@ -5,6 +5,13 @@ import FoundationNetworking
 import Protocols
 
 struct OpenAIProviderCatalogService {
+    var environmentLookup: @Sendable (String) -> String? = { ProcessInfo.processInfo.environment[$0] }
+    var transport: ProviderProbeService.Transport = { request in
+        let (data, response) = try await SloppyURLSessionFactory.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        return (data, http)
+    }
+
     private struct OpenAIModelsResponse: Decodable {
         struct ModelItem: Decodable {
             let id: String
@@ -46,33 +53,23 @@ struct OpenAIProviderCatalogService {
 
         let allowKeylessLAN = OpenAICompatibleCatalogEndpoint.hostAllowsKeylessOpenAIProbe(host: baseURL.host)
 
-        let configuredKey = (primaryOpenAIConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let requestKey = request.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        var usedEnvironmentKey = false
-        let resolvedKey: String? = {
-            switch request.authMethod {
-            case .apiKey:
-                if !requestKey.isEmpty {
-                    return requestKey
-                }
-                if !configuredKey.isEmpty {
-                    return configuredKey
-                }
-                if !envKey.isEmpty {
-                    usedEnvironmentKey = true
-                    return envKey
-                }
-                return nil
-            case .deeplink:
-                if !envKey.isEmpty {
-                    usedEnvironmentKey = true
-                    return envKey
-                }
-                return nil
-            }
-        }()
+        let usedEnvironmentKey: Bool
+        let resolvedKey: String?
+        do {
+            let requestKey = (request.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolution = try ProviderAPIKeyResolver.resolve(
+                configured: request.authMethod == .apiKey
+                    ? (requestKey.isEmpty ? primaryOpenAIConfig?.apiKey : requestKey) : nil,
+                environmentLookup: environmentLookup
+            )
+            resolvedKey = resolution.key.isEmpty ? nil : resolution.key
+            usedEnvironmentKey = resolution.usedEnvironmentKey
+        } catch {
+            return OpenAIProviderModelsResponse(
+                provider: "openai", authMethod: request.authMethod, usedEnvironmentKey: false,
+                source: "fallback", warning: error.localizedDescription, models: Self.fallbackOpenAIModels
+            )
+        }
 
         let keyForFetch: String?
         if let k = resolvedKey, !k.isEmpty {
@@ -139,10 +136,11 @@ struct OpenAIProviderCatalogService {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
         }
 
-        let configuredKey = (primaryOpenAIConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let hasConfiguredKey = !configuredKey.isEmpty
-        let hasEnvironmentKey = !envKey.isEmpty
+        let resolution = try? ProviderAPIKeyResolver.resolve(
+            configured: primaryOpenAIConfig?.apiKey, environmentLookup: environmentLookup
+        )
+        let hasConfiguredKey = resolution.map { !$0.key.isEmpty && !$0.usedEnvironmentKey } ?? false
+        let hasEnvironmentKey = resolution.map { !$0.key.isEmpty && $0.usedEnvironmentKey } ?? false
 
         return OpenAIProviderStatusResponse(
             provider: "openai",
@@ -161,11 +159,7 @@ struct OpenAIProviderCatalogService {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
 
-        let (data, response) = try await SloppyURLSessionFactory.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-
+        let (data, http) = try await transport(request)
         guard (200..<300).contains(http.statusCode) else {
             throw URLError(.userAuthenticationRequired)
         }

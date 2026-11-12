@@ -132,10 +132,16 @@ public struct ProjectFileContentResponse: Codable, Sendable {
     public var content: String
     public var sizeBytes: Int
 
-    public init(path: String, content: String, sizeBytes: Int) {
+    /// Raster image bytes, encoded as base64 by Codable. Absent for text files.
+    public var imageData: Data?
+    public var mediaType: String?
+
+    public init(path: String, content: String, sizeBytes: Int, imageData: Data? = nil, mediaType: String? = nil) {
         self.path = path
         self.content = content
         self.sizeBytes = sizeBytes
+        self.imageData = imageData
+        self.mediaType = mediaType
     }
 }
 

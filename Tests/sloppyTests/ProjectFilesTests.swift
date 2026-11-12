@@ -524,3 +524,78 @@ func workspaceProjectPathAliasRejectsTraversalAndSymlinkEscape() async throws {
         }
     }
 }
+
+@Suite("Workspace file previews")
+struct WorkspaceFilePreviewTests {
+    @Test func projectReadsLargeTextImagesAndRejectsEscapes() async throws {
+        let config = CoreConfig.test
+        let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let router = CoreRouter(service: service)
+        let (id, directory) = try await makeProjectAndDir(router: router, config: config)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let text = String(repeating: "text\n", count: 450_000)
+        try Data(text.utf8).write(to: directory.appendingPathComponent("large.txt"))
+        let large = try await service.readProjectFile(projectID: id, path: "large.txt")
+        #expect(large.content == text)
+        #expect(large.sizeBytes > 2 * 1024 * 1024)
+        #expect(large.imageData == nil)
+
+        // A valid 1x1 PNG with legal trailing bytes exercises payload size independently of image dimensions.
+        var image = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1cAAAAASUVORK5CYII="))
+        image.append(Data(repeating: 0, count: 2 * 1024 * 1024))
+        try image.write(to: directory.appendingPathComponent("image.bin"))
+        let preview = try await service.readProjectFile(projectID: id, path: "image.bin")
+        #expect(preview.mediaType == "image/png")
+        #expect(preview.imageData == image)
+        #expect(preview.content.isEmpty)
+        #expect(try JSONDecoder().decode(ProjectFileContentResponse.self, from: JSONEncoder().encode(preview)).imageData == image)
+
+        try Data([0xff, 0, 0xfe]).write(to: directory.appendingPathComponent("not-image.jpg"))
+        await #expect(throws: (any Error).self) { try await service.readProjectFile(projectID: id, path: "not-image.jpg") }
+        await #expect(throws: (any Error).self) { try await service.readProjectFile(projectID: id, path: ".") }
+        let outside = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data("private".utf8).write(to: outside)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        try FileManager.default.createSymbolicLink(at: directory.appendingPathComponent("escape.txt"), withDestinationURL: outside)
+        await #expect(throws: (any Error).self) { try await service.readProjectFile(projectID: id, path: "escape.txt") }
+        await #expect(throws: (any Error).self) { try await service.readProjectFile(projectID: id, path: "../../outside") }
+    }
+
+    @Test func agentReadsLargeTextAndImageButKeepsVisibilityAndSymlinkBoundary() async throws {
+        let config = CoreConfig.test
+        let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let router = CoreRouter(service: service)
+        let id = "preview-\(UUID().uuidString.prefix(8).lowercased())"
+        let created = await router.handle(method: "POST", path: "/v1/agents", body: try JSONEncoder().encode(
+            AgentCreateRequest(id: id, displayName: "Preview", role: "Test")))
+        #expect(created.status == 201)
+        let directory = config.resolvedWorkspaceRootURL().appendingPathComponent("agents/\(id)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let text = String(repeating: "x", count: 2 * 1024 * 1024 + 1)
+        try Data(text.utf8).write(to: directory.appendingPathComponent("MEMORY.md"))
+        let large = try await service.readAgentFile(agentID: id, path: "MEMORY.md")
+        #expect(large.content == text)
+        let skills = directory.appendingPathComponent("skills")
+        try FileManager.default.createDirectory(at: skills, withIntermediateDirectories: true)
+        let jpeg = Data([0xff, 0xd8, 0xff, 0xe0]) + Data(repeating: 0, count: 2 * 1024 * 1024)
+        try jpeg.write(to: skills.appendingPathComponent("preview.jpg"))
+        let image = try await service.readAgentFile(agentID: id, path: "skills/preview.jpg")
+        #expect(image.imageData == jpeg)
+        #expect(image.mediaType == "image/jpeg")
+        await #expect(throws: (any Error).self) { try await service.readAgentFile(agentID: id, path: "config.json") }
+        let outside = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data("private".utf8).write(to: outside)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        try FileManager.default.createSymbolicLink(at: skills.appendingPathComponent("escape.txt"), withDestinationURL: outside)
+        await #expect(throws: (any Error).self) { try await service.readAgentFile(agentID: id, path: "skills/escape.txt") }
+    }
+
+    @Test func legacyTextPayloadRemainsDecodable() throws {
+        let response = try JSONDecoder().decode(ProjectFileContentResponse.self,
+            from: Data(#"{"path":"a.txt","content":"text","sizeBytes":4}"#.utf8))
+        #expect(response.content == "text")
+        #expect(response.imageData == nil)
+        #expect(response.mediaType == nil)
+    }
+}

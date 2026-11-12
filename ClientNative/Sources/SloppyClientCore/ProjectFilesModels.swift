@@ -33,11 +33,15 @@ public struct ProjectFileContentResponse: Codable, Sendable, Equatable {
     public var path: String
     public var content: String
     public var sizeBytes: Int
+    public var imageData: Data?
+    public var mediaType: String?
 
-    public init(path: String, content: String, sizeBytes: Int) {
+    public init(path: String, content: String, sizeBytes: Int, imageData: Data? = nil, mediaType: String? = nil) {
         self.path = path
         self.content = content
         self.sizeBytes = sizeBytes
+        self.imageData = imageData
+        self.mediaType = mediaType
     }
 }
 

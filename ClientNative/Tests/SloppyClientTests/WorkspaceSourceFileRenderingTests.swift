@@ -12,6 +12,70 @@ import SloppyUITestSupport
 @Suite("Source file link interaction", .serialized, .appKitUI, .appKitIsolation)
 @MainActor
 struct WorkspaceSourceFileRenderingTests {
+    @Test func rendersLargeJPEGWithLoadingAndReloadFeedback() async throws {
+        let illustration = NSImage(size: NSSize(width: 800, height: 480))
+        illustration.lockFocus()
+        NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.91, alpha: 1).setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 800, height: 480)).fill()
+        ("JPEG preview" as NSString).draw(at: NSPoint(x: 64, y: 300), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 48, weight: .bold), .foregroundColor: NSColor.black])
+        ("File larger than 2 MB" as NSString).draw(at: NSPoint(x: 64, y: 240), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 24), .foregroundColor: NSColor.darkGray])
+        illustration.unlockFocus()
+        let tiff = try #require(illustration.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        var jpeg = try #require(bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.9]))
+        jpeg.append(Data(repeating: 0, count: 3 * 1024 * 1024))
+        let fixture = SourceFileFixture(content: "", imageData: jpeg, delay: 0.5)
+        let model = WorkspaceSourceFileViewModel(reference: .init(path: "/remote/debug-screen.jpg"),
+            apiClient: fixture.api, scope: .project("project"))
+        let host = NSHostingView(rootView: WorkspaceSourceFileView(viewModel: model)
+            .environment(\.theme, .sloppyDark).preferredColorScheme(.dark))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 960, height: 640),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        for _ in 0..<100 {
+            if model.isLoading { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(model.isLoading)
+        try await Task.sleep(for: .milliseconds(80))
+        try capture(host, name: "file-loading.png")
+        for _ in 0..<200 {
+            if model.image != nil && !model.isLoading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(model.image != nil)
+        #expect(model.content?.sizeBytes == jpeg.count)
+        #expect(model.lines.isEmpty)
+        #expect(model.errorMessage == nil)
+        try await Task.sleep(for: .milliseconds(100))
+        try capture(host, name: "file-jpeg-preview.png")
+        model.reload()
+        for _ in 0..<100 {
+            if model.isLoading { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(model.isLoading)
+        for _ in 0..<200 {
+            if model.image != nil && !model.isLoading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(model.image != nil)
+        #expect(fixture.requests.count == 2)
+    }
+
+    private func capture(_ host: NSView, name: String) throws {
+        guard let directory = ProcessInfo.processInfo.environment["SLOPPY_SOURCE_FILE_SCREENSHOTS"] else { return }
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent(name))
+    }
+
     @Test func clicksNativeTranscriptLinkAndScrollsFileToRequestedLine() async throws {
         let content = (1...180).map { "let value\($0) = \($0)" }.joined(separator: "\n")
         let fixture = SourceFileFixture(content: content)

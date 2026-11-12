@@ -101,6 +101,35 @@ Environment variables provide a way to configure API keys without writing them i
 | `BRAVE_API_KEY` | Search | API key for Brave web search tool |
 | `PERPLEXITY_API_KEY` | Search | API key for Perplexity web search tool |
 
+### Custom ENV references for OpenAI-compatible API keys
+
+In the **OpenAI API** provider's **API Key** field (Dashboard or native client), enter
+`$ELIZA_TOKEN` or `${ELIZA_TOKEN}` instead of pasting the token. This also works in
+`models[].apiKey` for `openai-api` endpoints, including custom gateways:
+
+```json
+{
+  "title": "Yandex Eliza",
+  "providerCatalogId": "openai-api",
+  "apiKey": "$ELIZA_TOKEN",
+  "apiUrl": "https://api.eliza.yandex.net/raw/openrouter/v1",
+  "model": "gpt-5.4-mini"
+}
+```
+
+The variable must exist in the environment of the **Sloppy Core process**, not
+just in the browser, native client, or a separate terminal. Set it for the service
+or container running Core and restart that process after changing its environment.
+Only the reference is saved in the configuration; the value is resolved when the
+runtime provider is built and when testing the connection or loading models.
+Existing literal keys and the empty-field `OPENAI_API_KEY` fallback still work.
+An explicit missing/empty variable fails the connection test without sending a
+request or falling back to another key; the runtime provider is not built.
+
+Names use `[A-Za-z_][A-Za-z0-9_]*`. References must occupy the whole field;
+shell commands, default-value expressions, interpolation, and recursive expansion
+are not supported. This feature does not change other provider types or OAuth.
+
 ## Config file format
 
 Each model entry in `sloppy.json` has four fields:

@@ -36,7 +36,11 @@ struct WorkspaceSourceFileView: View {
             .padding(12)
             Divider()
 
-            if let error = viewModel.errorMessage {
+            if viewModel.isLoading {
+                ProgressView("Loading file…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("workspace.source-file.loading")
+            } else if let error = viewModel.errorMessage {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(error)
@@ -46,6 +50,14 @@ struct WorkspaceSourceFileView: View {
                     .padding(16)
                     .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
                 }
+            } else if let image = viewModel.image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel(viewModel.title)
+                    .accessibilityIdentifier("workspace.source-file.image")
             } else if viewModel.content != nil {
                 sourceContent
             } else {
@@ -58,7 +70,7 @@ struct WorkspaceSourceFileView: View {
         .foregroundStyle(foreground)
         .background(background)
         .mobileRefreshable(id: viewModel.reference.path) { await viewModel.loadIfNeeded(force: true) }
-        .task(id: viewModel.navigationRevision) { await viewModel.loadIfNeeded() }
+        .task(id: viewModel.loadRevision) { await viewModel.loadIfNeeded() }
         .accessibilityIdentifier("workspace.source-file")
     }
 

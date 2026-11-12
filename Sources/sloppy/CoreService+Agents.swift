@@ -151,16 +151,11 @@ extension CoreService {
             throw AgentStorageError.notFound
         }
 
-        let maxBytes = 2 * 1024 * 1024
-        let data = try Data(contentsOf: targetURL)
-        guard data.count <= maxBytes else {
+        do {
+            return try WorkspaceFilePreview.read(url: targetURL, path: normalizedPath)
+        } catch WorkspaceFilePreview.ReadError.unsupportedFile {
             throw AgentStorageError.invalidPayload
         }
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw AgentStorageError.invalidPayload
-        }
-
-        return ProjectFileContentResponse(path: normalizedPath, content: text, sizeBytes: data.count)
     }
 
     /// Lists project tasks currently claimed by a specific agent.
@@ -218,8 +213,8 @@ extension CoreService {
     }
 
     private func isAgentURL(_ url: URL, inside rootURL: URL) -> Bool {
-        let rootPath = rootURL.standardizedFileURL.path
-        let targetPath = url.standardizedFileURL.path
+        let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let targetPath = url.resolvingSymlinksInPath().standardizedFileURL.path
         return targetPath == rootPath || targetPath.hasPrefix(rootPath + "/")
     }
 

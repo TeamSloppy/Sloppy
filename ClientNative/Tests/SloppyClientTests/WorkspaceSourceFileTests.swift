@@ -93,6 +93,66 @@ struct WorkspaceSourceFileTests {
         #expect(model.content != nil)
     }
 
+    @Test func loadsLargeTextWithoutSizeError() async {
+        let text = String(repeating: "large line\n", count: 220_000)
+        let fixture = SourceFileFixture(content: text, delay: 0.1)
+        let model = WorkspaceSourceFileViewModel(reference: .init(path: "/remote/File.swift"),
+            apiClient: fixture.api, scope: .project("project"))
+        let loading = Task { await model.loadIfNeeded() }
+        for _ in 0..<100 {
+            if model.isLoading { break }
+            await Task.yield()
+        }
+        #expect(model.isLoading)
+        await loading.value
+        #expect(!model.isLoading)
+        #expect(model.content?.content == text)
+        #expect(model.lines.count == 220_001)
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test func decodesImageInsteadOfTreatingItAsSource() async throws {
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6X8AAAAASUVORK5CYII=")!
+        let fixture = SourceFileFixture(content: "", imageData: png)
+        let model = WorkspaceSourceFileViewModel(reference: .init(path: "/remote/screen.png"),
+            apiClient: fixture.api, scope: .project("project"))
+        await model.loadIfNeeded()
+        #expect(model.image != nil)
+        #expect(model.lines.isEmpty)
+        #expect(!model.isLoading)
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test func navigationDuringLoadKeepsRequestAndLatestLine() async {
+        let fixture = SourceFileFixture(delay: 0.1)
+        let model = WorkspaceSourceFileViewModel(reference: .init(path: "/remote/File.swift", line: 1),
+            apiClient: fixture.api, scope: .project("project"))
+        let load = Task { await model.loadIfNeeded() }
+        for _ in 0..<100 {
+            if model.isLoading { break }
+            await Task.yield()
+        }
+        let revision = model.loadRevision
+        model.navigate(to: .init(path: "/remote/File.swift", line: 3))
+        await model.loadIfNeeded()
+        #expect(model.loadRevision == revision)
+        await load.value
+        #expect(model.content != nil)
+        #expect(model.targetLine == 3)
+        #expect(!model.isLoading)
+        #expect(fixture.requests.count == 1)
+    }
+
+    @Test func invalidImageShowsErrorAndStopsLoading() async {
+        let fixture = SourceFileFixture(content: "", imageData: Data([0, 1, 2]))
+        let model = WorkspaceSourceFileViewModel(reference: .init(path: "/remote/screen.png"),
+            apiClient: fixture.api, scope: .project("project"))
+        await model.loadIfNeeded()
+        #expect(model.image == nil)
+        #expect(model.errorMessage != nil)
+        #expect(!model.isLoading)
+    }
+
     @Test func agentWorkspaceAndFailureStayInPanel() async throws {
         let fixture = SourceFileFixture()
         let model = WorkspaceSourceFileViewModel(reference: .init(path: "missing.swift"),
@@ -132,8 +192,8 @@ private final class SourceFileNavigationNotifications: AgentResponseNotification
 final class SourceFileFixture: @unchecked Sendable {
     let api: SloppyAPIClient
     private let host = "source-file-\(UUID().uuidString).invalid"
-    init(content: String = "first\r\nsecond\rthird\n") {
-        SourceFileURLProtocol.register(content: content, host: host)
+    init(content: String = "first\r\nsecond\rthird\n", imageData: Data? = nil, delay: TimeInterval = 0) {
+        SourceFileURLProtocol.register(content: content, imageData: imageData, delay: delay, host: host)
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [SourceFileURLProtocol.self]
         api = SloppyAPIClient(baseURL: URL(string: "https://\(host)")!, session: URLSession(configuration: config),
@@ -146,8 +206,10 @@ private final class SourceFileURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var captured: [URLRequest] = []
     nonisolated(unsafe) private static var contents: [String: String] = [:]
-    static func register(content: String, host: String) {
-        lock.withLock { contents[host] = content }
+    nonisolated(unsafe) private static var images: [String: Data] = [:]
+    nonisolated(unsafe) private static var delays: [String: TimeInterval] = [:]
+    static func register(content: String, imageData: Data?, delay: TimeInterval, host: String) {
+        lock.withLock { contents[host] = content; images[host] = imageData; delays[host] = delay }
     }
     static func requests(for host: String) -> [URLRequest] {
         lock.withLock { captured.filter { $0.url?.host == host } }
@@ -157,11 +219,14 @@ private final class SourceFileURLProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         Self.lock.withLock { Self.captured.append(request) }
         guard let url = request.url else { return }
+        let delay = Self.lock.withLock { Self.delays[url.host ?? ""] ?? 0 }
+        if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         let missing = url.query?.contains("missing.swift") == true
         let response = HTTPURLResponse(url: url, statusCode: missing ? 404 : 200, httpVersion: nil,
                                        headerFields: ["Content-Type": "application/json"])!
         let text = Self.lock.withLock { Self.contents[url.host ?? ""] ?? "" }
-        let content = ProjectFileContentResponse(path: "/remote/File.swift", content: text, sizeBytes: text.utf8.count)
+        let image = Self.lock.withLock { Self.images[url.host ?? ""] }
+        let content = ProjectFileContentResponse(path: "/remote/File.swift", content: text, sizeBytes: image?.count ?? text.utf8.count, imageData: image, mediaType: image == nil ? nil : "image/png")
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: missing ? Data("{}".utf8) : (try! JSONEncoder().encode(content)))
         client?.urlProtocolDidFinishLoading(self)
