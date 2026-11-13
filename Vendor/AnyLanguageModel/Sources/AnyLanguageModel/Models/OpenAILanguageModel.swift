@@ -475,6 +475,8 @@ public struct OpenAILanguageModel: LanguageModel {
         var entries: [Transcript.Entry] = []
         var text = ""
         var messages = messages
+        var baseTranscript = session.transcript
+        var continuationStart = 0
 
         // Loop until no more tool calls
         while true {
@@ -544,6 +546,15 @@ public struct OpenAILanguageModel: LanguageModel {
                                 )
                             )
                         }
+                        if let delegate = session.toolExecutionDelegate {
+                            let current = Transcript(entries: Array(baseTranscript) + entries.dropFirst(continuationStart))
+                            let prepared = try await delegate.prepareToolContinuation(current, in: session)
+                            if prepared != current {
+                                messages = prepared.toOpenAIMessages()
+                                baseTranscript = prepared
+                                continuationStart = entries.count
+                            }
+                        }
                         continue
                     }
                 }
@@ -581,6 +592,8 @@ public struct OpenAILanguageModel: LanguageModel {
         var text = ""
         var lastOutput: [JSONValue]?
         var messages = messages
+        var baseTranscript = session.transcript
+        var continuationStart = 0
 
         let url = baseURL.appendingPathComponent("responses")
 
@@ -639,6 +652,15 @@ public struct OpenAILanguageModel: LanguageModel {
                                     content: .text(convertSegmentsToToolContentString(output.segments))
                                 )
                             )
+                        }
+                        if let delegate = session.toolExecutionDelegate {
+                            let current = Transcript(entries: Array(baseTranscript) + entries.dropFirst(continuationStart))
+                            let prepared = try await delegate.prepareToolContinuation(current, in: session)
+                            if prepared != current {
+                                messages = prepared.toOpenAIMessages()
+                                baseTranscript = prepared
+                                continuationStart = entries.count
+                            }
                         }
                         continue
                     }

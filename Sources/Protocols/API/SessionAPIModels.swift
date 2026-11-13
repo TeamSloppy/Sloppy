@@ -778,6 +778,7 @@ public struct PlanInputResponse: Codable, Sendable, Equatable {
 public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
     public var title: String
     public var parentSessionId: String?
+    public var checkpointSessionId: String?
     public var kind: AgentSessionKind
     public var projectId: String?
     public var taskId: String?
@@ -788,6 +789,7 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
     public init(
         title: String,
         parentSessionId: String? = nil,
+        checkpointSessionId: String? = nil,
         kind: AgentSessionKind = .chat,
         projectId: String? = nil,
         taskId: String? = nil,
@@ -796,6 +798,7 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
     ) {
         self.title = title
         self.parentSessionId = parentSessionId
+        self.checkpointSessionId = checkpointSessionId
         self.kind = kind
         self.projectId = projectId
         self.taskId = taskId
@@ -806,6 +809,7 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case title
         case parentSessionId
+        case checkpointSessionId
         case kind
         case projectId
         case taskId
@@ -817,6 +821,7 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = try container.decode(String.self, forKey: .title)
         parentSessionId = try container.decodeIfPresent(String.self, forKey: .parentSessionId)
+        checkpointSessionId = try container.decodeIfPresent(String.self, forKey: .checkpointSessionId)
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
         taskId = try container.decodeIfPresent(String.self, forKey: .taskId)

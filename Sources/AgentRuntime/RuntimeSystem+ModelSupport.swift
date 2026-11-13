@@ -263,6 +263,7 @@ extension RuntimeSystem {
             ModelToolSchemaNormalizer.acceptsEmptyArguments(tool.parameters) ? tool.name : nil
         })
         let yieldAtBoundary = Self.shouldYieldAtToolBoundary
+        let provider = modelProvider
         return SloppyToolExecutionDelegate(
             toolNameMap: resolvedNameMap,
             emptyArgumentsAllowedTools: emptyArgumentsAllowed,
@@ -297,6 +298,13 @@ extension RuntimeSystem {
                       await yieldAtBoundary() else { return false }
                 await loopTracker.yieldToUserMessage()
                 return true
+            },
+            prepareContinuation: { transcript in
+                guard let channelId, let model, let provider else { return transcript }
+                return try await self.prepareToolContinuation(
+                    transcript, channelId: channelId, activeModel: model,
+                    provider: provider, maxOutputTokens: nativeLoopConfig.maxOutputTokens
+                )
             },
             toolCallHandler: { request in
                 let result = await toolCallHandler(request)
@@ -489,22 +497,13 @@ extension RuntimeSystem {
         modelProvider: any ModelProvider,
         tools: [any Tool]
     ) -> Transcript {
-        guard let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) else {
-            return transcript
-        }
-        if let first = transcript.first,
-           case .instructions = first
-        {
-            return transcript
-        }
-
+        if let first = transcript.first, case .instructions = first { return transcript }
+        let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider)
+        let toolDefinitions = tools.filter(\.includesSchemaInInstructions).map { Transcript.ToolDefinition(tool: $0) }
+        guard instructions != nil || !toolDefinitions.isEmpty else { return transcript }
+        let segments = instructions.map { [Transcript.Segment.text(.init(content: $0))] } ?? []
         var entries: [Transcript.Entry] = [
-            .instructions(Transcript.Instructions(
-                segments: [.text(.init(content: instructions.description))],
-                toolDefinitions: tools
-                    .filter(\.includesSchemaInInstructions)
-                    .map { Transcript.ToolDefinition(tool: $0) }
-            )),
+            .instructions(.init(segments: segments, toolDefinitions: toolDefinitions))
         ]
         entries.append(contentsOf: transcript)
         return Transcript(entries: entries)

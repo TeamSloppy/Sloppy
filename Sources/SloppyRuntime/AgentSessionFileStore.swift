@@ -1,3 +1,4 @@
+import AgentRuntime
 import Foundation
 import Logging
 import Protocols
@@ -123,6 +124,7 @@ public final class AgentSessionFileStore: @unchecked Sendable {
         try withLock {
             let normalizedAgentID = try normalizedAgentID(agentID)
             let normalizedParentSessionID = try normalizedOptionalSessionID(request.parentSessionId)
+            let checkpointSessionID = try normalizedOptionalSessionID(request.checkpointSessionId)
             _ = try sessionsDirectoryURL(agentID: normalizedAgentID, createIfMissing: true)
             let resolver = try sessionPathResolver(agentID: normalizedAgentID)
 
@@ -168,6 +170,7 @@ public final class AgentSessionFileStore: @unchecked Sendable {
                 metadata: AgentSessionMetadataEvent(
                     title: title,
                     parentSessionId: normalizedParentSessionID,
+                    checkpointSessionId: checkpointSessionID,
                     kind: request.kind,
                     projectId: projectIdMeta,
                     taskId: taskIdMeta,
@@ -449,6 +452,32 @@ public final class AgentSessionFileStore: @unchecked Sendable {
 
     private struct AgentSessionSidecar: Codable {
         var userTurnCount: Int
+        var contextCheckpoint: TranscriptContextCheckpoint?
+    }
+
+    public func contextCheckpoint(agentID: String, sessionID: String) -> TranscriptContextCheckpoint? {
+        withLock {
+            guard let agentID = try? normalizedAgentID(agentID),
+                  let sessionID = try? normalizedSessionID(sessionID) else { return nil }
+            return try? readSidecar(agentID: agentID, sessionID: sessionID).contextCheckpoint
+        }
+    }
+
+    public func saveContextCheckpoint(
+        _ checkpoint: TranscriptContextCheckpoint, agentID: String, sessionID: String
+    ) throws {
+        try withLock {
+            let agentID = try normalizedAgentID(agentID)
+            let sessionID = try normalizedSessionID(sessionID)
+            guard let journal = sessionFileURL(agentID: agentID, sessionID: sessionID),
+                  fileManager.fileExists(atPath: journal.path),
+                  let url = sessionSidecarURL(agentID: agentID, sessionID: sessionID) else {
+                throw StoreError.sessionNotFound
+            }
+            var sidecar = try readSidecar(agentID: agentID, sessionID: sessionID)
+            sidecar.contextCheckpoint = checkpoint
+            try encoder.encode(sidecar).write(to: url, options: .atomic)
+        }
     }
 
     private func sessionSidecarURL(agentID: String, sessionID: String) -> URL? {
@@ -459,14 +488,16 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             ?? resolver.legacyLocation(sessionID: sessionID).sidecarURL
     }
 
-    private func readUserTurnCount(agentID: String, sessionID: String) throws -> Int {
+    private func readSidecar(agentID: String, sessionID: String) throws -> AgentSessionSidecar {
         guard let url = sessionSidecarURL(agentID: agentID, sessionID: sessionID),
               fileManager.fileExists(atPath: url.path) else {
-            return 0
+            return AgentSessionSidecar(userTurnCount: 0)
         }
-        let data = try Data(contentsOf: url)
-        let sidecar = try JSONDecoder().decode(AgentSessionSidecar.self, from: data)
-        return max(0, sidecar.userTurnCount)
+        return try decoder.decode(AgentSessionSidecar.self, from: Data(contentsOf: url))
+    }
+
+    private func readUserTurnCount(agentID: String, sessionID: String) throws -> Int {
+        max(0, try readSidecar(agentID: agentID, sessionID: sessionID).userTurnCount)
     }
 
     private func writeUserTurnCount(agentID: String, sessionID: String, count: Int) throws {
@@ -474,7 +505,9 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             throw StoreError.agentNotFound
         }
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let payload = try JSONEncoder().encode(AgentSessionSidecar(userTurnCount: max(0, count)))
+        var sidecar = try readSidecar(agentID: agentID, sessionID: sessionID)
+        sidecar.userTurnCount = max(0, count)
+        let payload = try encoder.encode(sidecar)
         try payload.write(to: url, options: .atomic)
         removeSummaryCache(agentID: agentID, sessionID: sessionID)
     }

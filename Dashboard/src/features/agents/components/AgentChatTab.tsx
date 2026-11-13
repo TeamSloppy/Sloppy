@@ -24,7 +24,7 @@ import {
   postAgentSessionEvents,
   postAgentSessionMessage,
   subscribeAgentSessionStream,
-  fetchAgentTokenUsage,
+  fetchTokenUsage,
   searchProjectFiles,
   fetchProjectWorkingTreeSourceControl,
   subscribeProjectChangeStream,
@@ -3062,10 +3062,33 @@ function AgentChatToolApprovalBanner({
 /** Marks session messages that came from a live voice conversation, so they are not read aloud again. */
 const LIVE_VOICE_USER_ID = "voice-live";
 
+type SessionContextUsage = {
+  inputTokens: number;
+  inputBudgetTokens: number;
+  compactionThresholdTokens?: number;
+};
+
+function formatSessionContextUsage(usage: SessionContextUsage) {
+  const percentage = Math.round(100 * usage.inputTokens / usage.inputBudgetTokens);
+  const threshold = usage.compactionThresholdTokens;
+  return {
+    percentage,
+    detail: `Estimated context usage: ${usage.inputTokens.toLocaleString()} / ${usage.inputBudgetTokens.toLocaleString()} tokens`
+      + (threshold == null ? "" : ` · Compaction at ${threshold.toLocaleString()} tokens`)
+  };
+}
+
+function SessionContextIndicator({ usage }: { usage: SessionContextUsage | null }) {
+  if (!usage) return null;
+  const { percentage, detail } = formatSessionContextUsage(usage);
+  return <span className="agent-chat-context-indicator" title={detail} aria-label={detail}>{percentage}%</span>;
+}
+
 function AgentChatComposer({
   workLayout = false,
   modelPicker = null,
   extraOptions = null,
+  contextUsage = null as SessionContextUsage | null,
   agentId,
   projectId = null,
   inputText,
@@ -3992,6 +4015,7 @@ function AgentChatComposer({
 
           {workLayout ? <WorkComposerControls
             modelPicker={modelPicker} extraOptions={extraOptions} approvalPolicy={approvalPolicy}
+            contextIndicator={<SessionContextIndicator usage={contextUsage} />}
             disabled={isInputDisabled} canSend={canSend} hasContent={hasComposeContent}
             busy={isBusy} stopping={isStopPending} onStop={onStop}
             onAttach={() => fileInputRef.current?.click()} onDeepResearch={openDeepResearchConfig}
@@ -4016,6 +4040,7 @@ function AgentChatComposer({
             </button>
 
             <div className="agent-chat-compose-right">
+              <SessionContextIndicator usage={contextUsage} />
               <button
                 type="button"
                 className="agent-chat-icon-button"
@@ -4323,6 +4348,9 @@ export function AgentChatTab({
   const [isPreparingMessage, setIsPreparingMessage] = useState(false);
   const [activeSession, setActiveSession] = useState(null);
   const [selectedModel, setSelectedModel] = useState("");
+  const contextKey = JSON.stringify([agentId, activeSessionId, selectedModel]);
+  const [contextReading, setContextReading] = useState<{ key: string; usage: SessionContextUsage } | null>(null);
+  const contextUsage = contextReading?.key === contextKey ? contextReading.usage : null;
   const [availableModels, setAvailableModels] = useState([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
@@ -6042,24 +6070,12 @@ export function AgentChatTab({
     }
 
     if (lower === "/context") {
-      const eventCount = Array.isArray(activeSession?.events) ? activeSession.events.length : 0;
-      let usageText = `Session: ${activeSessionId || "none"}\nEvents in session: ${eventCount}`;
-      try {
-        const usage = await fetchAgentTokenUsage(agentId);
-        if (usage) {
-          const promptTokens = usage.promptTokens ?? usage.prompt_tokens ?? "—";
-          const completionTokens = usage.completionTokens ?? usage.completion_tokens ?? "—";
-          const totalTokens = usage.totalTokens ?? usage.total_tokens ?? "—";
-          const contextWindow = usage.contextWindow ?? usage.context_window ?? null;
-          usageText += `\n\nToken usage:\n  Prompt tokens: ${promptTokens}\n  Completion tokens: ${completionTokens}\n  Total tokens: ${totalTokens}`;
-          if (contextWindow) {
-            usageText += `\n  Context window: ${contextWindow}`;
-          }
-        }
-      } catch {
-        usageText += "\n\n(Token usage data unavailable)";
-      }
-      await persistCommandEvents(text, usageText);
+      const response = activeSessionId ? await fetchTokenUsage({
+        channelId: `agent:${agentId}:session:${activeSessionId}`,
+        contextModel: selectedModel || undefined
+      }).catch(() => null) : null;
+      const usage = response?.contextUsage as SessionContextUsage | undefined;
+      await persistCommandEvents(text, usage ? formatSessionContextUsage(usage).detail : "Context usage is unavailable.");
       return true;
     }
 
@@ -6855,6 +6871,36 @@ export function AgentChatTab({
     isSending || isActiveRunStage(latestRunStatus?.stage) || activeToolCallRecordIds.size > 0;
   const isActiveSessionBusy = isStopping || hasActiveSessionWork;
   const voicePlayback = useVoicePlayback();
+  useEffect(() => {
+    if (!activeSessionId) return;
+    let cancelled = false;
+    let loading = false;
+    const refresh = async () => {
+      if (loading) return;
+      loading = true;
+      try {
+        const response = await fetchTokenUsage({
+          channelId: `agent:${agentId}:session:${activeSessionId}`,
+          contextModel: selectedModel || undefined
+        });
+        if (!cancelled && response) {
+          const usage = response.contextUsage as SessionContextUsage | undefined;
+          setContextReading(usage ? { key: contextKey, usage } : null);
+        }
+      } catch {
+        // Keep the last reading for this session during a transient connection failure.
+      } finally {
+        loading = false;
+      }
+    };
+    void refresh();
+    const timer = isActiveSessionBusy ? window.setInterval(refresh, 4_000) : undefined;
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [agentId, activeSessionId, selectedModel, contextKey, isActiveSessionBusy, latestRunStatus?.stage]);
+
   const isBusyRef = useRef(false);
   isBusyRef.current = isActiveSessionBusy;
   const liveSessionIdRef = useRef(null);
@@ -7620,6 +7666,7 @@ export function AgentChatTab({
                 <AgentChatComposer
                   workLayout={layout === "work"}
                   extraOptions={composerExtras}
+                  contextUsage={contextUsage}
                   modelPicker={layout === "work" ? <AggregatedModelPicker
                     label={null} value={String(selectedModel || "")} onChange={(modelId) => void handleModelSwitch(modelId)}
                     aggregatedModels={availableModels} disabled={isSending || availableModels.length === 0}

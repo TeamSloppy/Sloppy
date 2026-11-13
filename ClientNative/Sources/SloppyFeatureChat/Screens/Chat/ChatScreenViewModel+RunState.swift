@@ -21,6 +21,11 @@ extension ChatScreenViewModel {
                 scheduleAuxiliaryRefresh(agentId: agentId, sessionId: sessionId)
             }
         }
+        if !status.stage.isWorking, let agentId = selectedAgent?.id {
+            usageRefreshTask?.cancel()
+            usageRefreshTask = nil
+            scheduleAuxiliaryRefresh(agentId: agentId, sessionId: sessionId)
+        }
         activeRunStatus = status
         if status.stage == .interrupted,
            let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -95,22 +100,24 @@ extension ChatScreenViewModel {
         }
         if usageRefreshTask == nil {
             usageRefreshTask = Task { @MainActor in
-                defer { if hydrationGeneration == generation { usageRefreshTask = nil } }
-                await refreshSemanticDecisionUsage(agentId: agentId, sessionId: sessionId)
+                defer { if !Task.isCancelled, hydrationGeneration == generation { usageRefreshTask = nil } }
+                await refreshContextUsage(agentId: agentId, sessionId: sessionId)
             }
         }
     }
 
-    private func refreshSemanticDecisionUsage(agentId: String, sessionId: String) async {
+    private func refreshContextUsage(agentId: String, sessionId: String) async {
         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
         guard let response = try? await apiClient.fetchSessionTokenUsage(
             agentId: agentId,
-            sessionId: sessionId
+            sessionId: sessionId,
+            contextModel: ChatModelSelection.requestOverride(for: selectedModelId)
         ) else {
             return
         }
         guard !Task.isCancelled, isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
         semanticDecisionUsage = response.semanticDecisionUsage
+        contextEstimate = response.contextUsage
     }
 
     func clearWorkingTreeSourceControl() {

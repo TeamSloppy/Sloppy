@@ -3180,6 +3180,13 @@ body.agent-chat-no-page-scroll .page {
   gap: 8px;
 }
 
+.agent-chat-context-indicator {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .agent-chat-task-dropdown {
   border: 1px solid var(--line);
   border-radius: 0;

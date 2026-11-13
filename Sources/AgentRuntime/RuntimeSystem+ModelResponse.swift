@@ -61,6 +61,7 @@ extension RuntimeSystem {
             )
             let (initialSession, modelUserMessage) = try await (preparedSession, recalledUserMessage)
             lastActiveModelByChannel[channelId] = activeModel
+            toolContinuationUsageByChannel.removeValue(forKey: channelId)
             workLedgerByChannel[channelId, default: SessionWorkLedger()].recordGoal(userMessage)
             await channels.setContextWindow(
                 channelId: channelId,
@@ -770,7 +771,15 @@ extension RuntimeSystem {
             }
 
             sessionsByChannel.removeValue(forKey: channelId)
-            let text = "Model provider error: \(error)"
+            let text: String
+            switch error {
+            case TranscriptContextError.protectedContextExceedsBudget:
+                text = "The current request and retained context exceed the model's input budget."
+            case TranscriptContextError.summaryFailed:
+                text = "Could not compact the conversation to fit the model's input budget. The conversation was saved."
+            default:
+                text = "Model provider error: \(error)"
+            }
             if let onResponseChunk {
                 _ = await onResponseChunk(text)
             }

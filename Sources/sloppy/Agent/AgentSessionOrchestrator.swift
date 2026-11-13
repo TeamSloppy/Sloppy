@@ -863,13 +863,15 @@ actor AgentSessionOrchestrator {
                 let primerContent = await runtime.channelBootstrapContent(
                     channelId: self.sessionChannelID(agentID: agentID, sessionID: sessionID)
                 )
+                let history = buildConversationHistoryContext(agentID: agentID, sessionID: sessionID, excludingMessageID: userMessage.id)
+                let primer = [primerContent, history].compactMap { $0 }.joined(separator: "\n\n")
                 let result = try await acpSessionManager.postMessage(
                     agentID: agentID,
                     sloppySessionID: sessionID,
                     runtime: agentConfig.runtime,
                     content: blocks,
                     localSessionHadPriorMessages: localSessionHadPriorMessages,
-                    primerContent: primerContent,
+                    primerContent: primer.isEmpty ? nil : primer,
                     chatMode: requestMode,
                     onChunk: { [weak self] partialText in
                         guard let self else { return }
@@ -1535,6 +1537,12 @@ actor AgentSessionOrchestrator {
         )
     }
 
+    private static func recoverySourceSessionID(from detail: AgentSessionDetail) -> String? {
+        guard detail.summary.kind != .longChatWorker else { return nil }
+        return detail.summary.parentSessionId
+            ?? detail.events.first(where: { $0.type == .sessionCreated })?.metadata?.checkpointSessionId
+    }
+
     private static func recoverySourceSessionID(from request: AgentSessionCreateRequest) -> String? {
         for candidate in [request.parentSessionId, request.checkpointSessionId] {
             guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1732,6 +1740,23 @@ actor AgentSessionOrchestrator {
         }
         await runtime.setChannelContextArchiver(channelId: channelID) { _, text in
             try? archiveStore.save(Data(text.utf8))
+        }
+        await runtime.setChannelContextCheckpointWriter(channelId: channelID) { [sessionStore, logger] checkpoint in
+            do {
+                let previous = sessionStore.contextCheckpoint(agentID: agentID, sessionID: sessionID)
+                let durable = checkpoint.extending(previous)
+                let current = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+                let parent = Self.recoverySourceSessionID(from: current).flatMap {
+                    try? sessionStore.loadSession(agentID: agentID, sessionID: $0)
+                }
+                let transcript = AgentSessionTranscriptBuilder.buildRecoveryTranscript(current: current, source: parent)
+                guard durable.restore(transcript) != nil else { return }
+                try sessionStore.saveContextCheckpoint(durable, agentID: agentID, sessionID: sessionID)
+            } catch {
+                logger.warning("Could not persist compacted context", metadata: [
+                    "channel_id": .string(channelID), "error": .string(String(describing: error)),
+                ])
+            }
         }
         let nativeLoopOutcomeBox = NativeAgentLoopOutcomeBox()
         let lastTokenUsageBox = LastTokenUsageBox()
@@ -3021,7 +3046,7 @@ actor AgentSessionOrchestrator {
             || bootstrapMemoryContextsByChannel[channelID] != memoryContext
             || bootstrapDocumentsByChannel[channelID] != scopedDocuments)
         let recoverySourceSessionID = explicitRecoverySourceSessionID
-            ?? (sessionDetail?.summary.kind == .longChatWorker ? nil : sessionDetail?.summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines))
+            ?? sessionDetail.flatMap { Self.recoverySourceSessionID(from: $0) }
         var recoverySourceDetail = recoverySourceSessionID
             .flatMap { sourceID -> AgentSessionDetail? in
                 guard !sourceID.isEmpty, sourceID != sessionID else {
@@ -3036,67 +3061,21 @@ actor AgentSessionOrchestrator {
                 event.message.map { pendingSourceIDs.contains($0.id) } ?? false
             }
         }
-        let existingSnapshot = await runtime.channelState(channelId: channelID)
         let existingBootstrapContent = await runtime.channelBootstrapContent(channelId: channelID)
-            ?? existingSnapshot?.messages.last(where: {
-                $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
-            })?.content
-        if let existingBootstrapContent,
-           !shouldRefreshBootstrap,
-           !hasScopedUserContext,
-           await runtime.hasCachedChannelSession(channelId: channelID),
-           let currentFingerprint = sessionDetail.map(sessionStoreFingerprint),
-           syncedSessionStoreFingerprintsByChannel[channelID] == currentFingerprint {
-            await runtime.setChannelBootstrap(channelId: channelID, content: existingBootstrapContent)
-            await setRecoveryTranscriptIfAvailable(
-                channelID: channelID,
-                currentDetail: sessionDetail,
-                sourceDetail: recoverySourceDetail,
-                clearWhenUnavailable: false
-            )
-            logger.debug(
-                "Session context already covered by live runtime session",
-                metadata: [
-                    "agent_id": .string(agentID),
-                    "session_id": .string(sessionID)
-                ]
-            )
-            return
+        if !activeSessionRunChannels.contains(channelID), let sessionDetail {
+            await runtime.invalidateAfterToolLoopCompaction(channelId: channelID)
+            if syncedSessionStoreFingerprintsByChannel[channelID] != sessionStoreFingerprint(sessionDetail) {
+                await runtime.invalidateChannelSession(channelId: channelID)
+            }
         }
-        if let existingBootstrapContent,
-           !shouldRefreshBootstrap,
-           !hasScopedUserContext,
-           !bootstrapNeedsConversationHistoryRefresh(
-                existingBootstrapContent,
-                agentID: agentID,
-                sessionID: sessionID,
-                recoverySourceDetail: recoverySourceDetail
-           ) {
-            await runtime.setChannelBootstrap(channelId: channelID, content: existingBootstrapContent)
-            await setRecoveryTranscriptIfAvailable(
-                channelID: channelID,
-                currentDetail: sessionDetail,
-                sourceDetail: recoverySourceDetail,
-                clearWhenUnavailable: false
-            )
-            logger.debug(
-                "Session context already initialized",
-                metadata: [
-                    "agent_id": .string(agentID),
-                    "session_id": .string(sessionID)
-                ]
-            )
-            return
-        }
+        await setRecoveryTranscriptIfAvailable(
+            channelID: channelID,
+            currentDetail: sessionDetail,
+            sourceDetail: recoverySourceDetail
+        )
 
-        if existingBootstrapContent != nil {
-            logger.info(
-                "Refreshing session bootstrap with persisted conversation history",
-                metadata: [
-                    "agent_id": .string(agentID),
-                    "session_id": .string(sessionID)
-                ]
-            )
+        if existingBootstrapContent != nil, !shouldRefreshBootstrap, !hasScopedUserContext {
+            return
         }
 
         let documents: AgentDocumentBundle
@@ -3159,25 +3138,6 @@ actor AgentSessionOrchestrator {
             bootstrapContent += "\n\n" + memoryContext
         }
 
-        var includedConversationHistory = false
-        if let historyContext = buildConversationHistoryContext(
-            agentID: agentID,
-            sessionID: sessionID,
-            currentDetail: sessionDetail,
-            sourceDetail: recoverySourceDetail
-        ) {
-            includedConversationHistory = true
-            bootstrapContent += "\n\n" + historyContext
-            logger.debug(
-                "Session bootstrap includes conversation history",
-                metadata: [
-                    "agent_id": .string(agentID),
-                    "session_id": .string(sessionID),
-                    "history_chars": .stringConvertible(historyContext.count)
-                ]
-            )
-        }
-
         if let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID),
            let pid = detail.summary.projectId?.trimmingCharacters(in: .whitespacesAndNewlines),
            !pid.isEmpty,
@@ -3232,40 +3192,6 @@ actor AgentSessionOrchestrator {
         bootstrapMemoryContextsByChannel[channelID] = memoryContext
         bootstrapUserIDsByChannel[channelID] = scopedUserID
         bootstrapDocumentsByChannel[channelID] = documents
-        await setRecoveryTranscriptIfAvailable(
-            channelID: channelID,
-            currentDetail: sessionDetail,
-            sourceDetail: recoverySourceDetail,
-            clearWhenUnavailable: false
-        )
-        if includedConversationHistory,
-           await runtime.hasCachedChannelSession(channelId: channelID) {
-            await runtime.invalidateChannelSession(channelId: channelID)
-            logger.info(
-                "Invalidated stale cached LLM session after persisted history restore",
-                metadata: [
-                    "agent_id": .string(agentID),
-                    "session_id": .string(sessionID)
-                ]
-            )
-        }
-    }
-
-    private func bootstrapNeedsConversationHistoryRefresh(
-        _ bootstrap: String,
-        agentID: String,
-        sessionID: String,
-        recoverySourceDetail: AgentSessionDetail?
-    ) -> Bool {
-        guard !bootstrap.contains("[Previous conversation history]") else {
-            return false
-        }
-        return sessionHasPriorMessages(agentID: agentID, sessionID: sessionID)
-            || (recoverySourceDetail.map { source in
-                AgentSessionTranscriptBuilder.hasRecoverableEntries(
-                    AgentSessionTranscriptBuilder.buildRecoveryTranscript(current: source)
-                )
-            } ?? false)
     }
 
     private func fallbackSessionBootstrapContextMessage(
@@ -3439,28 +3365,63 @@ actor AgentSessionOrchestrator {
         }
     }
 
+    func estimatePersistedContext(agentID: String, sessionID: String, model: String?) async -> SessionContextUsage? {
+        guard let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID),
+              let config = try? agentCatalogStore.getAgentConfig(
+                agentID: agentID, availableModels: availableModels, persistedModelAllowed: persistedModelAllowed()
+              ), config.runtime.type == .native else { return nil }
+        let source = Self.recoverySourceSessionID(from: detail).flatMap {
+            try? sessionStore.loadSession(agentID: agentID, sessionID: $0)
+        }
+        let checkpoint = sessionStore.contextCheckpoint(agentID: agentID, sessionID: sessionID)
+        let transcript = AgentSessionTranscriptBuilder.buildRecoveryTranscript(current: detail, source: source, checkpoint: checkpoint)
+        let lastModel = detail.events.reversed().lazy.compactMap { $0.runStatus?.selectedModel }.first
+        let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        let estimatedBootstrap: String?
+        if await runtime.channelBootstrapContent(channelId: channelID) != nil {
+            estimatedBootstrap = nil
+        } else {
+            let context = PromptRenderContext.agentSessionBootstrap(
+                agentID: agentID, sessionID: sessionID, bootstrapMarker: Self.sessionContextBootstrapMarker,
+                documents: config.documents, installedSkills: (try? agentSkillsStore?.listSkills(agentID: agentID)) ?? [],
+                agentDirectoryPath: (try? agentCatalogStore.directoryURL(agentID: agentID))?.path,
+                sharedMemoryEnabled: config.runtime.sharedMemoryEnabled
+            )
+            let settings = persistedModelContext.config.agentRuntimeContext
+            let prompt = settings.bootstrapMode == .lean
+                ? (try? promptComposer.composeLeanAgentSessionBootstrap(context: context, inlineTokenLimit: settings.leanInlineTokenLimit))
+                : (try? promptComposer.compose(context: context))
+            estimatedBootstrap = prompt?.description
+        }
+        return await runtime.sessionContextUsage(
+            channelId: channelID, fallbackTranscript: transcript, model: model ?? lastModel ?? config.selectedModel,
+            fallbackBootstrap: estimatedBootstrap
+        )
+    }
+
     private func setRecoveryTranscriptIfAvailable(
         channelID: String,
         currentDetail: AgentSessionDetail?,
-        sourceDetail: AgentSessionDetail?,
-        clearWhenUnavailable: Bool = true
+        sourceDetail: AgentSessionDetail?
     ) async {
         guard let currentDetail else {
-            if clearWhenUnavailable {
-                await runtime.setChannelRecoveryTranscript(channelId: channelID, transcript: nil)
-            }
+            await runtime.setChannelRecoveryTranscript(channelId: channelID, transcript: nil)
             return
         }
+        let checkpoint = sessionStore.contextCheckpoint(
+            agentID: currentDetail.summary.agentId, sessionID: currentDetail.summary.id
+        )
         let transcript = AgentSessionTranscriptBuilder.buildRecoveryTranscript(
             current: currentDetail,
             source: sourceDetail,
+            checkpoint: checkpoint,
             imageLoader: { [sessionStore] attachment in
                 try? SessionImageLoader.load(store: sessionStore, agentID: currentDetail.summary.agentId, attachment: attachment)
             }
         )
         if AgentSessionTranscriptBuilder.hasRecoverableEntries(transcript) {
             await runtime.setChannelRecoveryTranscript(channelId: channelID, transcript: transcript)
-        } else if clearWhenUnavailable {
+        } else {
             await runtime.setChannelRecoveryTranscript(channelId: channelID, transcript: nil)
         }
     }
@@ -3584,15 +3545,18 @@ actor AgentSessionOrchestrator {
     private func buildConversationHistoryContext(
         agentID: String,
         sessionID: String,
-        currentDetail: AgentSessionDetail? = nil,
-        sourceDetail: AgentSessionDetail? = nil
+        excludingMessageID: String
     ) -> String? {
-        guard let detail = currentDetail ?? (try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)) else {
+        guard let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else {
             return nil
         }
 
-        let sourceMessages = sourceDetail.map(conversationMessages(from:)) ?? []
-        let currentMessages = conversationMessages(from: detail)
+        let sourceMessages = Self.recoverySourceSessionID(from: detail).flatMap { parentID in
+            try? sessionStore.loadSession(agentID: agentID, sessionID: parentID)
+        }.map(conversationMessages(from:)) ?? []
+        var priorDetail = detail
+        priorDetail.events.removeAll { $0.message?.id == excludingMessageID }
+        let currentMessages = conversationMessages(from: priorDetail)
         let conversationMessages = sourceMessages + currentMessages
 
         guard !conversationMessages.isEmpty else {

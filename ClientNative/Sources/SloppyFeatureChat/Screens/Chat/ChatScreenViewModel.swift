@@ -18,6 +18,7 @@ public final class ChatScreenViewModel {
     public internal(set) var selectedModelId: String = ""
     public internal(set) var selectedReasoningEffort: ChatReasoningEffort = .default
     public internal(set) var contextTokenUsage: ChatTokenUsage?
+    var contextEstimate: ChatTokenUsageResponse.ContextUsage?
     public internal(set) var semanticDecisionUsage: ChatSemanticDecisionUsage?
     public internal(set) var sessions: [ChatSessionSummary] = []
     public internal(set) var sessionCatalog: [ChatSessionSummary] = []
@@ -252,9 +253,13 @@ public final class ChatScreenViewModel {
     }
 
     public var contextUsage: ChatContextUsage? {
-        // Run-status usage aggregates multiple requests, not model-window occupancy.
-        // This client has no typed current-context ledger yet: report unknown.
-        nil
+        guard let contextEstimate else { return nil }
+        return ChatContextUsage(
+            usedTokens: contextEstimate.inputTokens,
+            limitTokens: contextEstimate.inputBudgetTokens,
+            semanticDecisionUsage: semanticDecisionUsage,
+            compactionThresholdTokens: contextEstimate.compactionThresholdTokens
+        )
     }
 
     public var canSubmitMessage: Bool {

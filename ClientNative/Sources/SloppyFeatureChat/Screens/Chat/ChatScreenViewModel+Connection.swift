@@ -68,6 +68,7 @@ extension ChatScreenViewModel {
         toolApprovalErrorMessage = nil
         activeRunStatus = nil
         contextTokenUsage = nil
+        contextEstimate = nil
         semanticDecisionUsage = nil
         computerUseActivity = nil
         isComputerUsePreviewHidden = false

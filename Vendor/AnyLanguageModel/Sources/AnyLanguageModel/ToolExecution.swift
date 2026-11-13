@@ -51,6 +51,10 @@ public protocol ToolExecutionDelegate: Sendable {
         in session: LanguageModelSession
     ) async
 
+    /// Lets the session owner compact the model-visible history between complete tool batches.
+    /// A replacement invalidates provider-specific replay for the replaced context.
+    func prepareToolContinuation(_ transcript: Transcript, in session: LanguageModelSession) async throws -> Transcript
+
     /// Notifies the delegate when a tool call fails.
     ///
     /// - Parameters:
@@ -84,6 +88,10 @@ extension ToolExecutionDelegate {
         output: Transcript.ToolOutput,
         in session: LanguageModelSession
     ) async {}
+
+    public func prepareToolContinuation(_ transcript: Transcript, in session: LanguageModelSession) async throws -> Transcript {
+        transcript
+    }
 
     /// Provides a default no-op implementation.
     public func didFailToolCall(

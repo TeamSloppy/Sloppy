@@ -181,6 +181,19 @@ public struct TokenUsageRecord: Codable, Sendable, Equatable {
     }
 }
 
+/// Estimated occupancy of one model request, separate from aggregate turn usage.
+public struct SessionContextUsage: Codable, Sendable, Equatable {
+    public var inputTokens: Int
+    public var inputBudgetTokens: Int
+    public var compactionThresholdTokens: Int?
+
+    public init(inputTokens: Int, inputBudgetTokens: Int, compactionThresholdTokens: Int?) {
+        self.inputTokens = inputTokens
+        self.inputBudgetTokens = inputBudgetTokens
+        self.compactionThresholdTokens = compactionThresholdTokens
+    }
+}
+
 /// Response for token usage list endpoint with aggregates.
 public struct TokenUsageResponse: Codable, Sendable {
     public var items: [TokenUsageRecord]
@@ -192,6 +205,7 @@ public struct TokenUsageResponse: Codable, Sendable {
     public var totalReasoningTokens: Int
     /// Optional spend from semantic-decision calls associated with this channel.
     public var semanticDecisionUsage: SemanticDecisionUsage?
+    public var contextUsage: SessionContextUsage?
 
     public init(
         items: [TokenUsageRecord],
@@ -201,7 +215,8 @@ public struct TokenUsageResponse: Codable, Sendable {
         totalCachedInputTokens: Int = 0,
         totalCacheCreationInputTokens: Int = 0,
         totalReasoningTokens: Int = 0,
-        semanticDecisionUsage: SemanticDecisionUsage? = nil
+        semanticDecisionUsage: SemanticDecisionUsage? = nil,
+        contextUsage: SessionContextUsage? = nil
     ) {
         self.items = items
         self.totalPromptTokens = totalPromptTokens
@@ -211,5 +226,6 @@ public struct TokenUsageResponse: Codable, Sendable {
         self.totalCacheCreationInputTokens = totalCacheCreationInputTokens
         self.totalReasoningTokens = totalReasoningTokens
         self.semanticDecisionUsage = semanticDecisionUsage
+        self.contextUsage = contextUsage
     }
 }

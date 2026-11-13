@@ -71,6 +71,57 @@ struct TranscriptContextManagerTests {
         } catch TranscriptContextError.protectedContextExceedsBudget {}
     }
 
+    @Test("Oversized recovered history fits one bounded summary request and can be replayed")
+    func compactsOversizedRecoveryTranscript() async throws {
+        let history = (0..<80).map { index in
+            response("historical marker \(index) " + String(repeating: "record ", count: 800))
+        }
+        let latest = prompt("Keep the current request verbatim")
+        let original = Transcript(entries: history + [latest])
+        #expect(TranscriptContextManager.estimate(original) > 90_000)
+        let (prepared, report) = try await TranscriptContextManager.prepare(
+            original, inputBudget: 30_000, protectRecentEntries: 1, summaryInputBudget: 32_000,
+            summarize: { text, outputTokens in
+                #expect(TokenPressureEstimator().estimateTextTokens(text) + outputTokens + 256 <= 32_000)
+                #expect(text.contains("historical marker 0"))
+                #expect(text.contains("historical marker 79"))
+                #expect(text.contains("Older records omitted"))
+                #expect(!text.contains("Keep the current request verbatim"))
+                return "Historical objective and evidence."
+            }
+        )
+        #expect(report.afterTokens <= 30_000)
+        let checkpoint = try #require(report.checkpoint)
+        let restored = try #require(checkpoint.restore(original))
+        #expect(restored.map(TranscriptContextManager.render) == prepared.map(TranscriptContextManager.render))
+        let next = prompt("new event after the checkpoint")
+        let extended = Transcript(entries: Array(original) + [next])
+        #expect(checkpoint.restore(extended)?.last == next)
+        #expect(checkpoint.restore(Transcript(entries: Array(history.dropFirst()) + [latest])) == nil)
+    }
+
+    @Test("Tool continuation updates occupancy and preserves the completed call/result pair")
+    func toolContinuation() async throws {
+        let capture = ContextRuntimeCapture()
+        let provider = ContextTestProvider(capture: capture)
+        let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "test:small", preResponseMemoryLimit: 0)
+        let toolCall = Transcript.ToolCall(id: "tool-1", toolName: "files.read", arguments: GeneratedContent("{}"))
+        let call = Transcript.Entry.toolCalls(.init([toolCall]))
+        let output = Transcript.Entry.toolOutput(.init(id: toolCall.id, toolName: toolCall.toolName, segments: [.text(.init(content: "file content"))]))
+        let original = Transcript(entries: [
+            response(String(repeating: "Old context ", count: 800)),
+            prompt("inspect this file"), call, output,
+        ])
+        let prepared = try await runtime.prepareToolContinuation(
+            original, channelId: "continuation", activeModel: "test:small", provider: provider, maxOutputTokens: 256
+        )
+        #expect(Array(prepared.suffix(2)) == [call, output])
+        let usage = try #require(await runtime.sessionContextUsage(channelId: "continuation"))
+        #expect(usage.inputTokens == TranscriptContextManager.estimate(prepared))
+        #expect(usage.inputTokens < usage.inputBudgetTokens)
+        #expect(usage.compactionThresholdTokens == 1292)
+    }
+
     @Test("Selected model limits reserve output and enforce the smaller input limit")
     func selectedModelBudget() {
         let limits = ModelContextLimits(contextWindowTokens: 16_000, maxInputTokens: 12_000, maxOutputTokens: 2_000)

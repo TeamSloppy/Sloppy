@@ -98,7 +98,8 @@ extension OpenAIOAuthModel {
         options: GenerationOptions
     ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         let conversion = convertToolsToAPI(session.tools)
-        let transcript = session.transcript
+        var transcript = session.transcript
+        var continuationStart = 0
         let requestBody = try buildRequestBody(transcript: transcript, options: options, tools: conversion.definitions)
         let result = try await collectStreamingResponseWithTools(body: requestBody)
         noteMalformedCalls(result.functionCalls)
@@ -147,16 +148,26 @@ extension OpenAIOAuthModel {
             }
 
             responseItems = appendingToolRound(to: responseItems, calls: pendingCalls, outputs: toolOutputs)
-            let followUp = try buildFollowUpRequestBody(
-                transcript: transcript,
-                accumulatedEntries: transcriptEntries,
-                responseItems: responseItems,
-                functionCalls: pendingCalls,
-                toolOutputs: toolOutputs,
-                options: options,
-                tools: conversion.definitions
-            )
-
+            let newEntries = Array(transcriptEntries.dropFirst(continuationStart))
+            let current = Transcript(entries: Array(transcript) + newEntries)
+            let prepared = try await delegate.prepareToolContinuation(current, in: session)
+            let followUp: Data
+            if prepared != current {
+                transcript = prepared
+                continuationStart = transcriptEntries.count
+                responseItems = []
+                followUp = try buildRequestBody(transcript: prepared, options: options, tools: conversion.definitions)
+            } else {
+                followUp = try buildFollowUpRequestBody(
+                    transcript: transcript,
+                    accumulatedEntries: newEntries,
+                    responseItems: responseItems,
+                    functionCalls: pendingCalls,
+                    toolOutputs: toolOutputs,
+                    options: options,
+                    tools: conversion.definitions
+                )
+            }
             let next = try await collectStreamingResponseWithTools(body: followUp)
             noteMalformedCalls(next.functionCalls)
             text = next.text
@@ -203,6 +214,8 @@ extension OpenAIOAuthModel {
                     var pendingCalls = result.functionCalls
                     var responseItems = result.outputItems
                     var accumulatedEntries: [Transcript.Entry] = []
+                    var transcript = transcript
+                    var continuationStart = 0
 
                     while !pendingCalls.isEmpty, let delegate = session.toolExecutionDelegate {
                         let toolCalls = pendingCalls.map { call in
@@ -245,15 +258,26 @@ extension OpenAIOAuthModel {
                         }
 
                         responseItems = appendingToolRound(to: responseItems, calls: pendingCalls, outputs: toolOutputs)
-                        let followUp = try buildFollowUpRequestBody(
-                            transcript: transcript,
-                            accumulatedEntries: accumulatedEntries,
-                            responseItems: responseItems,
-                            functionCalls: pendingCalls,
-                            toolOutputs: toolOutputs,
-                            options: options,
-                            tools: conversion.definitions
-                        )
+                        let newEntries = Array(accumulatedEntries.dropFirst(continuationStart))
+                        let current = Transcript(entries: Array(transcript) + newEntries)
+                        let prepared = try await delegate.prepareToolContinuation(current, in: session)
+                        let followUp: Data
+                        if prepared != current {
+                            transcript = prepared
+                            continuationStart = accumulatedEntries.count
+                            responseItems = []
+                            followUp = try buildRequestBody(transcript: prepared, options: options, tools: conversion.definitions)
+                        } else {
+                            followUp = try buildFollowUpRequestBody(
+                                transcript: transcript,
+                                accumulatedEntries: newEntries,
+                                responseItems: responseItems,
+                                functionCalls: pendingCalls,
+                                toolOutputs: toolOutputs,
+                                options: options,
+                                tools: conversion.definitions
+                            )
+                        }
                         let next = try await performStreamingRequestWithTools(
                             body: followUp,
                             continuation: continuation,

@@ -2746,7 +2746,7 @@ func checkpointSessionStartsWithCheckpointTranscriptContext() async throws {
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let agentID = "checkpoint-restore-agent"
-    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
         agentID: agentID,
         selectedModel: "openai-api:gpt-5.4-mini",
         availableModels: availableModels
@@ -2771,13 +2771,21 @@ func checkpointSessionStartsWithCheckpointTranscriptContext() async throws {
         agentID: agentID,
         request: AgentSessionCreateRequest(title: "Next", checkpointSessionId: checkpoint.id)
     )
-    _ = try await orchestrator.postMessage(
+    let resumedProvider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let resumedRuntime = RuntimeSystem(modelProvider: resumedProvider, defaultModel: "openai-api:gpt-5.4-mini")
+    let resumed = AgentSessionOrchestrator(
+        runtime: resumedRuntime,
+        sessionStore: AgentSessionFileStore(agentsRootURL: agentsRootURL),
+        agentCatalogStore: AgentCatalogFileStore(agentsRootURL: agentsRootURL),
+        availableModels: availableModels
+    )
+    _ = try await resumed.postMessage(
         agentID: agentID,
         sessionID: next.id,
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "after checkpoint")
     )
 
-    let transcript = await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
+    let transcript = await resumedProvider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
     #expect(next.parentSessionId == nil)
     #expect(transcript.contains("prompt:checkpoint task context"))
     #expect(transcript.contains("response:Captured."))
@@ -3083,7 +3091,7 @@ func notifySkillsChangedDoesNothingForNonBootstrappedSessions() async throws {
 }
 
 @Test
-func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws {
+func agentSessionRestoresTranscriptWithoutDuplicatingBootstrapAfterRestart() async throws {
     let agentID = "restart-history-agent"
     let availableModels = [
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
@@ -3140,10 +3148,7 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "How do actors work?")
     )
 
-    let provider2 = FixedOutputModelProvider(
-        models: availableModels.map(\.id),
-        output: "Continuing the discussion."
-    )
+    let provider2 = SessionCapturingModelProvider(models: availableModels.map(\.id))
     let runtime2 = RuntimeSystem(modelProvider: provider2, defaultModel: "openai-api:gpt-5.4-mini")
     let sessionStore2 = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let catalogStore2 = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
@@ -3166,14 +3171,62 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
         $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
     })?.content ?? ""
 
-    #expect(bootstrapMessage.contains("[Previous conversation history]"))
-    #expect(bootstrapMessage.contains("Tell me about Swift concurrency"))
-    #expect(bootstrapMessage.contains("How do actors work?"))
-    #expect(bootstrapMessage.contains("[End of previous conversation]"))
+    #expect(!bootstrapMessage.contains("[Previous conversation history]"))
+    let modelTranscript = try #require(await provider2.requestedTranscriptsSnapshot().last)
+    #expect(modelTranscript.joined(separator: "\n").contains("Tell me about Swift concurrency"))
+    #expect(modelTranscript.joined(separator: "\n").contains("How do actors work?"))
 }
 
 @Test
-func agentSessionRefreshesStaleBootstrapWithPersistedHistory() async throws {
+func agentSessionRestoresCompactionCheckpointAfterRestart() async throws {
+    let agentID = "durable-compaction-agent"
+    let model = "openai-api:gpt-5.4-mini"
+    let available = [ProviderModelOption(id: model, title: model, capabilities: ["tools"])]
+    let (catalog, store, root) = try makeAgentSessionFixture(agentID: agentID, selectedModel: model, availableModels: available)
+    let provider = SessionCapturingModelProvider(models: [model])
+    let limits = CompactorConfiguration(contextWindowTokens: 32_000)
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: model, compactorConfiguration: limits)
+    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: available)
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init(title: "Compaction"))
+    let original = (0..<72).map { index in
+        AgentSessionEvent(
+            agentId: agentID, sessionId: session.id, type: .message,
+            message: .init(role: .assistant, segments: [.init(
+                kind: .text, text: "old marker \(index) " + String(repeating: "historical output ", count: 320)
+            )])
+        )
+    }
+    _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: original)
+    let before = try #require(await orchestrator.estimatePersistedContext(agentID: agentID, sessionID: session.id, model: model))
+    #expect(before.inputTokens > before.inputBudgetTokens)
+
+    _ = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id, request: .init(
+        userId: "dashboard", content: "/ask Continue the restored task"
+    ))
+    let checkpoint = try #require(store.contextCheckpoint(agentID: agentID, sessionID: session.id))
+    #expect(!checkpoint.sourcePrefixIDs.isEmpty)
+    let originalIDs = Set(original.map(\.id))
+    let reloadedStore = AgentSessionFileStore(agentsRootURL: root)
+    let reloaded = try reloadedStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(originalIDs.isSubset(of: Set(reloaded.events.map(\.id))))
+    #expect(reloadedStore.contextCheckpoint(agentID: agentID, sessionID: session.id) == checkpoint)
+
+    let nextProvider = SessionCapturingModelProvider(models: [model])
+    let nextRuntime = RuntimeSystem(modelProvider: nextProvider, defaultModel: model, compactorConfiguration: limits)
+    let resumed = AgentSessionOrchestrator(runtime: nextRuntime, sessionStore: reloadedStore, agentCatalogStore: AgentCatalogFileStore(agentsRootURL: root), availableModels: available)
+    let after = try #require(await resumed.estimatePersistedContext(agentID: agentID, sessionID: session.id, model: model))
+    #expect(after.inputTokens < after.inputBudgetTokens)
+    _ = try await resumed.postMessage(agentID: agentID, sessionID: session.id, request: .init(
+        userId: "dashboard", content: "/ask Read the checkpoint"
+    ))
+    let transcript = try #require(await nextProvider.requestedTranscriptsSnapshot().last).joined(separator: "\n")
+    #expect(transcript.contains("[Compacted conversation context]"))
+    #expect(!transcript.contains("old marker 0 "))
+    #expect(transcript.contains("Continue the restored task"))
+}
+
+@Test
+func agentSessionUsesPersistedHistoryWithExistingBootstrap() async throws {
     let agentID = "stale-bootstrap-history-agent"
     let availableModels = [
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
@@ -3184,7 +3237,8 @@ func agentSessionRefreshesStaleBootstrapWithPersistedHistory() async throws {
         availableModels: availableModels
     )
 
-    let runtime = RuntimeSystem()
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
@@ -3233,9 +3287,10 @@ func agentSessionRefreshesStaleBootstrapWithPersistedHistory() async throws {
     )
 
     let refreshedBootstrap = await runtime.channelBootstrapContent(channelId: channelID) ?? ""
-    #expect(refreshedBootstrap.contains("[Previous conversation history]"))
-    #expect(refreshedBootstrap.contains("Original task: explain the failing session restore"))
-    #expect(refreshedBootstrap.contains("I found that the restored session needs its JSONL history."))
+    #expect(refreshedBootstrap == initialBootstrap)
+    let modelTranscript = try #require(await provider.requestedTranscriptsSnapshot().last)
+    #expect(modelTranscript.joined(separator: "\n").contains("Original task: explain the failing session restore"))
+    #expect(modelTranscript.joined(separator: "\n").contains("I found that the restored session needs its JSONL history."))
 }
 
 @Test

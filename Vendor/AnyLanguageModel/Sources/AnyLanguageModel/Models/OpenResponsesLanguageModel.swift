@@ -493,6 +493,8 @@ public struct OpenResponsesLanguageModel: LanguageModel {
         var text = ""
         var lastOutput: [JSONValue]?
         var messages = messages
+        var baseTranscript = session.transcript
+        var continuationStart = 0
         let url = baseURL.appendingPathComponent("responses")
 
         while true {
@@ -543,6 +545,15 @@ public struct OpenResponsesLanguageModel: LanguageModel {
                                     content: .text(openResponsesConvertSegmentsToToolContentString(inv.output.segments))
                                 )
                             )
+                        }
+                        if let delegate = session.toolExecutionDelegate {
+                            let current = Transcript(entries: Array(baseTranscript) + entries.dropFirst(continuationStart))
+                            let prepared = try await delegate.prepareToolContinuation(current, in: session)
+                            if prepared != current {
+                                messages = prepared.toOpenResponsesMessages()
+                                baseTranscript = prepared
+                                continuationStart = entries.count
+                            }
                         }
                         continue
                     }

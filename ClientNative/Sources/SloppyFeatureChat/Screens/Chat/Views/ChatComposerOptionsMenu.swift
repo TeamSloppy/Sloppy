@@ -60,7 +60,7 @@ struct ComposerContextUsageView: View {
         if usage.fraction >= 0.9 {
             return theme.colors.statusBlocked
         }
-        if usage.fraction >= 0.75 {
+        if let threshold = usage.compactionThresholdTokens, usage.usedTokens >= threshold {
             return theme.colors.statusWarning
         }
         return theme.colors.textSecondary
@@ -77,7 +77,7 @@ struct ComposerContextUsageView: View {
 
     private func contextDetails(_ usage: ChatContextUsage) -> some View {
         VStack(alignment: .leading, spacing: theme.spacing.s) {
-            Text("Context usage")
+            Text("Estimated context usage")
                 .font(.system(size: theme.typography.body, weight: .semibold))
                 .foregroundColor(theme.colors.textPrimary)
 
@@ -100,6 +100,15 @@ struct ComposerContextUsageView: View {
                     Text(usage.limitTokens.formatted(.number.grouping(.automatic)))
                         .foregroundColor(theme.colors.textPrimary)
                         .monospacedDigit()
+                }
+                if let threshold = usage.compactionThresholdTokens {
+                    GridRow {
+                        Text("Compaction threshold")
+                            .foregroundColor(theme.colors.textMuted)
+                        Text(threshold.formatted(.number.grouping(.automatic)))
+                            .foregroundColor(theme.colors.textPrimary)
+                            .monospacedDigit()
+                    }
                 }
             }
             .font(.system(size: theme.typography.caption))

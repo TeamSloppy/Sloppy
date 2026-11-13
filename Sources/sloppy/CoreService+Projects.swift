@@ -73,7 +73,8 @@ extension CoreService {
         channelId: String? = nil,
         taskId: String? = nil,
         from: Date? = nil,
-        to: Date? = nil
+        to: Date? = nil,
+        contextModel: String? = nil
     ) async -> TokenUsageResponse {
         let records = await store.listTokenUsage(channelId: channelId, taskId: taskId, from: from, to: to)
         let totalPrompt = records.reduce(0) { $0 + $1.promptTokens }
@@ -85,6 +86,18 @@ extension CoreService {
         let measuredSemanticDecisionUsage = await semanticDecisionUsageMeter.snapshot(channelID: channelId)
         let semanticDecisionUsage = measuredSemanticDecisionUsage
             ?? (currentConfig.semanticDecisions.provider == nil ? nil : SemanticDecisionUsage())
+        var contextUsage: SessionContextUsage?
+        if let channelId, taskId == nil, from == nil, to == nil,
+           let session = Self.parseAgentSessionChannelId(channelId),
+           channelId == sessionChannelID(agentID: session.agentID, sessionID: session.sessionID) {
+            if await runtime.hasCachedChannelSession(channelId: channelId) {
+                contextUsage = await runtime.sessionContextUsage(channelId: channelId, model: contextModel)
+            } else {
+                contextUsage = await sessionOrchestrator.estimatePersistedContext(
+                    agentID: session.agentID, sessionID: session.sessionID, model: contextModel
+                )
+            }
+        }
         return TokenUsageResponse(
             items: records,
             totalPromptTokens: totalPrompt,
@@ -93,7 +106,8 @@ extension CoreService {
             totalCachedInputTokens: totalCachedInput,
             totalCacheCreationInputTokens: totalCacheCreationInput,
             totalReasoningTokens: totalReasoning,
-            semanticDecisionUsage: semanticDecisionUsage
+            semanticDecisionUsage: semanticDecisionUsage,
+            contextUsage: contextUsage
         )
     }
 

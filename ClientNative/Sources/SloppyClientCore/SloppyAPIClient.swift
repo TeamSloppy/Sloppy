@@ -559,10 +559,13 @@ public actor SloppyAPIClient {
         try await agents.fetchAgentTokenUsage(agentId: agentId)
     }
 
-    public func fetchSessionTokenUsage(agentId: String, sessionId: String) async throws -> ChatTokenUsageResponse {
+    public func fetchSessionTokenUsage(
+        agentId: String, sessionId: String, contextModel: String? = nil
+    ) async throws -> ChatTokenUsageResponse {
         let channelId = "agent:\(agentId):session:\(sessionId)"
+        let modelQuery = contextModel.map { "&contextModel=\(BackendHTTPClient.encodeQueryValue($0))" } ?? ""
         return try await http.get(
-            "/v1/token-usage?channelId=\(BackendHTTPClient.encodeQueryValue(channelId))"
+            "/v1/token-usage?channelId=\(BackendHTTPClient.encodeQueryValue(channelId))\(modelQuery)"
         )
     }
 

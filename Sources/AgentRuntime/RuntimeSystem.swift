@@ -226,6 +226,9 @@ public actor RuntimeSystem {
     var lastActiveModelByChannel: [String: String] = [:]
     var lastWorkingModel: String?
     var malformedToolCallObserversByChannel: [String: @Sendable (Int) async -> Void] = [:]
+    var channelsCompactedDuringToolLoop: Set<String> = []
+    var toolContinuationUsageByChannel: [String: SessionContextUsage] = [:]
+    var contextCheckpointWritersByChannel: [String: @Sendable (TranscriptContextCheckpoint) async -> Void] = [:]
     var contextArchiversByChannel: [String: TranscriptContextManager.Archive] = [:]
     var contextPreparationByChannel: [String: TranscriptContextReport] = [:]
 

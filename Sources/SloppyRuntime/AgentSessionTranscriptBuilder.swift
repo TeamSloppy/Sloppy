@@ -1,3 +1,4 @@
+import AgentRuntime
 import AnyLanguageModel
 import Foundation
 import Protocols
@@ -6,6 +7,7 @@ public enum AgentSessionTranscriptBuilder {
     public static func buildRecoveryTranscript(
         current detail: AgentSessionDetail,
         source sourceDetail: AgentSessionDetail? = nil,
+        checkpoint: TranscriptContextCheckpoint? = nil,
         imageLoader: ((AgentAttachment) -> Transcript.ImageSegment?)? = nil
     ) -> Transcript {
         var entries: [Transcript.Entry] = []
@@ -30,7 +32,8 @@ public enum AgentSessionTranscriptBuilder {
             entries.append(contentsOf: transcriptEntries(from: sourceDetail, images: images))
         }
         entries.append(contentsOf: transcriptEntries(from: detail, images: images))
-        return Transcript(entries: entries)
+        let transcript = Transcript(entries: entries)
+        return checkpoint?.restore(transcript) ?? transcript
     }
 
     public static func hasRecoverableEntries(_ transcript: Transcript) -> Bool {
@@ -63,7 +66,7 @@ public enum AgentSessionTranscriptBuilder {
                 } else if let result = event.toolResult {
                     text = "[Historical tool result: \(result.tool)]\n" + toolResultText(from: result)
                 } else { continue }
-                entries.append(.response(Transcript.Response(assetIDs: [], segments: [.text(.init(content: text))])))
+                entries.append(.response(Transcript.Response(id: event.id, assetIDs: [], segments: [.text(.init(content: text))])))
                 continue
             }
             switch event.type {
@@ -81,9 +84,9 @@ public enum AgentSessionTranscriptBuilder {
                     for attachment in message.segments.compactMap(\.attachment).filter({ $0.mimeType.lowercased().hasPrefix("image/") }).prefix(8) {
                         if let image = images[attachment.id] { segments.append(.image(image)) }
                     }
-                    entries.append(.prompt(Transcript.Prompt(segments: segments)))
+                    entries.append(.prompt(Transcript.Prompt(id: event.id, segments: segments)))
                 case .assistant:
-                    entries.append(.response(Transcript.Response(assetIDs: [], segments: [.text(.init(content: text))])))
+                    entries.append(.response(Transcript.Response(id: event.id, assetIDs: [], segments: [.text(.init(content: text))])))
                 case .system:
                     continue
                 }
@@ -95,7 +98,7 @@ public enum AgentSessionTranscriptBuilder {
                 let callID = deterministicToolCallID(for: event)
                 pendingToolCallIDsByTool[toolCall.tool, default: []].append(callID)
                 pendingToolCallEntryIndicesByID[callID] = entries.count
-                entries.append(.toolCalls(Transcript.ToolCalls([
+                entries.append(.toolCalls(Transcript.ToolCalls(id: event.id, [
                     Transcript.ToolCall(
                         id: callID,
                         toolName: toolCall.tool,

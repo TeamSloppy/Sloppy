@@ -13,6 +13,9 @@ extension ChatScreenViewModel {
     public func pickModel(_ model: ChatModelOption) {
         selectedModelId = model.id
         selectedReasoningEffort = .default
+        contextEstimate = nil
+        usageRefreshTask?.cancel()
+        usageRefreshTask = nil
         if let agentId = selectedAgent?.id {
             modelPreferences.setSelection(
                 model.id,
@@ -20,6 +23,9 @@ extension ChatScreenViewModel {
                 agentId: agentId,
                 sessionId: selectedSessionId
             )
+            if let sessionId = selectedSessionId {
+                scheduleAuxiliaryRefresh(agentId: agentId, sessionId: sessionId)
+            }
         }
     }
 

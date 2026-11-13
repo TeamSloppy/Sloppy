@@ -53,7 +53,9 @@ struct ClaudeCodeLanguageModel: LanguageModel {
     private func run<Content: Generable>(session: LanguageModelSession, type: Content.Type, options: GenerationOptions,
         onText: (@Sendable (String) -> Void)? = nil) async throws -> LanguageModelSession.Response<Content> {
         let names = Dictionary(uniqueKeysWithValues: session.tools.map { ($0.name, $0.name) })
-        var history = try ClaudeCodeHistory(transcript: session.transcript, names: names)
+        var baseTranscript = session.transcript
+        var continuationStart = 0
+        var history = try ClaudeCodeHistory(transcript: baseTranscript, names: names)
         if let replaySeed { try history.restoreReplay(replaySeed.message) }
         var body: [String: JSONValue] = ["max_tokens": .number(Double(max(1, options.maximumResponseTokens ?? 4096)))]
         let definitions: [JSONValue] = try session.tools.map { tool in
@@ -128,6 +130,15 @@ struct ClaudeCodeLanguageModel: LanguageModel {
                 history.append(role: "user", blocks: [.object(["type": .string("tool_result"),
                     "tool_use_id": .string(call.id), "content": .array(try ClaudeCodeHistory.blocks(segments))])])
                 await session.toolExecutionDelegate?.didExecuteToolCall(call, output: output, in: session)
+            }
+            if let delegate = session.toolExecutionDelegate {
+                let current = Transcript(entries: Array(baseTranscript) + entries.dropFirst(continuationStart))
+                let prepared = try await delegate.prepareToolContinuation(current, in: session)
+                if prepared != current {
+                    history = try ClaudeCodeHistory(transcript: prepared, names: names)
+                    baseTranscript = prepared
+                    continuationStart = entries.count
+                }
             }
         }
         throw ClaudeCodeError.toolRoundLimit

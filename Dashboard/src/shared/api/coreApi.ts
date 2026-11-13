@@ -431,7 +431,7 @@ export interface CoreApi {
   rejectToolApproval: (approvalId: string) => Promise<AnyRecord | null>;
   fetchAccessUsers: (platform?: string) => Promise<AnyRecord[] | null>;
   deleteAccessUser: (userId: string) => Promise<boolean>;
-  fetchTokenUsage: (query?: { channelId?: string; taskId?: string; from?: string; to?: string }) => Promise<AnyRecord | null>;
+  fetchTokenUsage: (query?: { channelId?: string; taskId?: string; from?: string; to?: string; contextModel?: string }) => Promise<AnyRecord | null>;
   fetchUsageBreakdown: (query?: UsageQuery) => Promise<UsageBreakdown>;
   fetchSemanticDecisionSpending: (query?: { from?: string; to?: string }) => Promise<AnyRecord>;
   fetchChannelModel: (channelId: string) => Promise<AnyRecord | null>;
@@ -3055,6 +3055,7 @@ export function createCoreApi(): CoreApi {
     fetchTokenUsage: async (query = {}) => {
       const params = new URLSearchParams();
       if (query.channelId) params.set("channelId", query.channelId);
+      if (query.contextModel) params.set("contextModel", query.contextModel);
       if (query.taskId) params.set("taskId", query.taskId);
       if (query.from) params.set("from", query.from);
       if (query.to) params.set("to", query.to);

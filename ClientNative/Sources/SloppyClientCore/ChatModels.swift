@@ -647,15 +647,18 @@ public struct ChatContextUsage: Sendable, Equatable {
     public var usedTokens: Int
     public var limitTokens: Int
     public var semanticDecisionUsage: ChatSemanticDecisionUsage?
+    public var compactionThresholdTokens: Int?
 
     public init(
         usedTokens: Int,
         limitTokens: Int,
-        semanticDecisionUsage: ChatSemanticDecisionUsage? = nil
+        semanticDecisionUsage: ChatSemanticDecisionUsage? = nil,
+        compactionThresholdTokens: Int? = nil
     ) {
         self.usedTokens = max(0, usedTokens)
         self.limitTokens = max(1, limitTokens)
         self.semanticDecisionUsage = semanticDecisionUsage
+        self.compactionThresholdTokens = compactionThresholdTokens
     }
 
     public var fraction: Double {
@@ -694,10 +697,18 @@ public struct ChatSemanticDecisionUsage: Codable, Sendable, Equatable {
 }
 
 public struct ChatTokenUsageResponse: Codable, Sendable, Equatable {
-    public var semanticDecisionUsage: ChatSemanticDecisionUsage?
+    public struct ContextUsage: Codable, Sendable, Equatable {
+        public var inputTokens: Int
+        public var inputBudgetTokens: Int
+        public var compactionThresholdTokens: Int?
+    }
 
-    public init(semanticDecisionUsage: ChatSemanticDecisionUsage? = nil) {
+    public var semanticDecisionUsage: ChatSemanticDecisionUsage?
+    public var contextUsage: ContextUsage?
+
+    public init(semanticDecisionUsage: ChatSemanticDecisionUsage? = nil, contextUsage: ContextUsage? = nil) {
         self.semanticDecisionUsage = semanticDecisionUsage
+        self.contextUsage = contextUsage
     }
 }
 

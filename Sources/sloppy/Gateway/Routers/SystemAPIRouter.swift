@@ -387,7 +387,7 @@ struct SystemAPIRouter: APIRouter {
             let from: Date? = request.queryParam("from").flatMap { CoreRouter.isoDate(from: $0) }
             let to: Date? = request.queryParam("to").flatMap { CoreRouter.isoDate(from: $0) }
 
-            let response = await service.listTokenUsage(channelId: channelId, taskId: taskId, from: from, to: to)
+            let response = await service.listTokenUsage(channelId: channelId, taskId: taskId, from: from, to: to, contextModel: request.queryParam("contextModel"))
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 

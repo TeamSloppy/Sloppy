@@ -71,6 +71,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private let emptyArgumentsAllowedTools: Set<String>
     private let executedToolCallHandler: (@Sendable (Transcript.ToolCall, Transcript.ToolOutput) async -> Void)?
     private let malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)?
+    private let prepareContinuation: (@Sendable (Transcript) async throws -> Transcript)?
     private let shouldYieldAtBoundary: (@Sendable () async -> Bool)?
     private let concurrencySafeTools: Set<String>
     private let preparedDecisionStore = PreparedDecisionStore()
@@ -85,6 +86,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)? = nil,
         executedToolCallHandler: (@Sendable (Transcript.ToolCall, Transcript.ToolOutput) async -> Void)? = nil,
         shouldYieldAtBoundary: (@Sendable () async -> Bool)? = nil,
+        prepareContinuation: (@Sendable (Transcript) async throws -> Transcript)? = nil,
         toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
     ) {
         self.toolNameMap = toolNameMap
@@ -96,6 +98,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         self.malformedArgumentsHandler = malformedArgumentsHandler
         self.executedToolCallHandler = executedToolCallHandler
         self.shouldYieldAtBoundary = shouldYieldAtBoundary
+        self.prepareContinuation = prepareContinuation
         self.toolCallHandler = toolCallHandler
     }
 
@@ -136,6 +139,10 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
             prepared.append(contentsOf: results)
         }
         await preparedDecisionStore.replace(with: prepared)
+    }
+
+    public func prepareToolContinuation(_ transcript: Transcript, in session: LanguageModelSession) async throws -> Transcript {
+        try await prepareContinuation?(transcript) ?? transcript
     }
 
     public func didExecuteToolCall(

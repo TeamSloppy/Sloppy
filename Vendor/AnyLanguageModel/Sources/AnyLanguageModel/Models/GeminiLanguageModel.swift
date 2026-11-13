@@ -281,6 +281,7 @@ public struct GeminiLanguageModel: LanguageModel {
         let geminiTools = try buildTools(from: session.tools, serverTools: effectiveServerTools)
 
         var transcript = session.transcript
+        var entries: [Transcript.Entry] = []
 
         // Multi-turn conversation loop for tool calling
         while true {
@@ -318,20 +319,22 @@ public struct GeminiLanguageModel: LanguageModel {
                 switch resolution {
                 case .stop(let calls):
                     if !calls.isEmpty {
-                        transcript.append(.toolCalls(Transcript.ToolCalls(calls)))
+                        entries.append(.toolCalls(Transcript.ToolCalls(calls)))
                     }
                     let empty = try emptyResponseContent(for: type)
                     return LanguageModelSession.Response(
                         content: empty.content,
                         rawContent: empty.rawContent,
-                        transcriptEntries: ArraySlice(transcript)
+                        transcriptEntries: ArraySlice(entries)
                     )
                 case .invocations(let invocations):
                     if !invocations.isEmpty {
-                        transcript.append(.toolCalls(Transcript.ToolCalls(invocations.map(\.call))))
-
-                        for invocation in invocations {
-                            transcript.append(.toolOutput(invocation.output))
+                        let batch: [Transcript.Entry] = [.toolCalls(.init(invocations.map(\.call)))]
+                            + invocations.map { .toolOutput($0.output) }
+                        entries.append(contentsOf: batch)
+                        transcript.append(contentsOf: batch)
+                        if let delegate = session.toolExecutionDelegate {
+                            transcript = try await delegate.prepareToolContinuation(transcript, in: session)
                         }
                     }
 
@@ -352,7 +355,7 @@ public struct GeminiLanguageModel: LanguageModel {
                     return LanguageModelSession.Response(
                         content: text as! Content,
                         rawContent: GeneratedContent(text),
-                        transcriptEntries: ArraySlice(transcript)
+                        transcriptEntries: ArraySlice(entries)
                     )
                 }
 
@@ -361,7 +364,7 @@ public struct GeminiLanguageModel: LanguageModel {
                 return LanguageModelSession.Response(
                     content: content,
                     rawContent: generatedContent,
-                    transcriptEntries: ArraySlice(transcript)
+                    transcriptEntries: ArraySlice(entries)
                 )
             }
         }

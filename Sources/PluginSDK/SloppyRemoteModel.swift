@@ -222,6 +222,14 @@ public struct SloppyRemoteModel: LanguageModel {
                 transcript.append(.toolOutput(output))
                 await session.toolExecutionDelegate?.didExecuteToolCall(call, output: output, in: session)
             }
+            if let delegate = session.toolExecutionDelegate {
+                let current = Transcript(entries: transcript)
+                let prepared = try await delegate.prepareToolContinuation(current, in: session)
+                if prepared != current {
+                    transcript = Array(prepared)
+                    replay = nil
+                }
+            }
         }
         throw SloppyRemoteError.toolLoopLimit
     }

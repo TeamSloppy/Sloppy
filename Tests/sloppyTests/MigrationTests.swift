@@ -66,11 +66,19 @@ import SloppyMigration
         let transcript = AgentSessionTranscriptBuilder.buildRecoveryTranscript(current: detail)
         #expect(!transcript.contains { if case .toolCalls = $0 { return true }; return false })
         #expect(transcript.count == 2)
+        #expect(transcript.contains { entry in
+            guard case .prompt(let prompt) = entry else { return false }
+            return prompt.segments.contains { segment in
+                guard case .text(let text) = segment else { return false }
+                return text.content == "Project knowledge"
+            }
+        })
         _ = try await service.postAgentSessionMessage(agentID: agentID, sessionID: sessionID,
             request: .init(userId: "fixture-user", content: "Native continuation", mode: .ask))
         let runtime = await service.runtime
         let bootstrap = await runtime.channelBootstrapContent(channelId: "agent:\(agentID):session:\(sessionID)")
-        #expect(bootstrap?.contains("Project knowledge") == true)
+        #expect(bootstrap != nil)
+        #expect(bootstrap?.contains("Project knowledge") == false)
         let repeated = try await service.importMigration(selection); await jobs.wait(repeated.id)
         #expect(try await service.migrationJob(repeated.id).outcomes.first?.status == "duplicate")
         imported.messages.append(.init(id: "source-new", kind: .assistant, text: "Changed source", createdAt: Date(timeIntervalSince1970: 3)))

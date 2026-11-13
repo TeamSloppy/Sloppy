@@ -25,6 +25,23 @@ struct ChatCurrentContextPresentationTests {
         #expect(model.contextUsage == nil)
     }
 
+    @Test func serverEstimateDrivesContextIndicatorIndependentlyOfTurnUsage() throws {
+        let api = SloppyAPIClient(baseURL: try #require(URL(string: "http://context.invalid")))
+        let model = ChatScreenViewModel(
+            apiClient: api, cacheStore: ClientCacheStore(path: ":memory:"),
+            settings: ClientSettings(), connectionMonitor: ConnectionMonitor(baseURL: api.baseURL),
+            restoresLastSession: false, responseNotificationScheduler: ContextTestNotifications(), onOpenSettings: { _ in }
+        )
+        defer { model.closeSession() }
+        let response = try JSONDecoder().decode(ChatTokenUsageResponse.self, from: Data(
+            #"{"contextUsage":{"inputTokens":24000,"inputBudgetTokens":30000,"compactionThresholdTokens":24000}}"#.utf8
+        ))
+        model.contextEstimate = response.contextUsage
+        model.contextTokenUsage = .init(prompt: 220_000, completion: 335)
+        #expect(model.contextUsage?.percentage == 80)
+        #expect(model.contextUsage?.compactionThresholdTokens == 24_000)
+    }
+
     @Test func explicitlyKnownContextKeepsItsOwnPercentage() {
         let known = ChatContextUsage(usedTokens: 43_556, limitTokens: 272_000)
         #expect(known.percentage == 16)

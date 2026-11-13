@@ -4,7 +4,7 @@ import { ChatApprovalModePicker } from "../agents/components/ChatApprovalModePic
 type Choice = { id: string; label: string; icon: string };
 
 export function WorkComposerControls({
-  modelPicker, extraOptions, approvalPolicy, disabled, canSend, hasContent,
+  modelPicker, extraOptions, contextIndicator, approvalPolicy, disabled, canSend, hasContent,
   busy, stopping, onStop, onAttach, onDeepResearch, modes, mode, onModeChange,
   reasoningOptions, reasoning, onReasoningChange, voice, voiceTitle,
   voicePlayback, autoSpeak, onAutoSpeakChange, handsFree, onHandsFreeToggle,
@@ -12,6 +12,7 @@ export function WorkComposerControls({
 }: {
   modelPicker: React.ReactNode;
   extraOptions?: React.ReactNode;
+  contextIndicator?: React.ReactNode;
   approvalPolicy: any;
   disabled: boolean;
   canSend: boolean;
@@ -120,6 +121,7 @@ export function WorkComposerControls({
     <ChatApprovalModePicker mode={approvalPolicy.mode} busy={approvalPolicy.busy} disabled={stopping}
       error={approvalPolicy.error} unavailable={!approvalPolicy.known} onSelect={(value) => void approvalPolicy.select(value)} onRetry={approvalPolicy.retry} />
     <div className="work-composer-model">{modelPicker}<span className="material-symbols-rounded work-model-chevron" aria-hidden="true">expand_more</span></div>
+    {contextIndicator}
     {busy && action !== "stop" ? <button type="button" className="work-composer-action recording"
       aria-label="Stop" title="Stop" onClick={onStop}>
       <span className="material-symbols-rounded" aria-hidden="true">stop</span>
