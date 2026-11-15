@@ -25,24 +25,52 @@ struct KimiModelProviderFactory: ModelProviderFactory {
         return (key, url)
     }
 
+    /// Kimi Code OAuth always targets the membership endpoint unless a valid HTTPS URL is configured.
+    static func oauthBaseURL(apiURL: String?) -> URL? {
+        let configured = apiURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let url = URL(string: configured.isEmpty ? KimiOAuthService.codingBaseURL : configured),
+              url.scheme?.lowercased() == "https", url.host != nil else { return nil }
+        return url
+    }
+
     static func defaultModel(for key: String) -> String {
         key.hasPrefix("sk-kimi-") ? "kimi-for-coding" : "kimi-k2.6"
     }
 
     func buildProvider(from config: ModelProviderBuildConfig) -> (any ModelProvider)? {
         let models = config.resolvedModels.filter { $0.hasPrefix(Self.prefix) }
+        let workspaceRoot = config.coreConfig.resolvedWorkspaceRootURL()
+        let oauth = KimiOAuthService(workspaceRootURL: workspaceRoot)
         let providers = models.compactMap { modelID -> OpenAIModelProvider? in
             let row = config.modelConfigs.first { CoreModelProviderFactory.resolvedIdentifier(for: $0) == modelID }
-            guard let credentials = try? Self.credentials(
+            let credentials = try? Self.credentials(
                 apiKey: row?.apiKey, apiURL: row?.apiUrl, environmentLookup: config.environmentLookup
-            ) else { return nil }
-            let key = credentials.key.key
+            )
+            let keyProvider: @Sendable () -> String
+            let baseURL: URL
+            var refresh: (@Sendable () async throws -> Void)?
+            var refreshAfterInvalid: (@Sendable () async throws -> Void)?
+            if let credentials {
+                let key = credentials.key.key
+                keyProvider = { key }
+                baseURL = credentials.url
+            } else if oauth.currentAccessToken() != nil,
+                      let url = Self.oauthBaseURL(apiURL: row?.apiUrl) {
+                keyProvider = { oauth.currentAccessToken() ?? "" }
+                baseURL = url
+                refresh = { try await oauth.ensureValidToken() }
+                refreshAfterInvalid = { try await oauth.ensureValidToken(forceRefresh: true) }
+            } else {
+                return nil
+            }
             return OpenAIModelProvider(
                 id: Self.id,
                 supportedModels: [modelID],
                 settings: .init(
-                    apiKey: { key },
-                    baseURL: credentials.url,
+                    apiKey: keyProvider,
+                    baseURL: baseURL,
+                    refreshTokenIfNeeded: refresh,
+                    refreshTokenAfterInvalidToken: refreshAfterInvalid,
                     session: config.proxySession,
                     modelIdentifierPrefix: Self.prefix,
                     allowResponsesAPIFallback: false,

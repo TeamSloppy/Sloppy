@@ -422,6 +422,43 @@ public struct OpenAIDeviceCodePollResponse: Codable, Sendable {
     }
 }
 
+public struct KimiDeviceCodeStartResponse: Codable, Sendable {
+    public var deviceCode: String
+    public var userCode: String
+    public var verificationURL: String
+    public var interval: Int
+    public var expiresIn: Int
+
+    public init(deviceCode: String, userCode: String, verificationURL: String, interval: Int = 5, expiresIn: Int = 600) {
+        self.deviceCode = deviceCode
+        self.userCode = userCode
+        self.verificationURL = verificationURL
+        self.interval = interval
+        self.expiresIn = expiresIn
+    }
+}
+
+public struct KimiDeviceCodePollRequest: Codable, Sendable {
+    public var deviceCode: String
+
+    public init(deviceCode: String) {
+        self.deviceCode = deviceCode
+    }
+}
+
+public struct KimiDeviceCodePollResponse: Codable, Sendable {
+    /// `authorized`, `pending`, `slow_down`, `expired`, `denied` or `error`.
+    public var status: String
+    public var ok: Bool
+    public var message: String
+
+    public init(status: String, ok: Bool, message: String) {
+        self.status = status
+        self.ok = ok
+        self.message = message
+    }
+}
+
 public struct GitHubConnectRequest: Codable, Sendable {
     public var token: String
 

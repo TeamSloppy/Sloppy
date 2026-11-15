@@ -182,6 +182,39 @@ struct ProvidersAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/providers/kimi/oauth/device-code/start", metadata: RouteMetadata(summary: "Start Kimi device code flow", description: "Requests a Kimi Code device authorization code", tags: ["Providers"])) { _ in
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.startKimiDeviceCode())
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+
+        router.post("/v1/providers/kimi/oauth/device-code/poll", metadata: RouteMetadata(summary: "Poll Kimi device code", description: "Polls the Kimi device authorization status", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: KimiDeviceCodePollRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.pollKimiDeviceCode(request: payload))
+            } catch {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: KimiDeviceCodePollResponse(status: "error", ok: false, message: error.localizedDescription)
+                )
+            }
+        }
+
+        router.post("/v1/providers/kimi/oauth/disconnect", metadata: RouteMetadata(summary: "Disconnect Kimi OAuth", description: "Removes stored Kimi OAuth credentials", tags: ["Providers"])) { _ in
+            do {
+                try await service.disconnectKimiOAuth()
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+
         router.post("/v1/providers/anthropic/oauth/start", metadata: RouteMetadata(summary: "Start Anthropic OAuth", description: "Creates an Anthropic OAuth authorization URL", tags: ["Providers"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: AnthropicOAuthStartRequest.self)

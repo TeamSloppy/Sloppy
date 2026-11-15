@@ -58,6 +58,8 @@ export function ProviderEditor({
   onUpdateProviderForm,
   onSelectAnthropicAuthMode,
   onOpenOAuth,
+  onOpenKimiOAuth,
+  onDisconnectKimiOAuth,
   onOpenAnthropicOAuth,
   onImportAnthropicClaudeCredentials,
   onDisconnectAnthropicOAuth,
@@ -705,7 +707,7 @@ export function ProviderEditor({
                 ) : (
                   <p className="placeholder-text">{activeProviderStatus || "Model catalog is loading automatically."}</p>
                 )}
-                {providerModalMeta.id === "openai-oauth" && deviceCode ? (
+                {(providerModalMeta.id === "openai-oauth" || providerModalMeta.id === "kimi") && deviceCode ? (
                   <div className="provider-device-code-card">
                     <div className="provider-device-code-step">
                       <span className="provider-device-code-step-number">1</span>
@@ -730,7 +732,7 @@ export function ProviderEditor({
 
                     <div className="provider-device-code-step">
                       <span className="provider-device-code-step-number">2</span>
-                      <span>Open Codex sign-in in this browser or scan the QR code</span>
+                      <span>{providerModalMeta.id === "kimi" ? "Open Kimi sign-in in this browser or scan the QR code" : "Open Codex sign-in in this browser or scan the QR code"}</span>
                     </div>
                     <button type="button" onClick={onOpenDeviceCodeLoginPage}>
                       Open login page
@@ -745,8 +747,13 @@ export function ProviderEditor({
 
                     <div className="provider-modal-actions">
                       <button type="button" onClick={onCancelDeviceCode}>Cancel</button>
-                      <button type="button" onClick={onOpenOAuth}>Get new code</button>
+                      <button type="button" onClick={providerModalMeta.id === "kimi" ? onOpenKimiOAuth : onOpenOAuth}>Get new code</button>
                     </div>
+                  </div>
+                ) : providerModalMeta.id === "kimi" ? (
+                  <div className="provider-modal-actions">
+                    <button type="button" onClick={onOpenKimiOAuth}>Sign in with Kimi</button>
+                    <button type="button" onClick={onDisconnectKimiOAuth}>Sign out</button>
                   </div>
                 ) : providerModalMeta.id === "openai-oauth" ? (
                   <div className="provider-modal-actions">

@@ -27,6 +27,9 @@ import {
   startGeminiOAuth,
   startOpenAIDeviceCode,
   pollOpenAIDeviceCode,
+  startKimiDeviceCode,
+  pollKimiDeviceCode,
+  disconnectKimiOAuth,
   updateRuntimeConfig,
   fetchGitHubAuthStatus,
   connectGitHub,
@@ -764,6 +767,73 @@ export function ConfigView({
         setConfigDeviceCodePolling(false);
       }
     }
+  }
+
+  async function openKimiLogin() {
+    const generation = ++configDeviceCodeGenerationRef.current;
+    const popup = window.open("about:blank", "sloppy-kimi-device-code", "popup=yes,width=640,height=860");
+    setProviderStatus("kimi", "Requesting a Kimi device code...");
+    setConfigDeviceCode(null);
+    setConfigDeviceCodeCopied(false);
+    configDeviceCodePollingRef.current = true;
+    setConfigDeviceCodePolling(true);
+    try {
+      const response = await startKimiDeviceCode();
+      if (generation !== configDeviceCodeGenerationRef.current || !configDeviceCodePollingRef.current) return;
+      if (!response || typeof response.deviceCode !== "string") {
+        popup?.close();
+        setProviderStatus("kimi", "Failed to start Kimi sign-in. Try again.");
+        return;
+      }
+      const info = {
+        deviceAuthId: String(response.deviceCode),
+        userCode: String(response.userCode),
+        verificationURL: String(response.verificationURL || "https://www.kimi.com/code/authorize_device")
+      };
+      setConfigDeviceCode(info);
+      if (popup) popup.location.href = info.verificationURL;
+      setProviderStatus("kimi", popup
+        ? "Approve the sign-in in the Kimi window."
+        : "Allow popups or use Open login page, then approve the sign-in.");
+      let interval = Math.max(1000, Number(response.interval || 5) * 1000);
+      const deadline = Date.now() + Math.max(1, Number(response.expiresIn || 600)) * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, interval));
+        if (generation !== configDeviceCodeGenerationRef.current || !configDeviceCodePollingRef.current) return;
+        const result = await pollKimiDeviceCode({ deviceCode: info.deviceAuthId });
+        if (generation !== configDeviceCodeGenerationRef.current || !configDeviceCodePollingRef.current) return;
+        if (!result) {
+          setProviderStatus("kimi", "Polling failed. Try again.");
+          return;
+        }
+        if (result.status === "authorized" && result.ok) {
+          setConfigDeviceCode(null);
+          setProviderStatus("kimi", String(result.message || "Kimi connected."));
+          setStatusText("Kimi connected");
+          await loadProviderModels("kimi", providerForm || getProviderDefinition("kimi").defaultEntry);
+          return;
+        }
+        if (result.status === "slow_down") interval += 5000;
+        else if (result.status !== "pending") {
+          setProviderStatus("kimi", String(result.message || "Kimi sign-in failed."));
+          return;
+        }
+      }
+      setConfigDeviceCode(null);
+      setProviderStatus("kimi", "The device code expired. Sign in again to get a new code.");
+    } finally {
+      if (generation === configDeviceCodeGenerationRef.current) {
+        configDeviceCodePollingRef.current = false;
+        setConfigDeviceCodePolling(false);
+      }
+    }
+  }
+
+  async function disconnectKimiLogin() {
+    configDeviceCodePollingRef.current = false;
+    setConfigDeviceCode(null);
+    const ok = await disconnectKimiOAuth();
+    setProviderStatus("kimi", ok ? "Kimi sign-in removed." : "Failed to remove Kimi sign-in.");
   }
 
   function copyConfigDeviceCode() {
@@ -1644,6 +1714,8 @@ export function ConfigView({
             onUpdateProviderForm={updateProviderForm}
             onSelectAnthropicAuthMode={selectAnthropicAuthMode}
             onOpenOAuth={openOpenAIPlatform}
+            onOpenKimiOAuth={openKimiLogin}
+            onDisconnectKimiOAuth={disconnectKimiLogin}
             onOpenAnthropicOAuth={openAnthropicOAuthPopup}
             onImportAnthropicClaudeCredentials={importClaudeCredentialsForAnthropic}
             onDisconnectAnthropicOAuth={handleAnthropicOAuthDisconnect}

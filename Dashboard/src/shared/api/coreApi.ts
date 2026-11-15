@@ -267,6 +267,9 @@ export interface CoreApi {
   startOpenAIDeviceCode: () => Promise<AnyRecord | null>;
   pollOpenAIDeviceCode: (payload: AnyRecord) => Promise<AnyRecord | null>;
   disconnectOpenAIOAuth: () => Promise<boolean>;
+  startKimiDeviceCode: () => Promise<AnyRecord | null>;
+  pollKimiDeviceCode: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  disconnectKimiOAuth: () => Promise<boolean>;
   startAnthropicOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
   completeAnthropicOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
   importAnthropicClaudeCredentials: () => Promise<AnyRecord | null>;
@@ -1600,6 +1603,31 @@ export function createCoreApi(): CoreApi {
     disconnectOpenAIOAuth: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/providers/openai/oauth/disconnect",
+        method: "POST"
+      });
+      return response.ok;
+    },
+
+    startKimiDeviceCode: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/kimi/oauth/device-code/start",
+        method: "POST"
+      });
+      return response.ok ? response.data : null;
+    },
+
+    pollKimiDeviceCode: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/providers/kimi/oauth/device-code/poll",
+        method: "POST",
+        body: payload
+      });
+      return response.data;
+    },
+
+    disconnectKimiOAuth: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/kimi/oauth/disconnect",
         method: "POST"
       });
       return response.ok;

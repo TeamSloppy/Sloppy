@@ -136,6 +136,10 @@ enum CoreModelProviderFactory {
             if !hasKimiRows, !kimiKey.isEmpty {
                 identifiers.append(KimiModelProviderFactory.prefix + KimiModelProviderFactory.defaultModel(for: kimiKey))
             }
+            if !hasKimiRows, kimiKey.isEmpty,
+               KimiOAuthService(workspaceRootURL: config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)).currentAccessToken() != nil {
+                identifiers.append(KimiModelProviderFactory.prefix + "kimi-for-coding")
+            }
         }
 
         return identifiers

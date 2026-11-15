@@ -258,6 +258,21 @@ extension CoreService {
         return response
     }
 
+    public func startKimiDeviceCode() async throws -> KimiDeviceCodeStartResponse {
+        try await KimiOAuthService(workspaceRootURL: workspaceRootURL).startDeviceCode()
+    }
+
+    public func pollKimiDeviceCode(request: KimiDeviceCodePollRequest) async throws -> KimiDeviceCodePollResponse {
+        let response = try await KimiOAuthService(workspaceRootURL: workspaceRootURL).pollDeviceToken(deviceCode: request.deviceCode)
+        if response.ok { await refreshModelProviderAfterCredentialChange() }
+        return response
+    }
+
+    public func disconnectKimiOAuth() async throws {
+        try KimiOAuthService(workspaceRootURL: workspaceRootURL).disconnect()
+        await refreshModelProviderAfterCredentialChange()
+    }
+
     public func startOpenAIDeviceCode() async throws -> OpenAIDeviceCodeStartResponse {
         try await openAIOAuthService.startDeviceCode()
     }
@@ -564,9 +579,10 @@ extension CoreService {
             let row = config.effectiveModels().first {
                 CoreModelProviderFactory.resolvedIdentifier(for: $0) == trimmed
             }
-            return (try? KimiModelProviderFactory.credentials(
+            if (try? KimiModelProviderFactory.credentials(
                 apiKey: row?.apiKey, apiURL: row?.apiUrl, environmentLookup: environmentLookup
-            )) != nil
+            )) != nil { return true }
+            return KimiOAuthService(workspaceRootURL: config.resolvedWorkspaceRootURL()).currentAccessToken() != nil
         case "openrouter":
             let env = environmentLookup("OPENROUTER_API_KEY")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
