@@ -21,8 +21,9 @@ struct SessionSocketRecoveryTests {
 
     @Test func successfulDataResetsTheDelayAfterRepeatedFailures() async throws {
         let server = SessionRecoveryServer()
+        let endpoint = SloppyInstanceEndpoint.managed(relayURL: URL(string: "https://relay.example")!, targetDeviceID: UUID())
         let manager = SessionSocketManager(
-            endpoint: .managed(relayURL: URL(string: "https://relay.example")!, targetDeviceID: UUID()),
+            endpoint: endpoint,
             agentId: "agent", sessionId: "session",
             managedStreamProvider: { _, _ in try await server.open() },
             retrySleep: { try await server.wait($0) }
@@ -31,6 +32,9 @@ struct SessionSocketRecoveryTests {
         for await update in updates where update.cursor == 42 { break }
         await server.finished
         #expect(await server.delays == [.seconds(1), .seconds(2), .seconds(1)])
+        let traffic = ConnectionTraffic.shared.snapshot(for: endpoint)
+        #expect(traffic.receivedBytes == Int64(#"{"kind":"heartbeat","cursor":42}"#.utf8.count))
+        #expect(traffic.openEventStreams == 0)
         await manager.disconnect()
     }
 }

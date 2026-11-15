@@ -20,13 +20,13 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
 
         if let oauthConfig {
             let configuredKey = oauthConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            let envAnthropicToken = ProcessInfo.processInfo.environment["ANTHROPIC_TOKEN"]?
+            let envAnthropicToken = config.environmentLookup("ANTHROPIC_TOKEN")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let envClaudeCodeToken = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?
+            let envClaudeCodeToken = config.environmentLookup("CLAUDE_CODE_OAUTH_TOKEN")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let envAuthToken = ProcessInfo.processInfo.environment["ANTHROPIC_AUTH_TOKEN"]?
+            let envAuthToken = config.environmentLookup("ANTHROPIC_AUTH_TOKEN")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let legacyAPIKey = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?
+            let legacyAPIKey = config.environmentLookup("ANTHROPIC_API_KEY")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let claudeSettings = config.anthropicSettingsProvider?() ?? ClaudeSettingsEnvironment.load()
             let settingsAuthToken = claudeSettings.authToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -72,8 +72,8 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
             )
         }
 
-        let envKey = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? ""
-        let envAuthToken = ProcessInfo.processInfo.environment["ANTHROPIC_AUTH_TOKEN"]?
+        let envKey = config.environmentLookup("ANTHROPIC_API_KEY") ?? ""
+        let envAuthToken = config.environmentLookup("ANTHROPIC_AUTH_TOKEN")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let claudeSettings = config.anthropicSettingsProvider?() ?? ClaudeSettingsEnvironment.load()
         let settingsAuthToken = claudeSettings.authToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

@@ -8,6 +8,7 @@ import WebKit
 struct WorkspaceDevicePanelView: View {
     @Bindable var session: WorkspaceDeviceSession
     var onAnnotate: (@MainActor () -> (@MainActor (ChatComposerAttachment) -> Bool))?
+    var isChatDevice = false
     @Environment(\.theme) private var theme
     @State private var attachment: ChatComposerAttachment?
     @State private var receive: (@MainActor (ChatComposerAttachment) -> Bool)?
@@ -58,6 +59,9 @@ struct WorkspaceDevicePanelView: View {
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button("Cancel", action: session.stop)
                 }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isChatDevice {
+                ContentUnavailableView("Device disconnected", systemImage: "iphone.gen3",
+                    description: Text("Ask the agent to start a device from this chat."))
             } else { WorkspaceDeviceSetupView(session: session) }
         }
         .background(theme.colors.background)

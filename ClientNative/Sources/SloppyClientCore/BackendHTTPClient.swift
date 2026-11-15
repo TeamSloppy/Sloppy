@@ -253,6 +253,8 @@ public actor BackendHTTPClient {
 #endif
 // #endregion
         if case .managed(_, let targetDeviceID) = endpoint {
+            ConnectionTraffic.shared.update(endpoint, requests: 1)
+            defer { ConnectionTraffic.shared.update(endpoint, requests: -1) }
             let startedAt = Date()
             let response: RemoteCoreResponse
             if await ConsoleRemoteClientRegistry.shared.contains(hostID: targetDeviceID) {
@@ -260,6 +262,7 @@ public actor BackendHTTPClient {
             } else {
                 response = try await ManagedRemoteConnection.shared.sendCoreRequest(to: targetDeviceID, method: method, path: normalizedTargetPath(path), body: bodyData, timeout: .seconds(timeout ?? 30))
             }
+            ConnectionTraffic.shared.update(endpoint, sent: bodyData?.count ?? 0, received: response.body.count)
             logger.info("http.managed.completed", metadata: [
                 "duration_ms": .stringConvertible(Int(Date().timeIntervalSince(startedAt) * 1_000)),
                 "method": .string(method), "path": .string(path),
@@ -391,6 +394,8 @@ public actor BackendHTTPClient {
         ]
         logger.info("http.request.started", metadata: metadata)
 
+        ConnectionTraffic.shared.update(endpoint, requests: 1)
+        defer { ConnectionTraffic.shared.update(endpoint, requests: -1) }
         do {
             // Authentication/request preparation may suspend while the owner closes.
             // Foundation cannot create another task after URLSession invalidation.
@@ -401,6 +406,7 @@ public actor BackendHTTPClient {
                 response: rawResult.1,
                 targetURL: targetURL
             )
+            ConnectionTraffic.shared.update(endpoint, sent: bodyData?.count ?? 0, received: result.0.count)
             var responseMetadata = metadata
             responseMetadata["duration_ms"] = .stringConvertible(
                 max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))

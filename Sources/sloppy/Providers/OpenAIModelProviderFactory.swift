@@ -4,7 +4,7 @@ import PluginSDK
 
 /// OpenAI model provider factory.
 struct OpenAIModelProviderFactory: ModelProviderFactory {
-    var environmentLookup: @Sendable (String) -> String? = { ProcessInfo.processInfo.environment[$0] }
+    var environmentLookup: (@Sendable (String) -> String?)? = nil
 
     func buildProvider(from config: ModelProviderBuildConfig) -> (any ModelProvider)? {
         var providers: [any ModelProvider] = []
@@ -36,7 +36,7 @@ struct OpenAIModelProviderFactory: ModelProviderFactory {
         }
         // An explicit unresolved reference must not become a literal key or fall back to another account.
         guard let resolution = try? ProviderAPIKeyResolver.resolve(
-            configured: primaryConfig?.apiKey, environmentLookup: environmentLookup
+            configured: primaryConfig?.apiKey, environmentLookup: environmentLookup ?? config.environmentLookup
         ) else { return nil }
         let resolvedStaticKey = resolution.key
 

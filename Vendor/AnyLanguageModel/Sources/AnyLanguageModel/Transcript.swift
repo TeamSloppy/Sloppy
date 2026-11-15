@@ -332,10 +332,14 @@ public struct Transcript: Sendable, Equatable, Codable {
         /// Arguments to pass to the invoked tool.
         public var arguments: GeneratedContent
 
-        public init(id: String, toolName: String, arguments: GeneratedContent) {
+        /// Provider reasoning required to replay this tool call on compatible endpoints.
+        public var reasoningContent: String?
+
+        public init(id: String, toolName: String, arguments: GeneratedContent, reasoningContent: String? = nil) {
             self.id = id
             self.toolName = toolName
             self.arguments = arguments
+            self.reasoningContent = reasoningContent
         }
     }
 

@@ -16,7 +16,7 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
 
         let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let envKey = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
-            .compactMap { ProcessInfo.processInfo.environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .compactMap { config.environmentLookup($0)?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
         let resolvedKey = configuredKey.isEmpty ? envKey : configuredKey
         if !resolvedKey.isEmpty {

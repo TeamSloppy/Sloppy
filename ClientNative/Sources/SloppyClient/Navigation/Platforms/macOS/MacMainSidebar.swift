@@ -120,6 +120,8 @@ struct PlatformMainSidebar: View {
 
                     Spacer(minLength: theme.spacing.s)
 
+                    SidebarConnectionStatus(monitor: viewModel.connectionMonitor)
+
                     SloppyUpdateReminderView()
 
                     SidebarCustomizationMenu(settings: viewModel.settings)
@@ -253,6 +255,103 @@ private struct MacSidebarPrimaryActions: View {
             }
         }
         .padding(.horizontal, theme.spacing.xs)
+    }
+}
+
+@MainActor
+private struct SidebarConnectionStatus: View {
+    let monitor: ConnectionMonitor
+    @State private var showsDetails = false
+
+    private var status: (title: String, symbol: String, color: Color) {
+        switch monitor.state {
+        case .connected: ("Connected", "circle.fill", .green)
+        case .reconnecting: ("Connecting", "circle.dotted", .orange)
+        case .disconnected: ("Offline", "circle.slash", .red)
+        }
+    }
+
+    var body: some View {
+        Button { showsDetails = true } label: {
+            ViewThatFits(in: .horizontal) {
+                Label {
+                    Text(status.title).foregroundStyle(.secondary)
+                } icon: {
+                    statusIcon
+                }
+                .fixedSize()
+                statusIcon
+            }
+            .font(.caption)
+            .frame(minWidth: 22, minHeight: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Server connection: \(status.title)")
+        .accessibilityIdentifier("sidebar.connection")
+        .onHover { showsDetails = $0 }
+        .popover(isPresented: $showsDetails, arrowEdge: .bottom) {
+            details
+        }
+    }
+
+    private var statusIcon: some View {
+        Image(systemName: status.symbol)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(status.color)
+    }
+
+    private var details: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let traffic = monitor.trafficSnapshot()
+            let url = monitor.endpoint.coordinatorBaseURL
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text(status.title).font(.headline)
+                } icon: {
+                    statusIcon
+                }
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                    metric("Server", (url.host ?? "Unknown") + (url.port.map { ":\($0)" } ?? ""))
+                    metric("Transport", transportTitle)
+                    metric("Open event streams", traffic.openEventStreams.formatted())
+                    metric("Active API requests", traffic.requestsInFlight.formatted())
+                    metric("Sent payload", traffic.sentBytes.formatted(.byteCount(style: .file)))
+                    metric("Received payload", traffic.receivedBytes.formatted(.byteCount(style: .file)))
+                    if let duration = monitor.lastSuccessfulCheckDuration {
+                        let milliseconds = duration / .milliseconds(1)
+                        metric("Health check latency", "\(milliseconds.formatted(.number.precision(.fractionLength(0)))) ms")
+                    }
+                    if let date = monitor.lastCheckedAt {
+                        metric("Last checked", date.formatted(date: .omitted, time: .standard))
+                    }
+                }
+                if let error = monitor.lastFailureMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(width: 270, alignment: .leading)
+            .padding(14)
+        }
+    }
+
+    private var transportTitle: String {
+        switch monitor.endpoint {
+        case .direct: "Direct"
+        case .relay: "Mesh relay"
+        case .managed: "Managed relay"
+        }
+    }
+
+    private func metric(_ title: String, _ value: String) -> some View {
+        GridRow {
+            Text(title).foregroundStyle(.secondary)
+            Text(value).monospacedDigit().lineLimit(1).truncationMode(.middle)
+        }
+        .font(.caption)
     }
 }
 

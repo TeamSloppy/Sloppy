@@ -289,7 +289,8 @@ public actor CoreService {
     var selfImprovementCuratorRunner: SelfImprovementCuratorRunner?
     var memoryOutboxIndexer: MemoryOutboxIndexer?
     var recoveryManager: RecoveryManager
-    var oauthModelCache: [String: ProviderModelOption] = [:]
+    var oauthModelCache: [String: ProviderModelOption]?
+    var rejectedOAuthModelIDs: Set<String> = []
     var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
     var liveSessionStreamCursor: [String: Int] = [:]
     var sessionMessageStorage: SessionMessageInboxFileStore?

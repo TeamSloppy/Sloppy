@@ -35,8 +35,11 @@ extension ChatScreenViewModel {
 
     public func refreshAvailableModels() async {
         do {
-            applyAvailableModels(try await apiClient.fetchAvailableModels())
+            let models = try await apiClient.fetchAvailableModels()
+            guard !Task.isCancelled else { return }
+            applyAvailableModels(models)
         } catch {
+            guard !Task.isCancelled else { return }
             showSessionStatus("Couldn’t refresh models: \(error.localizedDescription)")
         }
     }

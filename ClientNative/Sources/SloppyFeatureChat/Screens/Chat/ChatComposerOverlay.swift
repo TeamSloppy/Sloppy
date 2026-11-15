@@ -102,6 +102,15 @@ public struct ChatComposerOverlay: View {
 
     private var composerControls: some View {
         VStack(spacing: theme.spacing.s) {
+            if let error = viewModel.sendErrorMessage {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: maximumComposerWidth, alignment: .leading)
+                    .accessibilityIdentifier("chat.sendError")
+            }
+
             if let approval = viewModel.pendingToolApproval {
                 ChatToolApprovalCard(
                     approval: approval,

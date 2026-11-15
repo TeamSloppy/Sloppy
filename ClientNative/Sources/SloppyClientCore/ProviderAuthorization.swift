@@ -27,6 +27,7 @@ public enum ModelConnectionPreset: String, CaseIterable, Identifiable, Sendable 
     case codex = "openai-oauth"
     case sloppy
     case openRouter = "openrouter"
+    case kimi
     case anthropic
     case anthropicOAuth = "anthropic-oauth"
     case gemini
@@ -40,6 +41,7 @@ public enum ModelConnectionPreset: String, CaseIterable, Identifiable, Sendable 
         case .codex: "Codex · Device code"
         case .sloppy: "Sloppy server"
         case .openRouter: "OpenRouter"
+        case .kimi: "Kimi"
         case .anthropic: "Anthropic API"
         case .anthropicOAuth: "Anthropic OAuth"
         case .gemini: "Gemini"
@@ -51,7 +53,7 @@ public enum ModelConnectionPreset: String, CaseIterable, Identifiable, Sendable 
         switch self {
         case .openAI: "https://api.openai.com/v1"
         case .codex: "https://chatgpt.com/backend-api"
-        case .sloppy: ""
+        case .sloppy, .kimi: ""
         case .openRouter: "https://openrouter.ai/api/v1"
         case .anthropic, .anthropicOAuth: "https://api.anthropic.com"
         case .gemini: "https://generativelanguage.googleapis.com"

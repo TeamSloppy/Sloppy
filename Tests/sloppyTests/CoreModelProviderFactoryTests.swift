@@ -675,7 +675,9 @@ func openAIOAuthConfigPrefersOAuthTokenProviderOverAPIKey() async throws {
 @Test
 func availableAgentModelsIncludesCachedOpenAIOAuthCatalog() async throws {
     var config = CoreConfig.test
-    config.models = []
+    config.models = [
+        .init(title: "Old OAuth selection", apiKey: "", apiUrl: "", model: "gpt-retired", providerCatalogId: "openai-oauth")
+    ]
     config.disableModelInference = false
 
     let workspaceRootURL = config.resolvedWorkspaceRootURL(
@@ -719,6 +721,16 @@ func availableAgentModelsIncludesCachedOpenAIOAuthCatalog() async throws {
     #expect(await service.runtime.catalogContextLimitsByModel["openai-oauth:gpt-5.5"]?.contextWindowTokens == 272_000)
     await service.refreshModelProviderAfterCredentialChange()
     #expect(await service.runtime.catalogContextLimitsByModel["openai-oauth:gpt-5.5"]?.contextWindowTokens == 272_000)
+    #expect(await service.listAvailableProviderModels().contains { $0.id == "openai-oauth:gpt-5.5" })
+    #expect(await !service.listAvailableProviderModels().contains { $0.id == "openai-oauth:gpt-retired" })
+    _ = await service.alternativeModel(forRejected: "openai-oauth:gpt-5.5", excluding: ["openai-oauth:gpt-5.5"])
+    #expect(await !service.listAvailableProviderModels().contains { $0.id == "openai-oauth:gpt-5.5" })
+
+    await service.cacheOAuthModels([ProviderModelOption(id: "gpt-6.1-sol", title: "GPT-6.1 Sol")])
+    let refreshedModels = await service.listAvailableProviderModels()
+    #expect(refreshedModels.contains { $0.id == "openai-oauth:gpt-6.1-sol" })
+    #expect(!refreshedModels.contains { $0.id == "openai-oauth:gpt-5.5" })
+    #expect(await service.runtime.catalogContextLimitsByModel["openai-oauth:gpt-5.5"] == nil)
 }
 
 @Test

@@ -8,7 +8,7 @@ export const SETTINGS_ITEMS = [
     id: "providers",
     title: "Providers",
     icon: "hub",
-    searchTerms: ["models", "api key", "api url", "openai", "codex", "openrouter", "anthropic", "claude", "gemini", "ollama"]
+    searchTerms: ["models", "api key", "api url", "openai", "codex", "openrouter", "anthropic", "claude", "gemini", "ollama", "kimi"]
   },
   {
     id: "users",
@@ -210,6 +210,24 @@ export const PROVIDER_CATALOG = [
       model: "openai/gpt-5.4-mini",
       disabled: false,
       providerCatalogId: "openrouter"
+    }
+  },
+  {
+    id: "kimi",
+    brandProviderKey: null,
+    title: "Kimi",
+    description: "Kimi Code membership and Moonshot API.",
+    modelHint: "kimi-for-coding",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "Kimi",
+      apiKey: "",
+      apiUrl: "",
+      model: "",
+      disabled: false,
+      providerCatalogId: "kimi"
     }
   },
   {
@@ -761,7 +779,7 @@ export function normalizeModel(item, index) {
       apiUrl: apiUrlMap[provider] || "",
       model: name || item,
       disabled: false,
-      providerCatalogId: null
+      providerCatalogId: provider === "kimi" ? "kimi" : null
     };
   }
 
@@ -784,6 +802,7 @@ export function normalizeModel(item, index) {
 }
 
 export function inferModelProvider(model) {
+  if (model?.providerCatalogId === "kimi" || String(model?.model || "").startsWith("kimi:")) return "kimi";
   if (model?.providerCatalogId === "claude-code" || String(model?.model || "").startsWith("claude-code:")) return "claude-code";
   if (model?.providerCatalogId === "sloppy" || String(model?.model || "").startsWith("sloppy:")) return "sloppy";
   const apiUrl = String(model?.apiUrl || "").toLowerCase();
@@ -841,6 +860,7 @@ export function inferCatalogIdForEntry(entry) {
     "claude-code": "claude-code",
     sloppy: "sloppy",
     openrouter: "openrouter",
+    kimi: "kimi",
     ollama: "ollama",
     gemini: "gemini"
   };
@@ -891,8 +911,8 @@ export function findProviderModelIndex(models, providerId) {
     if (providerId === "anthropic-oauth") {
       return inferModelProvider(item) === "anthropic" && isAnthropicOAuthCatalogEntry(item);
     }
-    if (providerId === "openrouter") {
-      return inferModelProvider(item) === "openrouter";
+    if (providerId === "openrouter" || providerId === "kimi") {
+      return inferModelProvider(item) === providerId;
     }
     return false;
   });
@@ -925,6 +945,9 @@ export function providerIsConfigured(provider, entry) {
   }
   if (provider.id === "claude-code") {
     return hasModel && !hasURL && !String(entry.apiKey || "").trim();
+  }
+  if (provider.id === "kimi") {
+    return hasModel;
   }
   if (provider.id === "gemini") {
     return hasModel && hasURL;

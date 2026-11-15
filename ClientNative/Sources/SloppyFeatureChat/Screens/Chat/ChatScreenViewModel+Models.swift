@@ -21,6 +21,7 @@ extension ChatScreenViewModel {
             sessionId: sessionId
         ) ?? availableModels.first?.id ?? ""
         selectedReasoningEffort = .default
+        if hasLoadedModelCatalog { validateModelSelection() }
     }
 
     func rememberCurrentModelSelection(agentId: String, sessionId: String) {
@@ -35,18 +36,14 @@ extension ChatScreenViewModel {
 
     func applyAvailableModels(_ models: [ChatModelOption]) {
         availableModels = models
-        if selectedModelId == ChatModelSelection.automaticJEVId {
-            return
-        }
-        guard !models.isEmpty else {
-            selectedModelId = ""
-            selectedReasoningEffort = .default
-            return
-        }
+        hasLoadedModelCatalog = true
+        validateModelSelection()
+    }
 
-        if !models.contains(where: { $0.id == selectedModelId }) {
-            selectedModelId = models[0].id
-            selectedReasoningEffort = .default
-        }
+    private func validateModelSelection() {
+        guard selectedModelId != ChatModelSelection.automaticJEVId,
+              !availableModels.contains(where: { $0.id == selectedModelId }) else { return }
+        selectedModelId = availableModels.first?.id ?? ""
+        selectedReasoningEffort = .default
     }
 }

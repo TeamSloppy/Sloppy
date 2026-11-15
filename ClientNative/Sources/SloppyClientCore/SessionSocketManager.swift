@@ -16,6 +16,7 @@ public actor SessionSocketManager {
     private let retrySleep: @Sendable (Duration) async throws -> Void
 
     private var task: URLSessionWebSocketTask?
+    private var isSocketOpen = false
     private var managedTask: Task<Void, Never>?
     private var continuation: AsyncStream<ChatStreamUpdate>.Continuation?
     private var disposed = false
@@ -94,6 +95,7 @@ public actor SessionSocketManager {
         logger.info("Disconnecting session socket for agent=\(agentId) session=\(sessionId) baseURL=\(baseURL.absoluteString)")
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        setSocketOpen(false)
         managedTask?.cancel()
         managedTask = nil
         continuation?.finish()
@@ -139,6 +141,7 @@ public actor SessionSocketManager {
            !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        guard !disposed, task == nil else { return }
         let wsTask = ClientURLSessionFactory.session(for: baseURL).webSocketTask(with: request)
         self.task = wsTask
         wsTask.resume()
@@ -147,9 +150,16 @@ public actor SessionSocketManager {
     }
 
     private func managedReceiveLoop(_ frames: AsyncStream<RemoteStreamFrame>) async {
+        var isOpen = false
+        defer { if isOpen { ConnectionTraffic.shared.update(endpoint, streams: -1) } }
         for await frame in frames {
             guard !disposed, !Task.isCancelled else { return }
+            if frame.action == .open || frame.action == .data, !isOpen {
+                isOpen = true
+                ConnectionTraffic.shared.update(endpoint, streams: 1)
+            }
             if frame.action == .data, let data = frame.data {
+                ConnectionTraffic.shared.update(endpoint, received: data.count)
                 if let update = try? decoder.decode(ChatStreamUpdate.self, from: data) {
                     reconnectDelay = 1.0
                     continuation?.yield(update)
@@ -185,12 +195,15 @@ public actor SessionSocketManager {
     }
 
     private func receiveLoop(task: URLSessionWebSocketTask) async {
-        while !disposed {
+        while !disposed, self.task === task {
             do {
                 let message = try await task.receive()
+                guard !disposed, self.task === task else { return }
+                setSocketOpen(true)
                 reconnectDelay = 1.0
                 switch message {
                 case .string(let text):
+                    ConnectionTraffic.shared.update(endpoint, received: text.utf8.count)
                     if let data = text.data(using: .utf8),
                        let update = try? decoder.decode(ChatStreamUpdate.self, from: data) {
                         continuation?.yield(update)
@@ -198,6 +211,7 @@ public actor SessionSocketManager {
                         logger.warning("Failed to decode session socket text payload.")
                     }
                 case .data(let data):
+                    ConnectionTraffic.shared.update(endpoint, received: data.count)
                     if let update = try? decoder.decode(ChatStreamUpdate.self, from: data) {
                         continuation?.yield(update)
                     } else {
@@ -207,7 +221,7 @@ public actor SessionSocketManager {
                     break
                 }
             } catch {
-                guard !disposed else { return }
+                guard !disposed, self.task === task else { return }
                 let delay = reconnectDelay
                 // #region agent debug
 #if DEBUG
@@ -216,6 +230,7 @@ public actor SessionSocketManager {
 // #endregion
                 logger.warning("Session socket attempt \(socketAttempt) disconnected: \(error). Reconnecting in \(delay)s")
                 self.task = nil
+                setSocketOpen(false)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 reconnectDelay = min(delay * 2, 30)
 
@@ -227,6 +242,12 @@ public actor SessionSocketManager {
                 return
             }
         }
+    }
+
+    private func setSocketOpen(_ isOpen: Bool) {
+        guard isSocketOpen != isOpen else { return }
+        isSocketOpen = isOpen
+        ConnectionTraffic.shared.update(endpoint, streams: isOpen ? 1 : -1)
     }
 
     private static func encodePathSegment(_ segment: String) -> String {

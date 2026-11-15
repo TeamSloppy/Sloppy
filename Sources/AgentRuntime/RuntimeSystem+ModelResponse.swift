@@ -393,7 +393,7 @@ extension RuntimeSystem {
                 if error is ProviderModelNotSupportedError {
                     let tried = rejectedModels.union([activeModel])
                     let known = [inheritedModel(for: channelId), lastWorkingModel].compactMap { $0 }.first { !tried.contains($0) }
-                    let discovered = known == nil ? await unsupportedModelFallback?(activeModel, tried) : nil
+                    let discovered = await unsupportedModelFallback?(activeModel, tried)
                     if let alternative = known ?? discovered, !tried.contains(alternative) {
                         logger.warning(
                             "Provider rejected the model for this account, switching",

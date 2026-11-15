@@ -58,11 +58,21 @@ final class LocalDeviceBridge {
         throw failure("Install Android SDK Platform-Tools, or set ANDROID_HOME to your Android SDK, then try again.")
     }
 
+    static func androidEmulatorExecutable() -> URL? {
+        for key in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+            if let root = environment[key] {
+                let url = URL(fileURLWithPath: root).appendingPathComponent("emulator/emulator")
+                if FileManager.default.isExecutableFile(atPath: url.path) { return url }
+            }
+        }
+        return try? executable("emulator")
+    }
+
     nonisolated static func failure(_ message: String) -> NSError {
         NSError(domain: "SloppyDeviceBridge", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
-    func start(_ executable: URL, arguments: [String]) throws {
+    func start(_ executable: URL, arguments: [String], bridgeStateDirectory: URL? = nil) throws {
         stop()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("sloppy-device-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -79,7 +89,7 @@ final class LocalDeviceBridge {
         child.arguments = arguments
         var environment = Self.environment
         // Bridge state files must not overwrite or remove another tool's device registrations.
-        environment["TMPDIR"] = directory.path
+        environment["TMPDIR"] = (bridgeStateDirectory ?? directory).path
         child.environment = environment
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = handle
@@ -89,15 +99,28 @@ final class LocalDeviceBridge {
     }
 
     var isRunning: Bool { process?.isRunning == true }
+    var stateDirectory: URL? { temporaryDirectory }
 
     func waitForInstallation() async throws {
         try await waitForExit(timeout: .seconds(180), timeoutMessage: "Installing the device bridge timed out. Try again.")
     }
 
-    func run(_ executable: URL, arguments: [String], timeout: Duration) async throws -> String {
-        try start(executable, arguments: arguments)
-        try await waitForExit(timeout: timeout, timeoutMessage: "ADB timed out. Check the device's address, debugging port and network connection.")
-        return diagnostics.trimmingCharacters(in: .whitespacesAndNewlines)
+    func run(_ executable: URL, arguments: [String], timeout: Duration,
+             bridgeStateDirectory: URL? = nil) async throws -> String {
+        try start(executable, arguments: arguments, bridgeStateDirectory: bridgeStateDirectory)
+        do {
+            try await waitForExit(timeout: timeout, timeoutMessage: "\(executable.lastPathComponent) did not respond in time.")
+            guard let logURL else { throw Self.failure("The device command output is unavailable.") }
+            let output = try FileHandle(forReadingFrom: logURL)
+            defer { try? output.close() }
+            let limit = 1_048_576
+            let data = try output.read(upToCount: limit + 1) ?? Data()
+            guard data.count <= limit else { throw Self.failure("The device command output is too large.") }
+            return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            stop()
+            throw error
+        }
     }
 
     private func waitForExit(timeout: Duration, timeoutMessage: String) async throws {

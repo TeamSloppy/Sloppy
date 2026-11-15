@@ -54,6 +54,7 @@ export function inferProviderId(entry: Record<string, unknown>): string {
   if (catalog === "openai-api") return "openai-api";
   if (catalog === "openai-oauth") return "openai-oauth";
   if (catalog === "openrouter") return "openrouter";
+  if (catalog === "kimi") return "kimi";
   if (catalog === "anthropic" || catalog === "anthropic-oauth") return "anthropic";
   if (catalog === "gemini") return "gemini";
   if (catalog === "ollama") return "ollama";
@@ -68,6 +69,7 @@ export function inferProviderId(entry: Record<string, unknown>): string {
   if (lowerModel.startsWith("openai-api:")) return "openai-api";
   if (lowerModel.startsWith("openai-oauth:")) return "openai-oauth";
   if (lowerModel.startsWith("openrouter:")) return "openrouter";
+  if (lowerModel.startsWith("kimi:")) return "kimi";
   if (lowerModel.startsWith("ollama:")) return "ollama";
   if (lowerModel.startsWith("gemini:")) return "gemini";
   if (lowerModel.startsWith("anthropic:")) return "anthropic";
@@ -110,8 +112,8 @@ export function prefixedRuntimeModelId(providerCatalogId: string, rawId: string)
     route = "openai-api";
   } else if (providerCatalogId === "openai-oauth") {
     route = "openai-oauth";
-  } else if (providerCatalogId === "openrouter") {
-    route = "openrouter";
+  } else if (providerCatalogId === "openrouter" || providerCatalogId === "kimi") {
+    route = providerCatalogId;
   } else if (providerCatalogId === "ollama") {
     route = "ollama";
   } else if (providerCatalogId === "gemini") {
@@ -219,10 +221,14 @@ export async function collectAggregatedProviderModels(
 
     const ok = Boolean(result?.ok);
     const rawModels = Array.isArray(result?.models) ? (result!.models as Record<string, unknown>[]) : [];
+    const configuredKimiID = providerId === "kimi" ? prefixedRuntimeModelId(providerId, String(entry.model || "")) : null;
     if (ok) {
       for (const model of rawModels) {
         const rawId = String(model.id || "");
         const id = prefixedRuntimeModelId(providerId, rawId);
+        if (configuredKimiID != null && id !== configuredKimiID) {
+          continue;
+        }
         const modelTitle = String(model.title || rawId);
         if (!id || allModels.some((m) => m.id === id)) {
           continue;

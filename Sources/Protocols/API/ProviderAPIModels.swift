@@ -10,6 +10,7 @@ public enum ProviderProbeID: String, Codable, Sendable {
     case openAIAPI = "openai-api"
     case openAIOAuth = "openai-oauth"
     case openRouter = "openrouter"
+    case kimi
     case ollama
     case gemini
     case anthropic

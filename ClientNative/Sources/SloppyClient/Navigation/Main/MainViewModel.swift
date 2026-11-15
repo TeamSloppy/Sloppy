@@ -406,6 +406,13 @@ final class MainViewModel {
     @discardableResult
     func openWorkspaceDockTab(_ kind: WorkspaceSidePanelItem, browser: WorkspaceWebViewModel? = nil) -> WorkspaceDockTab {
         let dock = workspaceDockState
+#if os(macOS)
+        if kind == .devices, let id = selectedTabID, let browser = browserSessions[id],
+           browser.binding.sessionId == workspaceBrowserChat(for: id)?.selectedSessionId,
+           let devices = browser.deviceSession, devices.isStarting || devices.baseURL != nil {
+            return dock.presentDevice(devices)
+        }
+#endif
         let tab = dock.open(kind, browser: browser)
         let source = selectedTabID.flatMap { tabEndpoints[$0] } ?? endpoint
         switch kind {
@@ -449,36 +456,48 @@ final class MainViewModel {
         return tab
     }
 
+    var selectedWorkspaceBrowserSessionID: String? {
+        selectedTabID.flatMap { workspaceBrowserChat(for: $0)?.selectedSessionId }
+    }
+
+    private func workspaceBrowserChat(for tabID: WorkspaceTab.ID) -> ChatScreenViewModel? {
+        let state = tabStates[tabID]
+        return state?.chatState?.viewModel ?? state?.projectKanbanState?.chatViewModel
+    }
+
     func connectWorkspaceBrowserForSelectedChat() {
 #if os(macOS)
         let closedTabs = browserSessions.keys.filter { tabStates[$0] == nil }
-        for id in closedTabs { browserSessions.removeValue(forKey: id)?.stop() }
-        guard let tabID = selectedTabID,
-              let chat = tabStates[tabID]?.chatState?.viewModel,
+        for id in closedTabs { stopWorkspaceBrowser(for: id) }
+        guard let tabID = selectedTabID else { return }
+        guard let chat = workspaceBrowserChat(for: tabID),
               let sessionID = chat.selectedSessionId,
-              let agentID = chat.selectedAgent?.id else { return }
-        if let existing = browserSessions[tabID], existing.binding.sessionId == sessionID {
+              let agentID = chat.selectedAgent?.id else {
+            if workspaceBrowserChat(for: tabID)?.selectedSessionId == nil { stopWorkspaceBrowser(for: tabID) }
+            return
+        }
+        if let existing = browserSessions[tabID], existing.binding.sessionId == sessionID, existing.binding.agentId == agentID {
             workspacePanelViewModel.webViewModel = existing.viewModel
             existing.start()
             return
         }
-        browserSessions.removeValue(forKey: tabID)?.stop()
+        stopWorkspaceBrowser(for: tabID)
         let browserDock = workspaceDockState
         let devices = WorkspaceDeviceToolRuntime { [weak self] device in
-            guard let self, self.tabStates[tabID]?.chatState?.viewModel.selectedSessionId == sessionID else {
+            guard let self, self.workspaceBrowserChat(for: tabID)?.selectedSessionId == sessionID else {
                 throw LocalDeviceBridge.failure("The owning chat was closed or changed. Reconnect the current chat before starting Devices.")
             }
             self.selectTab(tabID)
             self.workspaceDockState.presentDevice(device)
         }
         let browser = WorkspaceBrowserSession(
-            apiClient: SloppyAPIClient(endpoint: tabEndpoints[tabID] ?? endpoint),
+            apiClient: SloppyAPIClient(endpoint: chat.sessionEndpoint),
             agentID: agentID,
             sessionID: sessionID,
             devices: devices
         ) { [weak self] in
             guard let self, let browser = self.browserSessions[tabID], browser.binding.sessionId == sessionID else { return }
-            guard self.tabStates[tabID]?.chatState?.viewModel.selectedSessionId == sessionID else {
+            guard self.workspaceBrowserChat(for: tabID)?.selectedSessionId == sessionID else {
                 browserDock.open(.browser, browser: browser.viewModel)
                 return
             }
@@ -493,8 +512,15 @@ final class MainViewModel {
     }
 
     func stopWorkspaceBrowsers() {
-        for browser in browserSessions.values { browser.stop() }
-        browserSessions.removeAll()
+        for id in Array(browserSessions.keys) { stopWorkspaceBrowser(for: id) }
+    }
+
+    private func stopWorkspaceBrowser(for tabID: WorkspaceTab.ID) {
+        guard let browser = browserSessions.removeValue(forKey: tabID) else { return }
+        browser.stop()
+#if os(macOS)
+        if let device = browser.deviceSession { workspaceDockStore.dismissDevice(device) }
+#endif
     }
 
     var selectedInstanceTitle: String {
@@ -1827,7 +1853,7 @@ final class MainViewModel {
     }
 
     func closeTab(_ tabID: WorkspaceTab.ID) {
-        browserSessions.removeValue(forKey: tabID)?.stop()
+        stopWorkspaceBrowser(for: tabID)
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else {
             return
         }

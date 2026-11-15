@@ -15,6 +15,7 @@ public final class ChatScreenViewModel {
     public internal(set) var projects: [APIProjectRecord] = []
     public internal(set) var selectedAgent: APIAgentRecord?
     public internal(set) var availableModels: [ChatModelOption] = []
+    var hasLoadedModelCatalog = false
     public internal(set) var selectedModelId: String = ""
     public internal(set) var selectedReasoningEffort: ChatReasoningEffort = .default
     public internal(set) var contextTokenUsage: ChatTokenUsage?

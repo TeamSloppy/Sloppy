@@ -20,6 +20,9 @@ final class WorkspaceBrowserSession {
     private var task: Task<Void, Never>?
     private let present: @MainActor () -> Void
     private let devices: WorkspaceDeviceToolRuntime?
+#if os(macOS)
+    var deviceSession: WorkspaceDeviceSession? { devices?.session }
+#endif
 
     init(apiClient: SloppyAPIClient, agentID: String, sessionID: String,
          viewModel: WorkspaceWebViewModel? = nil, workspace: BrowserWorkspaceState? = nil, agentPaletteID: String? = nil,
@@ -30,7 +33,7 @@ final class WorkspaceBrowserSession {
         self.workspace = workspace
         self.devices = devices
         var capabilities = workspace == nil ? [] : ["tabs_v1", "groups_v1", "organizer_v1"]
-        if devices != nil { capabilities.append("devices_v1") }
+        if devices != nil { capabilities += ["devices_v1", "devices_interaction_v1"] }
         binding = .init(bridgeId: UUID().uuidString, agentId: agentID, sessionId: sessionID,
                         capabilities: capabilities.isEmpty ? nil : capabilities)
         self.present = present

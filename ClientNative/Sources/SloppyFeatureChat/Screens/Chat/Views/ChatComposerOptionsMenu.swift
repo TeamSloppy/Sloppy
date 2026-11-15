@@ -392,6 +392,7 @@ struct ComposerOptionsMenuView: View {
             searchText = ""
             isSearchFocused = true
         }
+        .task { await onRefreshModels() }
         .accessibilityIdentifier("chat.composer.model-list")
     }
 

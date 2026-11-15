@@ -910,6 +910,8 @@ extension SloppyTUIScreen {
             return "OpenCode"
         case "openrouter":
             return "OpenRouter"
+        case "kimi":
+            return "Kimi"
         case "configured":
             return "Configured"
         default:
@@ -1247,6 +1249,7 @@ extension SloppyTUIScreen {
         if rawModel.hasPrefix("openai-api:")
             || rawModel.hasPrefix("openai-oauth:")
             || rawModel.hasPrefix("openrouter:")
+            || rawModel.hasPrefix(KimiModelProviderFactory.prefix)
             || rawModel.hasPrefix("ollama:")
             || rawModel.hasPrefix("gemini:")
             || rawModel.hasPrefix("anthropic:")
@@ -1270,6 +1273,9 @@ extension SloppyTUIScreen {
         let rawModel = model.model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if rawModel.hasPrefix("claude-code:") {
             return SloppyTUIProviderDefinition("claude-code")
+        }
+        if rawModel.hasPrefix(KimiModelProviderFactory.prefix) {
+            return SloppyTUIProviderDefinition("kimi")
         }
         if rawModel.hasPrefix("openrouter:") {
             return SloppyTUIProviderDefinition("openrouter")
@@ -1309,24 +1315,34 @@ extension SloppyTUIScreen {
 
     func configureProvider(_ args: [String]) async {
         guard let providerID = args.first else {
-            appendLocalCard("Usage: `/provider openai-api|openai-oauth|openrouter|gemini|anthropic|ollama <api-key> [model]` or `/provider claude-code [model]`")
+            appendLocalCard("Usage: `/provider openai-api|openai-oauth|openrouter|kimi|gemini|anthropic|ollama <api-key> [model]` or `/provider claude-code [model]`")
             return
         }
         let key = args.dropFirst().first ?? ""
         let model = providerID == "claude-code" ? args.dropFirst().first : args.dropFirst(2).first
         let definition = SloppyTUIProviderDefinition(providerID)
-        if definition.requiresAPIKey && key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if definition.requiresAPIKey && definition.id != "kimi" && key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             appendLocalCard("Enter an API key: `/provider \(definition.id) <api-key> [model]`")
             return
         }
         var config = await service.getConfig()
         config.workspace.name = CoreConfig.defaultWorkspaceName
         config.workspace.basePath = "~"
+        let defaultModel: String
+        if definition.id == KimiModelProviderFactory.id {
+            let lookup = ProviderEnvironment.lookup(workspaceRoot: config.resolvedWorkspaceRootURL())
+            let resolvedKey = try? ProviderAPIKeyResolver.resolve(
+                configured: key, fallbackEnvironmentVariable: KimiModelProviderFactory.keyName, environmentLookup: lookup
+            )
+            defaultModel = resolvedKey.map { KimiModelProviderFactory.defaultModel(for: $0.key) } ?? definition.model
+        } else {
+            defaultModel = definition.model
+        }
         let entry = CoreConfig.ModelConfig(
             title: definition.title,
             apiKey: definition.requiresAPIKey ? key : "",
             apiUrl: definition.apiURL,
-            model: model ?? definition.model,
+            model: model ?? defaultModel,
             providerCatalogId: definition.id
         )
         if let existingIndex = config.models.firstIndex(where: { providerDefinition(for: $0).id == definition.id }) {

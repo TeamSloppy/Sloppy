@@ -8,7 +8,7 @@ function embeddingRuntimeModelId(modelId: string) {
     return "";
   }
 
-  const knownPrefixes = ["openai-api:", "openai-oauth:", "openrouter:", "ollama:", "gemini:", "anthropic:"];
+  const knownPrefixes = ["openai-api:", "openai-oauth:", "openrouter:", "kimi:", "ollama:", "gemini:", "anthropic:"];
   const prefix = knownPrefixes.find((candidate) => trimmed.startsWith(candidate));
   return prefix ? trimmed.slice(prefix.length) : trimmed;
 }

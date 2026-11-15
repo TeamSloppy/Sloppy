@@ -1207,15 +1207,17 @@ export function ConfigView({
     if (
       provider.id === "sloppy" ||
       provider.id === "openrouter" ||
+      provider.id === "kimi" ||
       provider.id === "ollama" ||
       provider.id === "gemini" ||
       provider.id === "anthropic" ||
       provider.id === "claude-code" ||
       provider.id === "anthropic-oauth"
     ) {
+      const apiKey = String(entry.apiKey || "").trim();
       const probe = await probeProvider({
         providerId: provider.id,
-        apiKey: String(entry.apiKey || "").trim() || undefined,
+        apiKey: provider.id === "kimi" ? apiKey : apiKey || undefined,
         apiUrl: entry.apiUrl || (provider.id === "anthropic" || provider.id === "anthropic-oauth" ? "" : provider.defaultEntry.apiUrl)
       });
       if (!probe) {
@@ -1253,16 +1255,13 @@ export function ConfigView({
     if (payload.warning) {
       setProviderStatus(provider.id, payload.warning);
     } else if (payload.source === "remote") {
-      const label =
-        provider.id === "claude-code" ? "Claude Code CLI aliases" : provider.id === "sloppy" ? "Sloppy" : provider.id === "openrouter"
-          ? "OpenRouter"
-          : provider.id === "ollama"
-            ? "Ollama"
-            : provider.id === "gemini"
-              ? "Gemini"
-              : provider.id === "anthropic-oauth" || provider.id === "anthropic"
-                ? "Anthropic"
-                : "OpenAI";
+      const labels = {
+        "claude-code": "Claude Code CLI aliases",
+        "openai-api": "OpenAI",
+        "openai-oauth": "OpenAI",
+        "anthropic-oauth": "Anthropic"
+      };
+      const label = labels[provider.id] || provider.title;
       setProviderStatus(provider.id, `Loaded ${models.length} models from ${label}`);
     } else {
       setProviderStatus(provider.id, `Loaded fallback catalog (${models.length} models)`);
@@ -1322,7 +1321,7 @@ export function ConfigView({
     const hasEnvironmentKeyForOpenAI = provider.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey;
     const hasOAuthCredentialsForOpenAI = provider.id === "openai-oauth" && openAIProviderStatus.hasOAuthCredentials;
     const hasOAuthCredentialsForAnthropic = provider.id === "anthropic-oauth" && anthropicProviderStatus.hasOAuthCredentials;
-    const requiresApiKey = provider.authMethod === "api_key" && !(provider.id === "sloppy" && isSloppyRelayConnection(providerForm.apiUrl));
+    const requiresApiKey = provider.authMethod === "api_key" && provider.id !== "kimi" && !(provider.id === "sloppy" && isSloppyRelayConnection(providerForm.apiUrl));
     const hasKey = Boolean(String(providerForm.apiKey || "").trim())
       || hasEnvironmentKeyForOpenAI
       || (provider.id === "anthropic-oauth" && anthropicProviderStatus.hasEnvironmentKey);

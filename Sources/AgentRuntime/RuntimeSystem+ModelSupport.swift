@@ -466,7 +466,8 @@ extension RuntimeSystem {
                     return Transcript.ToolCall(
                         id: call.id,
                         toolName: toolName,
-                        arguments: call.arguments
+                        arguments: call.arguments,
+                        reasoningContent: call.reasoningContent
                     )
                 }
                 return .toolCalls(Transcript.ToolCalls(remappedCalls))

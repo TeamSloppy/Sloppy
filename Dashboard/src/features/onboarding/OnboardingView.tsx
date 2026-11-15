@@ -61,6 +61,19 @@ const PROVIDERS: ProviderDefinition[] = [
     }
   },
   {
+    id: "kimi",
+    title: "Kimi",
+    description: "Kimi Code membership and Moonshot API.",
+    requiresApiKey: true,
+    authHint: "Leave the key blank to use KIMI_API_KEY from Sloppy Core's .env.",
+    defaultEntry: {
+      title: "Kimi",
+      apiKey: "",
+      apiUrl: "",
+      model: ""
+    }
+  },
+  {
     id: "gemini",
     title: "Google Gemini",
     description: "Google Gemini models via API key auth.",
@@ -239,6 +252,9 @@ function inferProviderId(config: AnyRecord) {
   const models = Array.isArray(config.models) ? config.models : [];
   const first = models.find((item) => item && typeof item === "object") as AnyRecord | undefined;
   const catalogId = String(first?.providerCatalogId || "").trim();
+  if (catalogId === "kimi" || String(first?.model || "").startsWith("kimi:")) {
+    return "kimi";
+  }
   if (catalogId === "anthropic-oauth") {
     return "anthropic-oauth";
   }
@@ -292,6 +308,9 @@ function runtimeModelId(providerId: string, modelId: string) {
   }
   if (providerId === "openrouter") {
     return `openrouter:${modelId}`;
+  }
+  if (providerId === "kimi") {
+    return modelId.startsWith("kimi:") ? modelId : `kimi:${modelId}`;
   }
   if (providerId === "ollama") {
     return `ollama:${modelId}`;
@@ -624,6 +643,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted, onAuthenti
     const requiresKey =
       nextProviderId === "openai-api" ||
       nextProviderId === "openrouter" ||
+      nextProviderId === "kimi" ||
       nextProviderId === "gemini" ||
       nextProviderId === "anthropic" ||
       nextProviderId === "anthropic-oauth";

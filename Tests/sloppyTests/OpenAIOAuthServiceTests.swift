@@ -145,7 +145,10 @@ func openAIOAuthFetchModelsAcceptsModelsArrayPayload() async throws {
                       "display_name": "GPT-5.3 Codex",
                       "supported_reasoning_efforts": ["low", "medium", "high"],
                       "context_window": 1048576
-                    }
+                    },
+                    { "slug": "codex-auto-review", "visibility": "hide", "supported_in_api": true },
+                    { "slug": "internal-model", "visibility": "none" },
+                    { "slug": "listed-model", "visibility": "list" }
                   ]
                 }
             """
@@ -168,6 +171,7 @@ func openAIOAuthFetchModelsAcceptsModelsArrayPayload() async throws {
     #expect(codexModel?.contextWindow == "1.0M")
     #expect(codexModel?.contextWindowTokens == 1_048_576)
     #expect(codexModel?.capabilities.contains("reasoning") == true)
+    #expect(models.map(\.id) == ["gpt-5.3-codex", "listed-model"])
     #expect(requestedModelsURL.value.contains("client_version=0.128.0"))
 }
 

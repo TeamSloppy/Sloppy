@@ -12,6 +12,7 @@ public actor NotificationSocketManager {
     private let authSessionStore: AuthSessionStore
 
     private var task: URLSessionWebSocketTask?
+    private var isSocketOpen = false
     private var continuation: AsyncStream<AppNotification>.Continuation?
     private var disposed = false
     private var reconnectDelay: Double = 1.0
@@ -63,6 +64,7 @@ public actor NotificationSocketManager {
         logger.info("Disconnecting notification socket for \(baseURL.absoluteString)")
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        setSocketOpen(false)
         continuation?.finish()
         continuation = nil
     }
@@ -88,7 +90,7 @@ public actor NotificationSocketManager {
             logger.error("Could not build notification socket URL from \(baseURL.absoluteString)")
             return
         }
-        guard !disposed else { return }
+        guard !disposed, task == nil else { return }
 
         socketAttempt += 1
         logger.info("Opening notification socket attempt \(socketAttempt)")
@@ -96,19 +98,18 @@ public actor NotificationSocketManager {
         self.task = wsTask
         wsTask.resume()
 
-        if let onConnect {
-            Task {
-                do {
-                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                        wsTask.sendPing { error in
-                            if let error { continuation.resume(throwing: error) }
-                            else { continuation.resume() }
-                        }
+        Task {
+            do {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                    wsTask.sendPing { error in
+                        if let error { continuation.resume(throwing: error) }
+                        else { continuation.resume() }
                     }
-                    guard !disposed, task === wsTask else { return }
-                    await onConnect()
-                } catch { /* The receive loop owns reconnection. */ }
-            }
+                }
+                guard !disposed, task === wsTask else { return }
+                setSocketOpen(true)
+                await onConnect?()
+            } catch { /* The receive loop owns reconnection. */ }
         }
 
         Task { await receiveLoop(task: wsTask) }
@@ -118,14 +119,18 @@ public actor NotificationSocketManager {
         while !disposed, self.task === task {
             do {
                 let message = try await task.receive()
+                guard !disposed, self.task === task else { return }
+                setSocketOpen(true)
                 reconnectDelay = 1.0
                 switch message {
                 case .string(let text):
+                    ConnectionTraffic.shared.update(.direct(baseURL: baseURL), received: text.utf8.count)
                     if let data = text.data(using: .utf8),
                        let notification = try? decoder.decode(AppNotification.self, from: data) {
                         continuation?.yield(notification)
                     }
                 case .data(let data):
+                    ConnectionTraffic.shared.update(.direct(baseURL: baseURL), received: data.count)
                     if let notification = try? decoder.decode(AppNotification.self, from: data) {
                         continuation?.yield(notification)
                     }
@@ -137,6 +142,7 @@ public actor NotificationSocketManager {
                 let delay = reconnectDelay
                 logger.warning("Notification socket attempt \(socketAttempt) disconnected: \(error). Reconnecting in \(delay)s")
                 self.task = nil
+                setSocketOpen(false)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 reconnectDelay = min(delay * 2, 30)
                 if !disposed {
@@ -145,5 +151,11 @@ public actor NotificationSocketManager {
                 return
             }
         }
+    }
+
+    private func setSocketOpen(_ isOpen: Bool) {
+        guard isSocketOpen != isOpen else { return }
+        isSocketOpen = isOpen
+        ConnectionTraffic.shared.update(.direct(baseURL: baseURL), streams: isOpen ? 1 : -1)
     }
 }

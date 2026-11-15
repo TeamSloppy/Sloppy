@@ -397,6 +397,50 @@ struct ChatDeliveryReliabilityTests {
         #expect(fixture.model.composerDraft.text == "draft in another chat")
     }
 
+    @Test("sending to an existing chat does not rewrite its saved approval policy")
+    func sendingUsesSavedApprovalPolicy() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        try await fixture.wait { !fixture.model.isLoadingApprovalMode }
+        fixture.server.approvalPolicyStatus = 503
+
+        #expect(fixture.model.sendMessage(content: "send under the saved policy"))
+        try await fixture.wait { fixture.server.posts.count == 1 }
+        fixture.server.releasePost(0)
+        try await fixture.wait { !fixture.model.isSending }
+        #expect(fixture.model.sendErrorMessage == nil)
+    }
+
+    @Test("a rejected message restores its text with a diagnostic and keeps later typing")
+    func rejectedPostKeepsBothDrafts() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        #expect(fixture.model.sendMessage(content: "first draft"))
+        try await fixture.wait { fixture.server.posts.count == 1 }
+        fixture.model.composerDraft.text = "later typing"
+        fixture.server.posts[0].request.respond(#"{"error":"session_write_failed"}"#, status: 500)
+
+        try await fixture.wait { !fixture.model.isSending }
+        #expect(fixture.model.composerDraft.text == "first draft\n\nlater typing")
+        #expect(fixture.model.sendErrorMessage?.contains("session_write_failed") == true)
+        #expect(fixture.model.transcript.optimisticMessages.isEmpty)
+    }
+
+    @Test("reopening a chat replaces a saved model that disappeared from the catalog")
+    func unavailableSavedModelIsNotRestored() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        let removed = ChatModelOption(id: "openai-oauth:retired")
+        let available = ChatModelOption(id: "openai-oauth:available")
+        fixture.model.applyAvailableModels([removed, available])
+        fixture.model.pickModel(removed)
+        fixture.model.applyAvailableModels([available])
+
+        fixture.model.restoreModelSelection(agentId: "agent", sessionId: "one")
+        #expect(fixture.model.selectedModelId == available.id)
+        #expect(!fixture.model.modelPickerOptions.contains(removed))
+    }
+
     @Test("the POST receipt acknowledges one submission on legacy Core versions")
     func legacyReceiptAcknowledgement() async throws {
         let fixture = try await DeliveryFixture.make()

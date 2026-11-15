@@ -217,6 +217,15 @@ private struct RootShellContent: View {
                         .id(rootViewModel.settings.activeInstanceEndpoint.cacheNamespace)
                 }
                 .id(rootViewModel.settings.instanceDirectoryKey + ":" + rootViewModel.settings.activeInstanceEndpoint.cacheNamespace)
+#if os(macOS)
+                .task(id: rootViewModel.settings.activeInstanceEndpoint) {
+                    let endpoint = rootViewModel.settings.activeInstanceEndpoint
+                    let monitor = rootViewModel.connectionMonitor
+                    if monitor.endpoint != endpoint {
+                        monitor.start(endpoint: endpoint)
+                    }
+                }
+#endif
             }
             }
 #endif

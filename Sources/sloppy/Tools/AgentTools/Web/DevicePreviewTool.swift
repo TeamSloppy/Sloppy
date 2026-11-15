@@ -5,16 +5,30 @@ import Protocols
 struct DevicePreviewTool: CoreTool {
     let domain = "devices"
     let name = "devices.preview"
-    let title = "Open simulator in Sloppy"
+    let title = "Test a mobile app in Sloppy Devices"
     let status = "preview"
-    let description = "Start an iOS simulator or Android emulator in the connected macOS client's Devices panel, without computer use. This runs on the client Mac, including with remote Core. Start returns immediately; poll status until devicePreview.state is ready or failed. Optional deviceId selects an iOS UUID, Android serial or AVD identifier; omission boots the bridge's default available device. screenshot captures a real device frame and returns a PNG path for images.inspect. stop disconnects only this conversation's preview and leaves the simulator running. Requires devices_v1; no desktop or server-side fallback."
+    let description = """
+        Use this tool to interactively test mobile apps on the connected Sloppy macOS client, including with remote Core.
+        Call list for the requested platform, pick an exact deviceId (ask if several match), then call start to open Devices.
+        For a supplied network ADB address, call start with androidAddress instead. Poll status until devicePreview.state
+        is ready or failed. Use the targetId returned by status for tap, swipe, type and screenshot. Coordinates are normalized
+        to the device screen, with (0, 0) at the top left. Use images.inspect on the PNG path returned by screenshot to verify
+        the result. Actions continue while Devices is hidden. If the target is lost, start it again. After an input error,
+        inspect a screenshot before retrying. stop disconnects the preview and leaves the device running.
+        """
 
     var parameters: GenerationSchema {
         .objectSchema([
-            .init(name: "operation", description: "start, status, screenshot or stop.", schema: DynamicGenerationSchema(type: String.self)),
-            .init(name: "platform", description: "iOS or Android; required for start.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "deviceId", description: "Optional target UUID/AVD/serial for start; observed device ID from status for screenshot.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "operation", description: "list, start, status, tap, swipe, type, screenshot or stop.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "platform", description: "iOS or Android; required for list and start.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "deviceId", description: "UUID/AVD/serial from list for start. Pass the active targetId from status for input and screenshots.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "androidAddress", description: "Optional Android ADB host:port instead of deviceId.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "x", description: "Normalized X coordinate for tap or swipe start.", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
+            .init(name: "y", description: "Normalized Y coordinate for tap or swipe start.", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
+            .init(name: "endX", description: "Normalized swipe end X coordinate.", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
+            .init(name: "endY", description: "Normalized swipe end Y coordinate.", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
+            .init(name: "durationMs", description: "Optional swipe duration from 50 to 3000 milliseconds. Defaults to 300.", schema: DynamicGenerationSchema(type: Int.self), isOptional: true),
+            .init(name: "text", description: "Text for type, up to 512 ASCII characters, including space, tab and newline.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
         ])
     }
 
@@ -27,13 +41,43 @@ struct DevicePreviewTool: CoreTool {
 
     func run(arguments: [String: JSONValue], bridge: WorkspaceBrowserBridgeService,
              sessionID: String, captureDirectory: URL) async throws -> JSONValue {
-        let input = try validatedBrowserWorkspaceInput(arguments, required: ["operation"], optional: ["platform", "deviceId", "androidAddress"])
-        guard let operation = input.asObject?["operation"]?.asString,
-              ["start", "status", "screenshot", "stop"].contains(operation),
-              operation != "start" || ["iOS", "Android"].contains(input.asObject?["platform"]?.asString ?? "") else {
-            throw WorkspaceBrowserBridgeError.commandFailed("Use start/status/screenshot/stop, with platform iOS or Android for start.")
+        let interactive = ["list", "tap", "swipe", "type"]
+        let operation = arguments["operation"]?.asString ?? ""
+        guard (["start", "status", "screenshot", "stop"] + interactive).contains(operation) else {
+            throw WorkspaceBrowserBridgeError.commandFailed("Choose a Devices operation: list, start, status, tap, swipe, type, screenshot or stop.")
         }
-        let result = try await bridge.run(sessionID: sessionID, name: "devices", input: input, requiredCapability: "devices_v1")
+        let usesPlatform = operation == "start" || operation == "list"
+        if usesPlatform, !["iOS", "Android"].contains(arguments["platform"]?.asString ?? "") {
+            throw WorkspaceBrowserBridgeError.commandFailed("Choose platform iOS or Android.")
+        }
+        let sendsInput = ["tap", "swipe", "type"].contains(operation)
+        let required = ["operation"] + (usesPlatform ? ["platform"] : []) + (sendsInput ? ["deviceId"] : [])
+        let optional = operation == "start" ? ["deviceId", "androidAddress"] : operation == "screenshot" ? ["deviceId"] : []
+        var input = try validatedBrowserWorkspaceInput(arguments, required: required, optional: optional).asObject ?? [:]
+        if operation == "tap" || operation == "swipe" {
+            let coordinateFields = operation == "tap" ? ["x", "y"] : ["x", "y", "endX", "endY"]
+            for field in coordinateFields {
+                guard let number = arguments[field]?.asNumber, (0...1).contains(number) else {
+                    throw WorkspaceBrowserBridgeError.commandFailed("\(field) must be a number between 0 and 1.")
+                }
+                input[field] = .number(number)
+            }
+        }
+        if operation == "swipe", let value = arguments["durationMs"], value != .null {
+            guard let duration = value.asNumber, (50...3000).contains(duration), duration.rounded() == duration else {
+                throw WorkspaceBrowserBridgeError.commandFailed("durationMs must be an integer between 50 and 3000.")
+            }
+            input["durationMs"] = .number(duration)
+        }
+        if operation == "type" {
+            guard let value = arguments["text"]?.asString, (1...512).contains(value.utf8.count),
+                  value.utf8.allSatisfy({ (32...126).contains($0) || $0 == 9 || $0 == 10 }) else {
+                throw WorkspaceBrowserBridgeError.commandFailed("Use 1–512 ASCII characters for device keyboard input.")
+            }
+            input["text"] = .string(value)
+        }
+        let capability = interactive.contains(operation) ? "devices_interaction_v1" : "devices_v1"
+        let result = try await bridge.run(sessionID: sessionID, name: "devices", input: .object(input), requiredCapability: capability)
         guard var data = result.asObject else { throw BrowserCDPError.invalidResponse }
         if operation == "screenshot" {
             guard let base64 = data.removeValue(forKey: "imageBase64")?.asString, base64.utf8.count <= 28 * 1024 * 1024,

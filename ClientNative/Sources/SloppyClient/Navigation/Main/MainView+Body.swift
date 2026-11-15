@@ -349,7 +349,7 @@ extension MainView {
         .task(id: viewModel.workspaceContext) {
             if let context = viewModel.workspaceContext { viewModel.workspaceDockState.context = context }
         }
-        .task(id: viewModel.selectedChatStorageID) {
+        .task(id: viewModel.selectedWorkspaceBrowserSessionID) {
             viewModel.connectWorkspaceBrowserForSelectedChat()
         }
         .onChange(of: viewModel.browserPresentationRequest) { _, request in

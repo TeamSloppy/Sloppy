@@ -46,6 +46,9 @@ public struct WorkspaceBrowserCommand: Codable, Sendable {
         public var expression: String?
         public var x: Double?
         public var y: Double?
+        public var endX: Double?
+        public var endY: Double?
+        public var durationMs: Int?
     }
 }
 
@@ -94,8 +97,9 @@ public struct WorkspaceDevicePreview: Codable, Sendable {
     public var platform: String
     public var devices: [Device]
     public var error: String?
-    public init(state: State, platform: String, devices: [Device], error: String? = nil) {
-        self.state = state; self.platform = platform; self.devices = devices; self.error = error
+    public var targetId: String?
+    public init(state: State, platform: String, devices: [Device], error: String? = nil, targetId: String? = nil) {
+        self.state = state; self.platform = platform; self.devices = devices; self.error = error; self.targetId = targetId
     }
 }
 

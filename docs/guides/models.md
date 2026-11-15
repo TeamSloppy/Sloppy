@@ -13,11 +13,24 @@ Sloppy supports multiple LLM providers. Each provider is configured as an entry 
 | --- | --- | --- | --- | --- |
 | OpenAI API | `openai-api:` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | API key |
 | OpenAI Codex (OAuth) | `openai-oauth:` | `https://chatgpt.com/backend-api` | — | OAuth device code |
+| Kimi | `kimi:` | Kimi Code or Moonshot, selected from the key | `KIMI_API_KEY` | Subscription key or pay-as-you-go API key |
 | Google Gemini | `gemini:` | `https://generativelanguage.googleapis.com` | `GEMINI_API_KEY` | API key or Antigravity CLI OAuth |
 | Anthropic | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | OAuth / setup token (see below) |
 | Claude Code subscription | `claude-code:` | — | Optional `SLOPPY_CLAUDE_CODE_COMMAND` | Official CLI login |
 | Ollama | `ollama:` | `http://127.0.0.1:11434` | — | None |
 | OpenCode import | `opencode:` | From OpenCode provider config | From OpenCode resolved config/auth | OpenAI-compatible providers |
+
+## Kimi
+
+Add your key to the `.env` file in the Sloppy Core data directory, usually `~/.sloppy/.env` for a local installation, then restart Core.
+
+```dotenv
+KIMI_API_KEY=sk-kimi-your-membership-key
+```
+
+A Kimi Code Console key starting with `sk-kimi-` uses the subscription quota at `https://api.kimi.ai/coding/v1`. A Moonshot Open Platform key uses metered billing at `https://api.moonshot.ai/v1`. See the [Kimi Code FAQ](https://www.kimi.com/code/docs/en/kimi-code/faq.html) for account and endpoint details.
+
+Sloppy makes `kimi:kimi-for-coding` available by default for a subscription key and `kimi:kimi-k2.6` for a platform key. For a different model, open **Dashboard → Settings → Providers → Add provider → Kimi**, test the connection, and select a model available to your account. The API URL and key fields can stay blank when you use `KIMI_API_KEY` and the default endpoint. You can also check access with `sloppy providers probe --provider-id kimi`.
 
 ## Claude Code subscription (experimental)
 
@@ -88,11 +101,12 @@ Laya calls are recorded at zero API cost; hardware and hosting costs are outside
 
 ## Environment variables
 
-Environment variables provide a way to configure API keys without writing them into `sloppy.json`. When both an environment variable and a config key are set, the config key takes precedence.
+Sloppy Core reads model provider credentials from `.env` at the root of its configured data directory (`workspace.basePath` plus `workspace.name`). The installed service usually uses `~/.sloppy/.env`. A configured API key takes precedence over the Core process environment, which in turn takes precedence over `.env`. Use one `NAME=value` assignment per line. Single or double quotes, comments, and an optional `export` prefix are supported. Values are read as text without shell expansion. Restart Core after editing its credentials.
 
 | Variable | Provider | Description |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | OpenAI | API key for OpenAI models |
+| `KIMI_API_KEY` | Kimi | Kimi Code membership key or Moonshot Open Platform API key |
 | `GEMINI_API_KEY` | Gemini | API key for Google Gemini models |
 | `ANTHROPIC_API_KEY` | Anthropic | Console API key or OAuth/setup token for Claude (direct `api.anthropic.com` only) |
 | `ANTHROPIC_AUTH_TOKEN` | Anthropic | Auth token for Claude/Anthropic-compatible auth; can also be read from `.claude/settings.json` under `env` |
@@ -117,9 +131,8 @@ In the **OpenAI API** provider's **API Key** field (Dashboard or native client),
 }
 ```
 
-The variable must exist in the environment of the **Sloppy Core process**, not
-just in the browser, native client, or a separate terminal. Set it for the service
-or container running Core and restart that process after changing its environment.
+Define the variable in Sloppy Core's `.env` or in the environment of the service
+or container running Core. Kimi also accepts whole-value variable references.
 Only the reference is saved in the configuration; the value is resolved when the
 runtime provider is built and when testing the connection or loading models.
 Existing literal keys and the empty-field `OPENAI_API_KEY` fallback still work.

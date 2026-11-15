@@ -280,22 +280,20 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("|| !viewModel.composerQuotes.isEmpty"))
     }
 
-    @Test("composer text fields submit on enter")
-    func composerTextFieldsSubmitOnEnter() throws {
+    @Test("mobile Return edits while desktop Return keeps submit")
+    func composerReturnIsPlatformSpecific() throws {
         let nativeSource = try nativeComposerSource
 
-        #expect(nativeSource.contains("textView.returnKeyType = .send"))
-        #expect(nativeSource.contains("shouldChangeTextIn range: NSRange"))
+        #expect(nativeSource.contains("textView.returnKeyType = .default"))
+        #expect(!nativeSource.contains("textView.returnKeyType = .send"))
         #expect(nativeSource.contains("onSubmit?()"))
     }
 
-    @Test("shift return inserts a newline without submitting")
+    @Test("desktop shift Return still inserts a newline without submitting")
     func shiftReturnInsertsNewlineWithoutSubmitting() throws {
         let nativeSource = try nativeComposerSource
 
         #expect(nativeSource.contains("override func pressesBegan"))
-        #expect(nativeSource.contains("key.modifierFlags.contains(.shift)"))
-        #expect(nativeSource.contains("isInsertingModifiedNewline = true"))
         #expect(nativeSource.contains("override func keyDown(with event: NSEvent)"))
         #expect(nativeSource.contains("event.modifierFlags.contains(.shift)"))
         #expect(nativeSource.contains("insertText(\"\\n\""))

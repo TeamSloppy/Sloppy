@@ -40,9 +40,7 @@ extension CoreService {
         if request.authMethod == .deeplink {
             do {
                 let models = try await openAIOAuthService.fetchModels()
-                if !models.isEmpty {
-                    await cacheOAuthModels(models)
-                }
+                await cacheOAuthModels(models)
                 return OpenAIProviderModelsResponse(
                     provider: "openai",
                     authMethod: request.authMethod,
@@ -63,12 +61,12 @@ extension CoreService {
             }
         }
 
-        return await openAIProviderCatalog.listModels(config: currentConfig, request: request)
+        return await openAIProviderCatalog.listModels(config: currentConfig, request: request, currentDirectory: workspaceCurrentDirectory)
     }
 
     /// Returns OpenAI provider key availability without fetching remote model catalog.
     public func openAIProviderStatus() -> OpenAIProviderStatusResponse {
-        let apiStatus = openAIProviderCatalog.status(config: currentConfig)
+        let apiStatus = openAIProviderCatalog.status(config: currentConfig, currentDirectory: workspaceCurrentDirectory)
         let oauthStatus = openAIOAuthService.status()
         return OpenAIProviderStatusResponse(
             provider: apiStatus.provider,
@@ -83,16 +81,17 @@ extension CoreService {
     }
 
     public func anthropicProviderStatus() -> AnthropicProviderStatusResponse {
+        let environmentLookup = ProviderEnvironment.lookup(workspaceRoot: workspaceRootURL)
         let primaryConfig = currentConfig.models.first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("anthropic:") == true
                 && isAnthropicOAuthEntry($0)
         }
         let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let envOAuthKey = ProcessInfo.processInfo.environment["ANTHROPIC_TOKEN"]?
+        let envOAuthKey = environmentLookup("ANTHROPIC_TOKEN")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let envClaudeCodeKey = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?
+        let envClaudeCodeKey = environmentLookup("CLAUDE_CODE_OAUTH_TOKEN")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let envAuthToken = ProcessInfo.processInfo.environment["ANTHROPIC_AUTH_TOKEN"]?
+        let envAuthToken = environmentLookup("ANTHROPIC_AUTH_TOKEN")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let settingsKey = anthropicOAuthService.claudeSettingsEnvironment().authToken?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -112,9 +111,10 @@ extension CoreService {
     }
 
     public func geminiProviderStatus() -> GeminiProviderStatusResponse {
+        let environmentLookup = ProviderEnvironment.lookup(workspaceRoot: workspaceRootURL)
         let config = currentConfig
         let hasEnvironmentKey = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
-            .compactMap { ProcessInfo.processInfo.environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .compactMap { environmentLookup($0)?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .contains { !$0.isEmpty }
         let hasConfiguredKey = Self.geminiHasApiKey(config: config)
         let oauthStatus = geminiOAuthService.status()
@@ -186,7 +186,7 @@ extension CoreService {
                 manualToken: request.apiKey
             )
         }
-        return await providerProbeService.probe(config: currentConfig, request: request)
+        return await providerProbeService.probe(config: currentConfig, request: request, currentDirectory: workspaceCurrentDirectory)
     }
 
     /// Generates text using the specified model and prompt, for one-shot completion tasks.
@@ -243,6 +243,7 @@ extension CoreService {
     public func completeOpenAIOAuth(request: OpenAIOAuthCompleteRequest) async throws -> OpenAIOAuthCompleteResponse {
         let response = try await openAIOAuthService.completeLogin(request: request)
         if response.ok {
+            clearOAuthModelCache()
             await refreshModelProviderAfterCredentialChange()
         }
         return response
@@ -251,6 +252,7 @@ extension CoreService {
     public func importOpenAICodexCredentials() async throws -> OpenAIOAuthImportCodexResponse {
         let response = try await openAIOAuthService.importCodexCredentials()
         if response.ok {
+            clearOAuthModelCache()
             await refreshModelProviderAfterCredentialChange()
         }
         return response
@@ -263,6 +265,7 @@ extension CoreService {
     public func pollOpenAIDeviceCode(request: OpenAIDeviceCodePollRequest) async throws -> OpenAIDeviceCodePollResponse {
         let response = try await openAIOAuthService.pollDeviceToken(deviceAuthId: request.deviceAuthId, userCode: request.userCode)
         if response.ok {
+            clearOAuthModelCache()
             await refreshModelProviderAfterCredentialChange()
         }
         return response
@@ -270,7 +273,12 @@ extension CoreService {
 
     public func disconnectOpenAIOAuth() throws {
         try openAIOAuthService.disconnect()
-        oauthModelCache.removeAll()
+        clearOAuthModelCache()
+    }
+
+    private func clearOAuthModelCache() {
+        oauthModelCache = nil
+        rejectedOAuthModelIDs.removeAll()
     }
 
     public func startAnthropicOAuth(request: AnthropicOAuthStartRequest) throws -> AnthropicOAuthStartResponse {
@@ -342,8 +350,8 @@ extension CoreService {
 
     /// Returns the server-side source of truth for model pickers.
     public func listAvailableProviderModels() -> [ProviderModelOption] {
-        availableAgentModels().map { option in
-            Self.providerModelOption(option, limits: modelProvider?.contextLimits(for: option.id))
+        availableAgentModels().filter { option in
+            modelProvider?.supports(modelName: option.id) == true
         }
     }
 
@@ -362,17 +370,19 @@ extension CoreService {
             config: currentConfig,
             hasOAuthCredentials: hasOAuth,
             currentDirectory: workspaceCurrentDirectory
-        )
-        guard hasOAuth, !oauthModelCache.isEmpty else {
+        ).filter { !rejectedOAuthModelIDs.contains($0.id) }
+        guard hasOAuth, let oauthModelCache else {
             return base.map { Self.providerModelOption($0, limits: modelProvider?.contextLimits(for: $0.id)) }
         }
 
         var seen = Set<String>()
-        var options: [ProviderModelOption] = base.map { option in
-            seen.insert(option.id)
-            guard let cached = oauthModelCache[option.id] ?? oauthModelCache[stripProviderPrefix(option.id)] else {
+        var options: [ProviderModelOption] = base.compactMap { option in
+            if !option.id.hasPrefix("openai-oauth:") {
+                seen.insert(option.id)
                 return option
             }
+            guard let cached = oauthModelCache[option.id] else { return nil }
+            seen.insert(option.id)
             return ProviderModelOption(
                 id: option.id,
                 title: cached.title.isEmpty ? option.title : cached.title,
@@ -384,9 +394,8 @@ extension CoreService {
             )
         }
 
-        for cached in oauthModelCache.values.sorted(by: { $0.id < $1.id }) {
-            let id = cached.id.hasPrefix("openai-oauth:") ? cached.id : "openai-oauth:\(cached.id)"
-            guard seen.insert(id).inserted else { continue }
+        for (id, cached) in oauthModelCache.sorted(by: { $0.key < $1.key }) {
+            guard !rejectedOAuthModelIDs.contains(id), seen.insert(id).inserted else { continue }
             options.append(
                 ProviderModelOption(
                     id: id,
@@ -403,47 +412,54 @@ extension CoreService {
         return options.map { Self.providerModelOption($0, limits: modelProvider?.contextLimits(for: $0.id)) }
     }
 
-    func stripProviderPrefix(_ id: String) -> String {
-        guard let idx = id.firstIndex(of: ":") else { return id }
-        return String(id[id.index(after: idx)...])
-    }
-
-    /// Replacement for a model the provider rejected for this account: another model the account
-    /// reported as loaded (`openai_oauth.models.loaded`), never one already tried.
+    /// Keep provider-rejected models out of the picker and fallbacks for this OAuth login.
     func alternativeModel(forRejected rejected: String, excluding tried: Set<String>) async -> String? {
         guard rejected.hasPrefix("openai-oauth:") else { return nil }
-        if oauthModelCache.isEmpty { await refreshOAuthModelCacheIfNeeded() }
-        return Self.alternativeOAuthModel(cached: Array(oauthModelCache.values), excluding: tried)
+        rejectedOAuthModelIDs.insert(rejected)
+        if oauthModelCache == nil { await refreshOAuthModelCacheIfNeeded() }
+        return Self.alternativeOAuthModel(
+            cached: oauthModelCache.map { Array($0.values) } ?? [],
+            excluding: tried.union(rejectedOAuthModelIDs)
+        )
     }
 
     nonisolated static func alternativeOAuthModel(cached: [ProviderModelOption], excluding tried: Set<String>) -> String? {
         cached
-            .map { $0.id.hasPrefix("openai-oauth:") ? $0.id : "openai-oauth:\($0.id)" }
+            .map { openAIOAuthModelID($0.id) }
             .sorted()
             .first { !tried.contains($0) }
     }
 
+    private nonisolated static func openAIOAuthModelID(_ id: String) -> String {
+        id.hasPrefix("openai-oauth:") ? id : "openai-oauth:\(id)"
+    }
+
     func cacheOAuthModels(_ models: [ProviderModelOption]) async {
-        for model in models {
-            oauthModelCache[model.id] = model
-        }
+        oauthModelCache = Dictionary(
+            models.map { (Self.openAIOAuthModelID($0.id), $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
         await applyOAuthCatalogContextLimits()
-        // The orchestrator validates per-session model overrides against this list; keep it in step
-        // with the models the account actually exposes.
         await sessionOrchestrator.updateAvailableModels(availableAgentModels())
     }
 
     func applyOAuthCatalogContextLimits() async {
         var limits: [String: ModelContextLimits] = [:]
-        for model in oauthModelCache.values {
+        for (id, model) in oauthModelCache ?? [:] {
             guard let window = model.contextWindowTokens, window > 0 else { continue }
-            let id = model.id.hasPrefix("openai-oauth:") ? model.id : "openai-oauth:\(model.id)"
             limits[id] = ModelContextLimits(contextWindowTokens: window, maxInputTokens: model.maxInputTokens, maxOutputTokens: model.maxOutputTokens)
         }
         await runtime.setCatalogContextLimits(limits)
     }
 
+    func configureUnsupportedModelFallback() async {
+        await runtime.setUnsupportedModelFallback { [weak self] rejected, tried in
+            await self?.alternativeModel(forRejected: rejected, excluding: tried)
+        }
+    }
+
     func refreshOAuthModelCacheIfNeeded() async {
+        await configureUnsupportedModelFallback()
         guard openAIOAuthService.currentAccessToken() != nil else { return }
         do {
             let models = try await openAIOAuthService.fetchModels()
@@ -476,7 +492,9 @@ extension CoreService {
             config: config,
             hasOAuthCredentials: hasOAuthCredentials,
             currentDirectory: currentDirectory
-        ) + config.effectiveModels(currentDirectory: currentDirectory).filter { !$0.disabled && $0.providerCatalogId != "sloppy" }.map(\.model)
+        ) + config.effectiveModels(currentDirectory: currentDirectory)
+            .filter { !$0.disabled && $0.providerCatalogId != "sloppy" && $0.providerCatalogId != KimiModelProviderFactory.id }
+            .map(\.model)
         for raw in candidates {
             let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else {
@@ -524,6 +542,7 @@ extension CoreService {
             hasOAuthCredentials: hasOAuthCredentials
         )
         let knowsProvider = resolved.contains { $0.hasPrefix("\(prefix):") }
+        let environmentLookup = ProviderEnvironment.lookup(workspaceRoot: config.resolvedWorkspaceRootURL())
 
         switch prefix {
         case "claude-code":
@@ -540,14 +559,22 @@ extension CoreService {
                 CoreModelProviderFactory.resolvedIdentifier(for: $0)
             }
             return resolvedModels.contains(trimmed)
+        case "kimi":
+            guard resolved.contains(trimmed) else { return false }
+            let row = config.effectiveModels().first {
+                CoreModelProviderFactory.resolvedIdentifier(for: $0) == trimmed
+            }
+            return (try? KimiModelProviderFactory.credentials(
+                apiKey: row?.apiKey, apiURL: row?.apiUrl, environmentLookup: environmentLookup
+            )) != nil
         case "openrouter":
-            let env = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]?
+            let env = environmentLookup("OPENROUTER_API_KEY")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !env.isEmpty { return true }
             guard knowsProvider else { return false }
             return openRouterHasApiKey(config: config)
         case "openai-api":
-            let env = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
+            let env = environmentLookup("OPENAI_API_KEY")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !env.isEmpty { return true }
             guard knowsProvider else { return false }
@@ -560,7 +587,7 @@ extension CoreService {
         case "gemini":
             guard knowsProvider else { return false }
             let env = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
-                .compactMap { ProcessInfo.processInfo.environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .compactMap { environmentLookup($0)?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .first { !$0.isEmpty } ?? ""
             if !env.isEmpty { return true }
             return geminiHasApiKey(config: config)
@@ -569,10 +596,10 @@ extension CoreService {
                 )?.isUsableForAntigravityCLI == true
         case "anthropic":
             guard knowsProvider else { return false }
-            let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?
+            let env = environmentLookup("ANTHROPIC_API_KEY")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !env.isEmpty { return true }
-            let envAuthToken = ProcessInfo.processInfo.environment["ANTHROPIC_AUTH_TOKEN"]?
+            let envAuthToken = environmentLookup("ANTHROPIC_AUTH_TOKEN")?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !envAuthToken.isEmpty { return true }
             let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
@@ -652,7 +679,9 @@ extension CoreService {
         var capabilities: [String] = []
         var contextWindow: String?
 
-        if trimmed.hasPrefix("claude-code:") {
+        if trimmed.hasPrefix(KimiModelProviderFactory.prefix) {
+            capabilities.append(contentsOf: ["tools", "reasoning"])
+        } else if trimmed.hasPrefix("claude-code:") {
             capabilities.append(contentsOf: ["tools", "vision"])
             contextWindow = modelID.hasSuffix("[1m]") ? "1.0M" : "200K"
         } else if lowered.hasPrefix("gpt-5.") {

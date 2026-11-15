@@ -197,6 +197,9 @@ struct OpenAIOAuthService: @unchecked Sendable {
             var description: String?
             var supportedReasoningEfforts: [ReasoningEffort]?
             var contextWindow: Int?
+            var visibility: String?
+
+            var appearsInPicker: Bool { visibility == nil || visibility == "list" }
 
             enum CodingKeys: String, CodingKey {
                 case id
@@ -204,6 +207,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
                 case description
                 case supportedReasoningEfforts = "supported_reasoning_efforts"
                 case contextWindow = "context_window"
+                case visibility
             }
         }
 
@@ -644,7 +648,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
         guard (200..<300).contains(response.statusCode) else {
             throw Error.tokenExchangeFailed(httpErrorMessage(data: data, statusCode: response.statusCode))
         }
-        let decoded = try decodeRemoteModels(from: data)
+        let decoded = try decodeRemoteModels(from: data).filter(\.appearsInPicker)
         if decoded.isEmpty {
             Self.logger.warning("openai_oauth.models.empty_response")
         } else {
@@ -745,7 +749,8 @@ struct OpenAIOAuthService: @unchecked Sendable {
                     displayName: displayName,
                     description: description,
                     supportedReasoningEfforts: reasoningEfforts,
-                    contextWindow: contextWindow
+                    contextWindow: contextWindow,
+                    visibility: item["visibility"] as? String
                 )
             )
         }

@@ -29,7 +29,8 @@ struct OpenAIProviderCatalogService {
         .init(id: "o4-mini", title: "o4-mini", contextWindow: "200K", capabilities: ["reasoning", "tools"])
     ]
 
-    func listModels(config: CoreConfig, request: OpenAIProviderModelsRequest) async -> OpenAIProviderModelsResponse {
+    func listModels(config: CoreConfig, request: OpenAIProviderModelsRequest, currentDirectory: String = FileManager.default.currentDirectoryPath) async -> OpenAIProviderModelsResponse {
+        let environmentLookup = ProviderEnvironment.lookup(workspaceRoot: config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory), processLookup: self.environmentLookup)
         let primaryOpenAIConfig = config.models.first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
         }
@@ -131,7 +132,8 @@ struct OpenAIProviderCatalogService {
         }
     }
 
-    func status(config: CoreConfig) -> OpenAIProviderStatusResponse {
+    func status(config: CoreConfig, currentDirectory: String = FileManager.default.currentDirectoryPath) -> OpenAIProviderStatusResponse {
+        let environmentLookup = ProviderEnvironment.lookup(workspaceRoot: config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory), processLookup: self.environmentLookup)
         let primaryOpenAIConfig = config.models.first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
         }

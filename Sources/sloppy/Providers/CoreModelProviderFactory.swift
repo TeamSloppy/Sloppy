@@ -23,6 +23,7 @@ struct ModelProviderBuildConfig: @unchecked Sendable {
     var proxySession: URLSession?
     var meshModelBridge: MeshModelBridge? = nil
     var consoleModelBridge: ConsoleModelBridge? = nil
+    var environmentLookup: @Sendable (String) -> String? = { ProcessInfo.processInfo.environment[$0] }
 }
 
 protocol ModelProviderFactory: Sendable {
@@ -36,6 +37,7 @@ enum CoreModelProviderFactory {
         OpenAIModelProviderFactory(),
         SloppyModelProviderFactory(),
         OpenRouterModelProviderFactory(),
+        KimiModelProviderFactory(),
         OllamaModelProviderFactory(),
         GeminiModelProviderFactory(),
         AnthropicModelProviderFactory(),
@@ -81,7 +83,8 @@ enum CoreModelProviderFactory {
             systemInstructions: systemInstructions,
             proxySession: proxySession,
             meshModelBridge: meshModelBridge,
-            consoleModelBridge: consoleModelBridge
+            consoleModelBridge: consoleModelBridge,
+            environmentLookup: ProviderEnvironment.lookup(workspaceRoot: config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory))
         )
 
         let providers = factories.compactMap { $0.buildProvider(from: buildConfig) }
@@ -109,10 +112,11 @@ enum CoreModelProviderFactory {
         var identifiers = modelConfigs.compactMap { resolvedIdentifier(for: $0) }
         let hasOpenAIAPI = identifiers.contains { $0.hasPrefix("openai-api:") }
         let hasOpenAIOAuth = identifiers.contains { $0.hasPrefix("openai-oauth:") }
-        let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
+        let lookup = ProviderEnvironment.lookup(workspaceRoot: config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory))
+        let environmentKey = lookup("OPENAI_API_KEY")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasOpenRouter = identifiers.contains { $0.hasPrefix("openrouter:") }
-        let openRouterEnvKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]?
+        let openRouterEnvKey = lookup("OPENROUTER_API_KEY")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         if !config.disableModelInference {
@@ -124,6 +128,13 @@ enum CoreModelProviderFactory {
             }
             if !hasOpenRouter, !openRouterEnvKey.isEmpty {
                 identifiers.append("openrouter:openai/gpt-4o-mini")
+            }
+            let kimiKey = lookup(KimiModelProviderFactory.keyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let hasKimiRows = modelConfigs.contains {
+                $0.providerCatalogId == KimiModelProviderFactory.id || $0.model.hasPrefix(KimiModelProviderFactory.prefix)
+            }
+            if !hasKimiRows, !kimiKey.isEmpty {
+                identifiers.append(KimiModelProviderFactory.prefix + KimiModelProviderFactory.defaultModel(for: kimiKey))
             }
         }
 
@@ -145,12 +156,16 @@ enum CoreModelProviderFactory {
             if modelValue.hasPrefix("claude-code:") { return modelValue }
             return modelValue.contains(":") ? nil : "claude-code:\(modelValue)"
         }
+        if model.providerCatalogId == KimiModelProviderFactory.id {
+            if modelValue.hasPrefix(KimiModelProviderFactory.prefix) { return modelValue }
+            return modelValue.contains(":") ? nil : KimiModelProviderFactory.prefix + modelValue
+        }
         if modelValue.hasPrefix("openai:") {
             return nil
         }
 
         if modelValue.hasPrefix("sloppy:") || modelValue.hasPrefix("openai-api:") || modelValue.hasPrefix("openai-oauth:")
-            || modelValue.hasPrefix("openrouter:")
+            || modelValue.hasPrefix("openrouter:") || modelValue.hasPrefix(KimiModelProviderFactory.prefix)
             || modelValue.hasPrefix("ollama:")
             || modelValue.hasPrefix("gemini:") || modelValue.hasPrefix("anthropic:")
             || modelValue.hasPrefix("mock:") || modelValue.hasPrefix("opencode:") || modelValue.hasPrefix("claude-code:") {

@@ -10,6 +10,44 @@ struct DevicePreviewToolTests {
         let schema = try #require(tool["parameters"]?.asObject)
         #expect(schema["required"]?.asArray?.contains(.string("operation")) == true)
         #expect(schema["properties"]?.asObject?["platform"] != nil)
+        #expect(schema["properties"]?.asObject?["endX"]?.asObject?["type"] == .string("number"))
+    }
+
+    @Test func validatesAndRoutesDeviceInputOnlyToInteractiveClients() async throws {
+        let bridge = WorkspaceBrowserBridgeService()
+        var binding = WorkspaceBrowserBinding(bridgeId: UUID().uuidString, agentId: "agent", sessionId: "chat",
+            capabilities: ["devices_v1"])
+        try await bridge.register(binding)
+        let directory = FileManager.default.temporaryDirectory
+        let tool = DevicePreviewTool()
+        let tap: [String: JSONValue] = ["operation": .string("tap"), "deviceId": .string("device"),
+            "x": .number(0.2), "y": .number(1)]
+        await #expect(throws: (any Error).self) {
+            try await tool.run(arguments: tap, bridge: bridge, sessionID: "chat", captureDirectory: directory)
+        }
+        #expect(try await bridge.poll(binding).commands.isEmpty)
+        await bridge.disconnect(binding)
+        binding.capabilities?.append("devices_interaction_v1")
+        try await bridge.register(binding)
+        for invalid in [
+            tap.merging(["x": .number(-1)], uniquingKeysWith: { _, new in new }),
+            tap.merging(["x": .string("0.2")], uniquingKeysWith: { _, new in new }),
+            ["operation": .string("type"), "deviceId": .string("device"), "text": .string("日本語")],
+            ["operation": .string("swipe"), "deviceId": .string("device"), "x": .number(0), "y": .number(0),
+             "endX": .number(1), "endY": .number(1), "durationMs": .number(55.5)],
+        ] {
+            await #expect(throws: (any Error).self) {
+                try await tool.run(arguments: invalid, bridge: bridge, sessionID: "chat", captureDirectory: directory)
+            }
+        }
+        #expect(try await bridge.poll(binding).commands.isEmpty)
+        let request = Task {
+            try await tool.run(arguments: tap, bridge: bridge, sessionID: "chat", captureDirectory: directory)
+        }
+        let command = try await next(bridge, binding)
+        #expect(command.input == .object(tap))
+        try await bridge.complete(.init(binding: binding, commandId: command.id, data: .object([:])))
+        #expect(try await request.value.asObject?["surface"] == .string("devices_panel"))
     }
 
     @Test func oldOrDisconnectedClientsCannotStartSomethingOnCore() async throws {

@@ -235,8 +235,8 @@ struct ProvidersSection: View {
         do {
             let models = try await apiClient.fetchProviderModels(
                 providerId: request.providerId,
-                apiKey: request.apiKey.nilIfEmpty,
-                apiUrl: request.apiUrl.nilIfEmpty
+                apiKey: request.providerId == "kimi" ? request.apiKey : request.apiKey.nilIfEmpty,
+                apiUrl: request.providerId == "kimi" ? request.apiUrl : request.apiUrl.nilIfEmpty
             )
             try Task.checkCancellation()
             guard modelCatalogLoadID == loadID else { return }
@@ -288,6 +288,7 @@ struct ProvidersSection: View {
         "openai-oauth",
         "sloppy",
         "openrouter",
+        "kimi",
         "ollama",
         "gemini",
         "anthropic",

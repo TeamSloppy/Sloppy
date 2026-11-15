@@ -8,9 +8,11 @@ public final class ConnectionMonitor {
     public private(set) var state: ConnectionState = .disconnected
     public private(set) var checkedURL: URL?
     public private(set) var lastFailureMessage: String?
+    public private(set) var lastCheckedAt: Date?
+    public private(set) var lastSuccessfulCheckDuration: Duration?
 
     private var baseURL: URL
-    private var endpoint: SloppyInstanceEndpoint
+    public private(set) var endpoint: SloppyInstanceEndpoint
     private var checkTask: Task<Void, Never>?
     private let logger: Logger
     private let checkInterval: TimeInterval = 10
@@ -55,6 +57,10 @@ public final class ConnectionMonitor {
         start(endpoint: .direct(baseURL: baseURL))
     }
 
+    public func trafficSnapshot() -> ConnectionTrafficSnapshot {
+        ConnectionTraffic.shared.snapshot(for: endpoint)
+    }
+
     public func start(endpoint: SloppyInstanceEndpoint) {
         self.endpoint = endpoint
         self.baseURL = endpoint.coordinatorBaseURL
@@ -62,6 +68,8 @@ public final class ConnectionMonitor {
         state = .reconnecting
         checkedURL = baseURL.appendingPathComponent("health")
         lastFailureMessage = nil
+        lastCheckedAt = nil
+        lastSuccessfulCheckDuration = nil
         healthCheckAttempt = 0
         consecutiveTransportFailures = 0
         logger.info("Starting connection monitor for \(baseURL.absoluteString)")
@@ -103,8 +111,11 @@ public final class ConnectionMonitor {
 
         let currentID = monitorID
         let checkedEndpoint = endpoint
+        let startedAt = ContinuousClock.now
         let result = await healthCheck(checkedEndpoint)
         guard !Task.isCancelled, monitorID == currentID else { return false }
+        lastCheckedAt = .now
+        lastSuccessfulCheckDuration = result.isHealthy ? startedAt.duration(to: .now) : nil
         lastFailureMessage = result.failureMessage
 
         if !result.isHealthy {

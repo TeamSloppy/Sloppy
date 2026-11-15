@@ -26,6 +26,8 @@ public struct OpenAIModelProvider: ModelProvider {
         public var allowResponsesAPIFallback: Bool
         /// When `true`, use OpenAI Responses API semantics instead of Chat Completions. Suitable for OpenRouter and other Open Responses–compatible endpoints.
         public var useOpenResponsesLanguageModel: Bool
+        public var matchesConfiguredModelsOnly: Bool
+        public var preserveToolCallReasoning: Bool
 
         public init(
             apiKey: @escaping @Sendable () -> String,
@@ -38,7 +40,9 @@ public struct OpenAIModelProvider: ModelProvider {
             modelIdentifierPrefix: String = "openai-api:",
             useOpenAICodexOAuthPath: Bool = false,
             allowResponsesAPIFallback: Bool = true,
-            useOpenResponsesLanguageModel: Bool = false
+            useOpenResponsesLanguageModel: Bool = false,
+            matchesConfiguredModelsOnly: Bool = false,
+            preserveToolCallReasoning: Bool = false
         ) {
             self.apiKey = apiKey
             self.baseURL = baseURL
@@ -51,6 +55,8 @@ public struct OpenAIModelProvider: ModelProvider {
             self.useOpenAICodexOAuthPath = useOpenAICodexOAuthPath
             self.allowResponsesAPIFallback = allowResponsesAPIFallback
             self.useOpenResponsesLanguageModel = useOpenResponsesLanguageModel
+            self.matchesConfiguredModelsOnly = matchesConfiguredModelsOnly
+            self.preserveToolCallReasoning = preserveToolCallReasoning
         }
     }
 
@@ -92,7 +98,7 @@ public struct OpenAIModelProvider: ModelProvider {
         if supportedModels.contains(modelName) {
             return true
         }
-        return modelName.hasPrefix(settings.modelIdentifierPrefix)
+        return !settings.matchesConfiguredModelsOnly && modelName.hasPrefix(settings.modelIdentifierPrefix)
     }
 
     public func supportsUsageObservation(for modelName: String) -> Bool { supports(modelName: modelName) }
@@ -147,6 +153,12 @@ public struct OpenAIModelProvider: ModelProvider {
 
     public func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         var options = GenerationOptions(maximumResponseTokens: maxTokens)
+        if settings.preserveToolCallReasoning {
+            var custom = OpenAILanguageModel.CustomGenerationOptions()
+            custom.preserveToolCallReasoning = true
+            options[custom: OpenAILanguageModel.self] = custom
+            return options
+        }
         let mapped = mapReasoningEffort(reasoningEffort)
         options[custom: OpenAILanguageModel.self] = .init(
             reasoningEffort: mapped,

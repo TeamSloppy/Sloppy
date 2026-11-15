@@ -209,6 +209,9 @@ public struct OpenAILanguageModel: LanguageModel {
         /// modeled in this type.
         public var extraBody: [String: JSONValue]?
 
+        /// Enables reasoning replay for Chat Completions hosts that require it after tool calls.
+        public var preserveToolCallReasoning: Bool?
+
         // MARK: - Nested Types
 
         /// The verbosity level for model responses.
@@ -309,6 +312,7 @@ public struct OpenAILanguageModel: LanguageModel {
             case promptCacheRetention = "prompt_cache_retention"
             case truncation
             case extraBody = "extra_body"
+            case preserveToolCallReasoning
         }
 
         /// Creates custom generation options for OpenAI-compatible APIs.
@@ -447,7 +451,9 @@ public struct OpenAILanguageModel: LanguageModel {
         switch apiVariant {
         case .chatCompletions:
             return try await respondWithChatCompletions(
-                messages: session.transcript.toOpenAIMessages(),
+                messages: session.transcript.toOpenAIMessages(
+                    preserveToolCallReasoning: options[custom: OpenAILanguageModel.self]?.preserveToolCallReasoning == true
+                ),
                 tools: openAITools,
                 generating: type,
                 options: options,
@@ -477,6 +483,7 @@ public struct OpenAILanguageModel: LanguageModel {
         var messages = messages
         var baseTranscript = session.transcript
         var continuationStart = 0
+        let preservesReasoning = options[custom: OpenAILanguageModel.self]?.preserveToolCallReasoning == true
 
         // Loop until no more tool calls
         while true {
@@ -518,10 +525,12 @@ public struct OpenAILanguageModel: LanguageModel {
 
             let toolCallMessage = choice.message
             if let toolCalls = toolCallMessage.toolCalls, !toolCalls.isEmpty {
-                if let value = try? JSONValue(toolCallMessage) {
-                    messages.append(OpenAIMessage(role: .raw(rawContent: value), content: .text("")))
+                let reasoning = preservesReasoning ? toolCallMessage.reasoningContent ?? "" : nil
+                if case .object(var value) = try? JSONValue(toolCallMessage) {
+                    value["reasoning_content"] = reasoning.map(JSONValue.string)
+                    messages.append(OpenAIMessage(role: .raw(rawContent: .object(value)), content: .text("")))
                 }
-                let resolution = try await resolveToolCalls(toolCalls, session: session)
+                let resolution = try await resolveToolCalls(toolCalls, session: session, reasoningContent: reasoning)
                 switch resolution {
                 case .stop(let calls):
                     if !calls.isEmpty {
@@ -550,7 +559,7 @@ public struct OpenAILanguageModel: LanguageModel {
                             let current = Transcript(entries: Array(baseTranscript) + entries.dropFirst(continuationStart))
                             let prepared = try await delegate.prepareToolContinuation(current, in: session)
                             if prepared != current {
-                                messages = prepared.toOpenAIMessages()
+                                messages = prepared.toOpenAIMessages(preserveToolCallReasoning: preservesReasoning)
                                 baseTranscript = prepared
                                 continuationStart = entries.count
                             }
@@ -795,6 +804,29 @@ public struct OpenAILanguageModel: LanguageModel {
             return LanguageModelSession.ResponseStream(stream: stream)
 
         case .chatCompletions:
+            let preservesReasoning = options[custom: OpenAILanguageModel.self]?.preserveToolCallReasoning == true
+            // The standard Chat Completions stream only decodes text. Use the
+            // complete-response tool loop when the endpoint requires reasoning replay.
+            if preservesReasoning, openAITools != nil {
+                let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+                    let task = Task {
+                        do {
+                            let response = try await respond(
+                                within: session, to: prompt, generating: type,
+                                includeSchemaInPrompt: includeSchemaInPrompt, options: options
+                            )
+                            continuation.yield(.init(
+                                content: response.content.asPartiallyGenerated(), rawContent: response.rawContent
+                            ))
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
+                return LanguageModelSession.ResponseStream(stream: stream)
+            }
             let url = baseURL.appendingPathComponent("chat/completions")
 
             let stream: AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> = .init {
@@ -802,7 +834,7 @@ public struct OpenAILanguageModel: LanguageModel {
                 do {
                     let params = try ChatCompletions.createRequestBody(
                         model: model,
-                        messages: session.transcript.toOpenAIMessages(),
+                        messages: session.transcript.toOpenAIMessages(preserveToolCallReasoning: preservesReasoning),
                         tools: openAITools,
                         generating: type,
                         options: options,
@@ -912,7 +944,9 @@ private enum ChatCompletions {
             body["temperature"] = .double(temperature)
         }
         if let maxTokens = options.maximumResponseTokens {
-            body["max_completion_tokens"] = .int(maxTokens)
+            let tokenField = options[custom: OpenAILanguageModel.self]?.preserveToolCallReasoning == true
+                ? "max_tokens" : "max_completion_tokens"
+            body[tokenField] = .int(maxTokens)
         }
 
         // Apply custom options
@@ -1014,12 +1048,14 @@ private enum ChatCompletions {
             let role: String
             let content: String?
             let refusal: String?
+            let reasoningContent: String?
             let toolCalls: [OpenAIToolCall]?
 
             private enum CodingKeys: String, CodingKey {
                 case role
                 case content
                 case refusal
+                case reasoningContent = "reasoning_content"
                 case toolCalls = "tool_calls"
             }
         }
@@ -1265,7 +1301,7 @@ private enum Responses {
 // MARK: - Supporting Types
 
 extension Transcript {
-    fileprivate func toOpenAIMessages() -> [OpenAIMessage] {
+    fileprivate func toOpenAIMessages(preserveToolCallReasoning: Bool = false) -> [OpenAIMessage] {
         var messages = [OpenAIMessage]()
         for item in self {
             switch item {
@@ -1312,11 +1348,15 @@ extension Transcript {
                     ])
                 }
 
-                let rawMessage: JSONValue = .object([
+                var raw: [String: JSONValue] = [
                     "role": .string("assistant"),
                     "content": .null,
                     "tool_calls": .array(openAIToolCalls),
-                ])
+                ]
+                if preserveToolCallReasoning {
+                    raw["reasoning_content"] = .string(toolCalls.compactMap(\.reasoningContent).first ?? "")
+                }
+                let rawMessage: JSONValue = .object(raw)
 
                 messages.append(
                     .init(
@@ -1639,7 +1679,8 @@ private enum OpenAIToolResolutionOutcome {
 
 private func resolveToolCalls(
     _ toolCalls: [OpenAIToolCall],
-    session: LanguageModelSession
+    session: LanguageModelSession,
+    reasoningContent: String? = nil
 ) async throws -> OpenAIToolResolutionOutcome {
     if toolCalls.isEmpty { return .invocations([]) }
 
@@ -1660,7 +1701,8 @@ private func resolveToolCalls(
             Transcript.ToolCall(
                 id: callID,
                 toolName: function.name,
-                arguments: args
+                arguments: args,
+                reasoningContent: reasoningContent
             )
         )
     }

@@ -7,6 +7,7 @@ struct SloppyTUIProviderDefinition {
         SloppyTUIProviderDefinition("openai-api"),
         SloppyTUIProviderDefinition("openai-oauth"),
         SloppyTUIProviderDefinition("openrouter"),
+        SloppyTUIProviderDefinition("kimi"),
         SloppyTUIProviderDefinition("gemini"),
         SloppyTUIProviderDefinition("anthropic"),
         SloppyTUIProviderDefinition("anthropic-oauth"),
@@ -26,6 +27,8 @@ struct SloppyTUIProviderDefinition {
             return .claudeCode
         case "openrouter":
             return .openRouter
+        case "kimi":
+            return .kimi
         case "gemini":
             return .gemini
         case "anthropic":
@@ -58,6 +61,13 @@ struct SloppyTUIProviderDefinition {
             model = "openai/gpt-5.4-mini"
             requiresAPIKey = true
             setupDescription = "OpenRouter API key"
+        case "kimi":
+            id = KimiModelProviderFactory.id
+            title = "Kimi"
+            apiURL = ""
+            model = "kimi-for-coding"
+            requiresAPIKey = true
+            setupDescription = "Kimi Code or Moonshot API key. Leave blank for KIMI_API_KEY."
         case "gemini":
             id = "gemini"
             title = "gemini"
@@ -105,7 +115,7 @@ struct SloppyTUIProviderDefinition {
 
     func runtimeModelID(_ modelID: String) -> String {
         if id == "claude-code" { return "claude-code:\(modelID)" }
-        if id == "openrouter" { return "openrouter:\(modelID)" }
+        if id == "openrouter" || id == "kimi" { return "\(id):\(modelID)" }
         if id == "gemini" { return "gemini:\(modelID)" }
         if id == "anthropic" || id == "anthropic-oauth" { return "anthropic:\(modelID)" }
         if id == "ollama" { return "ollama:\(modelID)" }

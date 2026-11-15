@@ -44,6 +44,7 @@ extension ChatScreenViewModel {
         let quotes = composerQuotes
         guard !content.isEmpty || !attachments.isEmpty || !quotes.isEmpty else { return false }
 
+        sendErrorMessage = nil
         requestComposerFocus()
         if willQueueMessage {
             enqueueMessage(content: content, attachments: attachments, quotes: quotes)
@@ -84,7 +85,6 @@ extension ChatScreenViewModel {
     ) {
         let references = references ?? composerDraft.references
         let messageContent = ChatComposerQuote.messageContent(content, quotes: quotes, attachments: attachments)
-        sendErrorMessage = nil
         clearWorkingTreeSourceControl()
         if clearsComposer { clearActiveComposerDraft() }
         streamStateRevision &+= 1
@@ -314,9 +314,6 @@ extension ChatScreenViewModel {
             }
         }
         do {
-            if !steering, let mode = approvalModesBySession[key] {
-                try await apiClient.setChatApprovalPolicy(agentId: agentId, sessionId: sessionId, mode: mode)
-            }
             let receipt = try await apiClient.postSessionMessageWithReceipt(
                 agentId: agentId, sessionId: sessionId, content: content,
                 attachments: attachments.map(\.upload), selectedModel: selectedModel,
@@ -356,7 +353,7 @@ extension ChatScreenViewModel {
             let errorMessage = "Message was not sent: \(error.localizedDescription)"
             let draftKey = "session:\(sessionId)"
             var draft = StoredComposerDraft(text: draftContent, attachments: attachments, quotes: quotes, references: references)
-            if steering, restoresComposerOnFailure {
+            if restoresComposerOnFailure {
                 let laterDraft = isCurrent
                     ? StoredComposerDraft(text: composerDraft.text, attachments: composerAttachments,
                                           quotes: composerQuotes, references: composerDraft.references)

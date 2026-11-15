@@ -52,9 +52,7 @@ extension CoreService {
         let defaultModel = modelProvider?.supportedModels.first ?? resolvedModels.first
         self.modelProvider = modelProvider
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
-        await runtime.setUnsupportedModelFallback { [weak self] rejected, tried in
-            await self?.alternativeModel(forRejected: rejected, excluding: tried)
-        }
+        await configureUnsupportedModelFallback()
         await applyOAuthCatalogContextLimits()
         await sessionOrchestrator.updateAvailableModels(availableAgentModels())
         await sessionOrchestrator.updatePersistedModelContext(

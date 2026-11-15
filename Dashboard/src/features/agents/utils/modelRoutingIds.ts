@@ -3,6 +3,7 @@ const ROUTED_MODEL_PREFIXES = [
   "openai-api:",
   "openai-oauth:",
   "openrouter:",
+  "kimi:",
   "ollama:",
   "gemini:",
   "anthropic:",

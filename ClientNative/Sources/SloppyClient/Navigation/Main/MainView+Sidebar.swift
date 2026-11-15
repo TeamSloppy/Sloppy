@@ -76,7 +76,7 @@ extension MainView {
         case .devices:
 #if os(macOS)
             if let devices = tab.devices {
-                WorkspaceDevicePanelView(session: devices, onAnnotate: deviceAnnotationReceiver)
+                WorkspaceDevicePanelView(session: devices, onAnnotate: deviceAnnotationReceiver, isChatDevice: tab.isChatDevice)
             }
 #else
             ContentUnavailableView("Devices require a Mac", systemImage: "iphone.gen3",

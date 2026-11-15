@@ -12,7 +12,7 @@ struct OpenRouterModelProviderFactory: ModelProviderFactory {
         let openRouterModels = config.resolvedModels.filter { $0.hasPrefix("openrouter:") }
         guard !openRouterModels.isEmpty else { return nil }
 
-        let envKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]?
+        let envKey = config.environmentLookup("OPENROUTER_API_KEY")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         var rows: [(config: CoreConfig.ModelConfig, resolvedId: String)] = []

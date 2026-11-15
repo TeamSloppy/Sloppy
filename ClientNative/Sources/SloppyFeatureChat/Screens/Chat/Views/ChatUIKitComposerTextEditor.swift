@@ -51,9 +51,6 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
         textView.onApplySelectedSuggestion = { [weak coordinator = context.coordinator] in
             coordinator?.parent.applySelectedSuggestion() ?? false
         }
-        textView.onSubmit = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.submit()
-        }
         textView.onPasteItemProviders = { [weak coordinator = context.coordinator] providers in
             coordinator?.parent.pasteItemProviders(providers) ?? false
         }
@@ -109,7 +106,6 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
         textView.onLayout = nil
         textView.onMoveSuggestionSelection = nil
         textView.onApplySelectedSuggestion = nil
-        textView.onSubmit = nil
         textView.onPasteItemProviders = nil
     }
 
@@ -140,7 +136,8 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
         textView.placeholderLabel.textColor = style.placeholderColor
         textView.placeholderLabel.font = style.font
         textView.tintColor = .white
-        textView.returnKeyType = .send
+        // Return belongs to native text editing on mobile; sending is an explicit button action.
+        textView.returnKeyType = .default
         #if !os(visionOS)
         textView.keyboardDismissMode = .interactive
         #endif
@@ -209,25 +206,6 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
             if parent.isFocused {
                 parent.isFocused = false
             }
-        }
-
-        func textView(
-            _ textView: UITextView,
-            shouldChangeTextIn range: NSRange,
-            replacementText replacement: String
-        ) -> Bool {
-            guard replacement == "\n",
-                  textView.markedTextRange == nil,
-                  let textView = textView as? ComposerUITextView,
-                  !textView.isInsertingModifiedNewline else {
-                return true
-            }
-
-            if parent.applySelectedSuggestion() {
-                return false
-            }
-            parent.submit()
-            return false
         }
 
         func synchronizeFocus(_ textView: ComposerUITextView) {
@@ -334,9 +312,7 @@ final class ComposerUITextView: UITextView {
     var onLayout: (@MainActor () -> Void)?
     var onMoveSuggestionSelection: (@MainActor (ChatComposerSuggestionSelectionDirection) -> Bool)?
     var onApplySelectedSuggestion: (@MainActor () -> Bool)?
-    var onSubmit: (@MainActor () -> Void)?
     var onPasteItemProviders: (@MainActor ([NSItemProvider]) -> Bool)?
-    var isInsertingModifiedNewline = false
 
     private var appliedStyle: UIKitComposerTextStyle?
     private var placeholderTopConstraint: NSLayoutConstraint?
@@ -383,15 +359,6 @@ final class ComposerUITextView: UITextView {
             if onMoveSuggestionSelection?(.previous) == true { return }
         case UIKeyCommand.inputDownArrow:
             if onMoveSuggestionSelection?(.next) == true { return }
-        case "\r", "\n":
-            if key.modifierFlags.contains(.shift) {
-                isInsertingModifiedNewline = true
-                insertText("\n")
-                isInsertingModifiedNewline = false
-            } else if onApplySelectedSuggestion?() != true {
-                onSubmit?()
-            }
-            return
         default:
             break
         }

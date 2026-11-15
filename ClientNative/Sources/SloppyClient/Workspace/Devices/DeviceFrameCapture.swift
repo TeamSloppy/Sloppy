@@ -5,24 +5,36 @@ struct DeviceFrameSource: Identifiable, Equatable {
     let id: String
     let name: String
     let url: URL
+    let screenshotURL: URL?
 
     static func decode(_ data: Data, baseURL: URL) throws -> [Self] {
         struct Grid: Decodable {
             struct Device: Decodable {
                 struct Helper: Decodable { let streamUrl: String }
                 let device: String?
+                let serial: String?
                 let name: String?
+                let model: String?
+                let state: String?
+                let attached: Bool?
                 let helper: Helper?
                 let streamMjpegEndpoint: String?
+                let screenshotEndpoint: String?
             }
             let devices: [Device]
         }
-        return try JSONDecoder().decode(Grid.self, from: data).devices.compactMap { device in
-            guard let id = device.device, let path = device.helper?.streamUrl ?? device.streamMjpegEndpoint,
-                  let url = URL(string: path, relativeTo: baseURL)?.absoluteURL,
+        func localEndpoint(_ path: String) -> URL? {
+            guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL,
                   url.scheme == baseURL.scheme, url.host == baseURL.host, url.port == baseURL.port,
                   url.user == nil, url.password == nil else { return nil }
-            return Self(id: id, name: device.name ?? id, url: url)
+            return url
+        }
+        return try JSONDecoder().decode(Grid.self, from: data).devices.compactMap { device in
+            guard device.attached != false, device.serial == nil || device.state == "device",
+                  let id = device.device ?? device.serial, let path = device.helper?.streamUrl ?? device.streamMjpegEndpoint,
+                  let url = localEndpoint(path) else { return nil }
+            return Self(id: id, name: device.name ?? device.model ?? id, url: url,
+                screenshotURL: device.screenshotEndpoint.flatMap(localEndpoint))
         }
     }
 }
@@ -57,7 +69,7 @@ enum DeviceFrameCapture {
         }
     }
 
-    static func jpeg(from url: URL) async throws -> Data {
+    static func image(from url: URL) async throws -> Data {
         try await DeviceFrameRequest(url: url).load()
     }
 }
@@ -71,7 +83,7 @@ private final class DeviceFrameRequest: NSObject, URLSessionDataDelegate, @unche
     private var session: URLSession?
     private var continuation: CheckedContinuation<Data, Error>?
     private var cancelled = false
-    private var isJPEG = false
+    private var imageType: String?
     private var image = Data()
     private var expectedLength: Int64 = -1
     private var parser = DeviceFrameCapture.Parser()
@@ -121,7 +133,11 @@ private final class DeviceFrameRequest: NSObject, URLSessionDataDelegate, @unche
             finish(.failure(URLError(.badServerResponse)))
             return
         }
-        isJPEG = response.mimeType == "image/jpeg"
+        if let mimeType = response.mimeType, ["image/jpeg", "image/png"].contains(mimeType) {
+            imageType = mimeType
+        } else {
+            imageType = nil
+        }
         expectedLength = response.expectedContentLength
         image = Data()
         completionHandler(.allow)
@@ -129,11 +145,11 @@ private final class DeviceFrameRequest: NSObject, URLSessionDataDelegate, @unche
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard continuation != nil else { return }
-        if isJPEG {
+        if let imageType {
             image.append(data)
             if image.count > 10_485_760 { finish(.failure(URLError(.dataLengthExceedsMaximum))) }
             else if (expectedLength > 0 && image.count >= expectedLength)
-                || (expectedLength < 0 && image.suffix(2) == Data([255, 217])) {
+                || (expectedLength < 0 && imageType == "image/jpeg" && image.suffix(2) == Data([255, 217])) {
                 finish(.success(image))
             }
         } else {
@@ -143,7 +159,16 @@ private final class DeviceFrameRequest: NSObject, URLSessionDataDelegate, @unche
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        finish(.failure(error ?? URLError(.networkConnectionLost)))
+        if error == nil, imageType == "image/png", expectedLength < 0, !image.isEmpty {
+            finish(.success(image))
+        } else {
+            finish(.failure(error ?? URLError(.networkConnectionLost)))
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
 #endif

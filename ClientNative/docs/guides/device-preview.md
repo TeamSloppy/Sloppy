@@ -9,11 +9,11 @@ The first start downloads a pinned bridge into `~/Library/Application Support/Sl
 
 The embedded preview provides a device selector, touch/drag gestures, keyboard input, Home, rotation and platform-specific controls. It uses automatic codec selection (H.264 where available, MJPEG fallback). Open its devices sidebar to select or boot another device. Input support follows the selected bridge and runtime; some keyboard layouts and complex gestures have upstream limitations.
 
-Choose **Annotate** to capture a device's original frame. When multiple devices are streaming, Sloppy asks which one to capture. It reads one bounded JPEG frame from the bridge and converts it to PNG, avoiding WebKit's black video/canvas snapshots. The frozen image opens in the existing editor with arrows, rectangles, drawing and comments. Device name, ID, platform and capture time accompany the image. **Add to chat** attaches it to the draft; sending remains a separate action.
+Choose **Annotate** to capture a device's original frame. When multiple devices are streaming, Sloppy asks which one to capture. It gets a screenshot directly from the bridge or reads one bounded frame from its stream, then saves the image as PNG. The frozen image opens in the existing editor with arrows, rectangles, drawing and comments. Device name, ID, platform and capture time accompany the image. **Add to chat** attaches it to the draft; sending remains a separate action.
 
 The destination is bound when capture begins. If the chat changes or cannot accept the image, the edited capture remains available through **Review captured frame**. Reviewing binds it to the currently open chat. The capture can also be discarded.
 
-**Disconnect**, closing a Devices tab, or quitting Sloppy stops its owned foreground bridges. The simulator/emulator keeps running. Hiding the dock preserves its connection. Each owned bridge has separate temporary runtime state so it does not remove another tool's bridge registrations.
+For a manually opened preview, **Disconnect** or closing the Devices tab stops the preview bridge. Hiding the dock keeps it connected. Quitting Sloppy stops all its foreground bridges. The simulators and emulators keep running.
 
 ## Connect Android on the local network
 
@@ -38,21 +38,17 @@ Expand **Existing local bridge**, choose the platform and enter the printed URL,
 
 For a sandboxed build, connect the network device in Terminal with `adb connect <host>:<port>` before starting `serve-avd`. Then use **Existing local bridge**. The direct network flow, like the local start cards, requires a build that can launch local tools.
 
-## Agent-controlled preview
+## Interactive testing from a chat
 
-In a Work chat connected to the macOS client, the agent can use `devices.preview` instead of computer use to open its own Devices tab:
+Ask the agent in a Work chat on the macOS client to test an installed app on a named simulator or emulator. The agent uses `devices.preview` to list devices for the requested platform and start the selected device. If several match, it asks which one to use.
 
-```json
-{"operation":"start","platform":"iOS"}
-```
+Use `deviceId` from `list` for `start`, or provide `androidAddress` for an Android ADB address on the network. Start opens the chat's Devices tab and returns while the bridge is preparing. Poll `status` until `devicePreview.state` is `ready` or `failed`.
 
-Use `Android` for an Android emulator, add `deviceId` to target a specific simulator UUID, AVD identifier or connected serial, or use `androidAddress` for an Android ADB address on the network. With no device specified, the pinned preview bridge chooses and boots its default available simulator/emulator.
+Use `devicePreview.targetId` from status for `tap`, `swipe`, `type` and `screenshot`. Coordinates run from 0 to 1 across the device screen, starting at the top left. Keyboard input supports ASCII. On iOS, select the English (US) keyboard and enable **I/O → Keyboard → Connect Hardware Keyboard** for the simulator. On Xcode 27, the bridge uses Device Hub and needs the target window in front. Screenshots return a PNG path for `images.inspect`.
 
-Start returns immediately, including during the first bridge installation. Poll `{"operation":"status"}` until `devicePreview.state` is `ready` or `failed`. The response lists streaming device IDs. Use `{"operation":"screenshot","deviceId":"<observed ID>"}` to capture a real frame; the tool returns a PNG path that the agent can inspect with `images.inspect`.
+The chat keeps its device connected while the dock is hidden or its Devices tab is closed. Open **Devices** again from the same chat to see the current screen. **Disconnect**, `stop`, and closing the chat end the preview and its input session, leaving the device running.
 
-Each conversation owns its preview. `{"operation":"stop"}` or closing the chat's client connection stops its bridge, leaving the simulator running. Other conversations and manually opened previews stay separate. The tool requires a client advertising `devices_v1`; an older or disconnected client produces an error rather than launching a simulator on Core's host.
-
-This flow uses the preview bridge and does not require desktop Accessibility or Screen Recording permission. Normal agent tool approval policy still applies. Direct tap/swipe/type actions and installing or launching an app are not exposed by this tool yet.
+The bridge runs on the client Mac even with remote Core. Older clients that support `devices_v1` still handle `start`, `status`, `screenshot`, and `stop`. Update the client to use device discovery and interactive input.
 
 ## Validation
 

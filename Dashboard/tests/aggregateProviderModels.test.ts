@@ -16,6 +16,7 @@ test("model pickers hide bare models and keep provider-routed ids", () => {
       { id: "mock:test-model", title: "Mock test model" },
       { id: "openai-oauth:gpt-5.5", title: "GPT 5.5" },
       { id: "openrouter:google/gemini-2.5-pro", title: "Gemini 2.5 Pro" },
+      { id: "kimi:kimi-for-coding", title: "Kimi for Coding" },
       {
         id: "opencode:openrouter-yandex-team/deepseek/deepseek-v4.1-flash",
         title: "DeepSeek V4.1 Flash"
@@ -29,6 +30,7 @@ test("model pickers hide bare models and keep provider-routed ids", () => {
       "mock:test-model",
       "openai-oauth:gpt-5.5",
       "openrouter:google/gemini-2.5-pro",
+      "kimi:kimi-for-coding",
       "opencode:openrouter-yandex-team/deepseek/deepseek-v4.1-flash"
     ]
   );

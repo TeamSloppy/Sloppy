@@ -96,10 +96,13 @@ final class WorkspaceDockState {
     }
 
 #if os(macOS)
-    func presentDevice(_ session: WorkspaceDeviceSession) {
+    @discardableResult
+    func presentDevice(_ session: WorkspaceDeviceSession) -> WorkspaceDockTab {
         let tab = tabs.first { $0.devices === session } ?? open(.devices)
         tab.devices = session
+        tab.isChatDevice = true
         select(tab)
+        return tab
     }
 #endif
 
@@ -127,7 +130,7 @@ final class WorkspaceDockState {
         let tab = tabs.remove(at: index)
         tab.terminal?.terminate()
 #if os(macOS)
-        tab.devices?.stop()
+        if !tab.isChatDevice { tab.devices?.stop() }
 #endif
         if selectedID == id {
             selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id
@@ -172,6 +175,7 @@ final class WorkspaceDockTab: Identifiable {
     var referencePreview: WorkspaceReferencePreviewModel?
 #if os(macOS)
     var devices: WorkspaceDeviceSession?
+    var isChatDevice = false
 #endif
 
     var systemImage: String {
@@ -220,4 +224,14 @@ final class WorkspaceDockStore {
             for tab in state.tabs { tab.terminal?.terminate() }
         }
     }
+
+#if os(macOS)
+    func dismissDevice(_ session: WorkspaceDeviceSession) {
+        for state in states.values {
+            for tab in state.tabs where tab.devices === session {
+                state.close(tab.id)
+            }
+        }
+    }
+#endif
 }

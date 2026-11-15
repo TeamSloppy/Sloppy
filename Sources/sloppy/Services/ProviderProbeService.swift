@@ -46,7 +46,7 @@ struct ProviderProbeService {
         let models: [ModelItem]
     }
 
-    private let environmentLookup: @Sendable (String) -> String?
+    private var environmentLookup: @Sendable (String) -> String?
     private let transport: Transport
     private let claudeSettingsProvider: @Sendable () -> ClaudeSettingsEnvironment
     private let geminiOAuthCredentialsProvider: @Sendable () -> GeminiOAuthCredentials?
@@ -85,7 +85,21 @@ struct ProviderProbeService {
         )
     }
 
-    func probe(config: CoreConfig, request: ProviderProbeRequest) async -> ProviderProbeResponse {
+    func probe(
+        config: CoreConfig, request: ProviderProbeRequest,
+        currentDirectory: String = FileManager.default.currentDirectoryPath
+    ) async -> ProviderProbeResponse {
+        var scoped = self
+        scoped.environmentLookup = ProviderEnvironment.lookup(
+            workspaceRoot: config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory),
+            processLookup: environmentLookup
+        )
+        return await scoped.probeProvider(config: config, request: request, processLookup: environmentLookup)
+    }
+
+    private func probeProvider(
+        config: CoreConfig, request: ProviderProbeRequest, processLookup: (String) -> String?
+    ) async -> ProviderProbeResponse {
         switch request.providerId {
         case .sloppy:
             return await probeSloppy(config: config, request: request)
@@ -95,6 +109,8 @@ struct ProviderProbeService {
             return await probeOpenAI(config: config, request: request, authMethod: .deeplink)
         case .openRouter:
             return await probeOpenRouter(config: config, request: request)
+        case .kimi:
+            return await probeKimi(config: config, request: request)
         case .ollama:
             return await probeOllama(config: config, request: request)
         case .gemini:
@@ -108,7 +124,7 @@ struct ProviderProbeService {
                 for key in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_FOUNDRY_API_KEY",
                             "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
                             "SLOPPY_CLAUDE_CODE_COMMAND", "SLOPPY_CLAUDE_CODE_CONFIG_DIR"] {
-                    environment[key] = environmentLookup(key)
+                    environment[key] = processLookup(key)
                 }
                 try await ClaudeCodeTransport(environment: environment, proxy: config.proxy).status()
                 return .init(providerId: .claudeCode, ok: true, usedEnvironmentKey: false,
@@ -146,6 +162,30 @@ struct ProviderProbeService {
         } catch {
             return ProviderProbeResponse(providerId: .sloppy, ok: false, usedEnvironmentKey: false,
                                          message: error.localizedDescription, models: [])
+        }
+    }
+
+    private func probeKimi(config: CoreConfig, request: ProviderProbeRequest) async -> ProviderProbeResponse {
+        let primary = config.models.first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix(KimiModelProviderFactory.prefix) == true
+        }
+        var usedEnvironmentKey = false
+        do {
+            guard let credentials = try KimiModelProviderFactory.credentials(
+                apiKey: request.apiKey ?? primary?.apiKey,
+                apiURL: request.apiUrl ?? primary?.apiUrl,
+                environmentLookup: environmentLookup
+            ) else {
+                return .init(providerId: .kimi, ok: false, usedEnvironmentKey: false,
+                    message: "Provide a Kimi API key or set KIMI_API_KEY in Sloppy's .env.", models: [])
+            }
+            usedEnvironmentKey = credentials.key.usedEnvironmentKey
+            let models = try await fetchOpenAIModels(apiKey: credentials.key.key, baseURL: credentials.url)
+            return .init(providerId: .kimi, ok: !models.isEmpty, usedEnvironmentKey: usedEnvironmentKey,
+                message: "Kimi returned \(models.count) models.", models: models)
+        } catch {
+            return .init(providerId: .kimi, ok: false, usedEnvironmentKey: usedEnvironmentKey,
+                message: error.localizedDescription, models: [])
         }
     }
 

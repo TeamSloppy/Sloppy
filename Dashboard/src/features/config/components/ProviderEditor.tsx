@@ -616,7 +616,9 @@ export function ProviderEditor({
                         ? "Paste token or leave empty for ANTHROPIC_AUTH_TOKEN"
                         : providerModalMeta.id === "anthropic"
                           ? "Console API key (sk-ant-api...)"
-                          : providerModalMeta.id === "sloppy" ? "Access token from the Sloppy server" : "sk-..."
+                          : providerModalMeta.id === "kimi"
+                            ? "Leave empty for KIMI_API_KEY"
+                            : providerModalMeta.id === "sloppy" ? "Access token from the Sloppy server" : "sk-..."
                     }
                   />
                   {providerModalMeta.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey ? (
@@ -667,7 +669,8 @@ export function ProviderEditor({
                 <input
                   value={providerForm.apiUrl}
                   onChange={(event) => onUpdateProviderForm("apiUrl", event.target.value)}
-                  placeholder={isAnthropicModal ? "Leave empty to read ANTHROPIC_BASE_URL" : undefined}
+                  placeholder={isAnthropicModal ? "Leave empty to read ANTHROPIC_BASE_URL"
+                    : providerModalMeta.id === "kimi" ? "Automatically selected from the key" : undefined}
                 />
               </label> : null}
 
