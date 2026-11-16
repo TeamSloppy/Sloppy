@@ -17,7 +17,7 @@ enum ConsoleOwnerChatPolicy {
         }
         if segments.count == 5, method == .get { return required }
         guard segments.count == 6 else { return nil }
-        if method == .get, segments[5] == "ws" || segments[5] == "stream" { return required }
+        if method == .get, ["ws", "stream", "status"].contains(segments[5]) { return required }
         if method == .post, segments[5] == "messages" { return required.union([.write]) }
         if method == .post, segments[5] == "control",
            let body, let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],

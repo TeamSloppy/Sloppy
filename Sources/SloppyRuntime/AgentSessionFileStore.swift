@@ -246,10 +246,7 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             let rows = try readEventTail(handle: handle, end: end, count: limit + 1)
             let selected = Array(rows.prefix(limit))
             let hasMore = rows.count > limit
-            _ = try loadSessionSummary(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
-            guard let cache = try readSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL) else {
-                throw StoreError.invalidPayload
-            }
+            let cache = try loadSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
             return AgentSessionDetail(
                 summary: cache.summary,
                 events: selected.reversed().map(\.event).sorted { $0.createdAt < $1.createdAt },
@@ -258,6 +255,22 @@ public final class AgentSessionFileStore: @unchecked Sendable {
                     hasMore: hasMore
                 ),
                 stateEvents: cache.stateEvents
+            )
+        }
+    }
+
+    public func loadSessionStatus(agentID: String, sessionID: String) throws -> AgentSessionStatus {
+        try withLock {
+            let agentID = try normalizedAgentID(agentID)
+            let sessionID = try normalizedSessionID(sessionID)
+            guard let fileURL = sessionFileURL(agentID: agentID, sessionID: sessionID),
+                  fileManager.fileExists(atPath: fileURL.path) else { throw StoreError.sessionNotFound }
+            let cache = try loadSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
+            let status = cache.stateEvents.last { $0.runStatus != nil }
+            return AgentSessionStatus(
+                runStage: status?.runStatus?.stage,
+                runStatusEventId: status?.id,
+                hasPendingInputRequest: cache.stateEvents.contains { $0.inputRequest != nil }
             )
         }
     }
@@ -744,6 +757,17 @@ public final class AgentSessionFileStore: @unchecked Sendable {
 
     private func readSummaryCache(agentID: String, sessionID: String, fileURL: URL) throws -> AgentSessionSummary? {
         try readSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL)?.summary
+    }
+
+    private func loadSummarySnapshot(agentID: String, sessionID: String, fileURL: URL) throws -> AgentSessionSummaryCache {
+        if let cached = try? readSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL) {
+            return cached
+        }
+        try refreshSummaryCache(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
+        guard let cached = try readSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL) else {
+            throw StoreError.invalidPayload
+        }
+        return cached
     }
 
     private func readSummarySnapshot(agentID: String, sessionID: String, fileURL: URL) throws -> AgentSessionSummaryCache? {

@@ -921,6 +921,12 @@ public enum ChatRunStage: String, Codable, Sendable {
     }
 }
 
+public struct ChatSessionStatus: Decodable, Sendable {
+    public let runStage: ChatRunStage?
+    public let runStatusEventId: String?
+    public let hasPendingInputRequest: Bool
+}
+
 public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
     public struct Diagnostics: Codable, Sendable, Equatable {
         public let turnExitReason: String?

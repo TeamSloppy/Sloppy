@@ -82,6 +82,47 @@ struct KimiProviderTests {
         #expect(!CoreModelProviderFactory.resolveModelIdentifiers(config: config).contains { $0.hasPrefix("kimi:") })
     }
 
+    @Test(arguments: [
+        ("k3.1-pro", "sk-kimi-test", "", nil as Int?, 262_144 as Int?),
+        ("kimi-k3.1-pro", "sk-kimi-test", "", nil, 262_144),
+        ("kimi-k3.1-pro", "sk-kimi-test", "", 1_048_576, 1_048_576),
+        ("k3.1-pro", "sk-moonshot-test", "", nil, nil),
+        ("k3.1-pro", "sk-kimi-test", "https://proxy.example/v1", nil, nil),
+        ("custom-model", "sk-kimi-test", "", nil, nil),
+    ])
+    func contextWindowMatchesKimiCodeEndpoint(
+        model: String, key: String, apiURL: String, configuredWindow: Int?, expectedWindow: Int?
+    ) throws {
+        var config = CoreConfig.test
+        config.models = [.init(title: "Kimi", apiKey: key, apiUrl: apiURL, model: model,
+                               providerCatalogId: "kimi", contextWindowTokens: configuredWindow)]
+        let modelID = "kimi:" + model
+        let provider = try #require(CoreModelProviderFactory.buildModelProvider(
+            config: config, resolvedModels: [modelID]
+        ))
+        #expect(provider.contextLimits(for: modelID)?.contextWindowTokens == expectedWindow)
+    }
+
+    @Test
+    func kimiCodeOAuthUsesSameContextWindow() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let auth = root.appendingPathComponent("auth", isDirectory: true)
+        try FileManager.default.createDirectory(at: auth, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data(#"{"accessToken":"test-oauth-token"}"#.utf8).write(to: auth.appendingPathComponent("kimi-oauth-auth.json"))
+
+        var config = CoreConfig.test
+        config.workspace = .init(name: root.lastPathComponent, basePath: root.deletingLastPathComponent().path)
+        // Force the OAuth path even if the test process has KIMI_API_KEY set.
+        config.models = [.init(title: "Kimi", apiKey: "$SLOPPY_TEST_MISSING_KIMI_KEY", apiUrl: "",
+                               model: "kimi-k3.1-pro", providerCatalogId: "kimi")]
+        let modelID = "kimi:kimi-k3.1-pro"
+        let provider = try #require(CoreModelProviderFactory.buildModelProvider(
+            config: config, resolvedModels: [modelID]
+        ))
+        #expect(provider.contextLimits(for: modelID)?.contextWindowTokens == 262_144)
+    }
+
     @Test
     func returnsToolReasoningDuringContinuationAndReplaysItOnNextTurn() async throws {
         var config = CoreConfig.test

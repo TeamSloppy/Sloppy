@@ -5,7 +5,7 @@ import Testing
 
 @Suite struct ConsoleOwnerChatPolicyTests {
     @Test func exactChatRoutesRequireReadRunAndWriteForMutations() {
-        for path in ["/v1/auth/me", "/v1/agents", "/v1/agents/a/sessions", "/v1/agents/a/sessions/s", "/v1/agents/a/sessions/s/ws", "/v1/agents/a/sessions/s/stream"] {
+        for path in ["/v1/auth/me", "/v1/agents", "/v1/agents/a/sessions", "/v1/agents/a/sessions/s", "/v1/agents/a/sessions/s/ws", "/v1/agents/a/sessions/s/stream", "/v1/agents/a/sessions/s/status"] {
             #expect(ConsoleOwnerChatPolicy.permissions(method: .get, segments: path.split(separator: "/").map(String.init), body: nil) == [.read, .runAgents])
         }
         for path in ["/v1/agents/a/sessions", "/v1/agents/a/sessions/s/messages", "/v1/voice/transcriptions", "/v1/agents/a/sessions/s/control"] {

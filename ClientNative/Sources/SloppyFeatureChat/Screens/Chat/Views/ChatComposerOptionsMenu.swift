@@ -170,13 +170,15 @@ struct ComposerOptionsMenuView: View {
     let onSelectModel: (ChatModelOption) -> Void
     let onSelectEffort: (ChatReasoningEffort) -> Void
     let onSelectAgent: (APIAgentRecord) -> Void
-    let onRefreshModels: @MainActor () async -> Void
+    let onRefreshModels: @MainActor () async throws -> Void
     let onEditModels: @MainActor () -> Void
 
     @State private var isPresented = false
     @State private var isModelPickerPresented = false
     @State private var searchText = ""
-    @State private var isRefreshing = false
+    @State private var isRefreshing = true
+    @State private var modelRefreshFailed = false
+    @State private var modelRefreshAttempt = 0
     @FocusState private var isSearchFocused: Bool
     @Environment(\.theme) private var theme
 
@@ -257,7 +259,12 @@ struct ComposerOptionsMenuView: View {
 
     private var effortPickerContent: some View {
         VStack(spacing: 12) {
-            ZStack {
+            HStack(spacing: 8) {
+                Color.clear
+                    .frame(width: 28, height: 28)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
                 Button {
                     isModelPickerPresented = true
                 } label: {
@@ -279,30 +286,25 @@ struct ComposerOptionsMenuView: View {
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 36)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(models.isEmpty)
                 .accessibilityLabel("Select model, current model \(selectedModelTitle)")
+                .accessibilityIdentifier("chat.composer.open-model-list")
 
-                HStack {
-                    Spacer(minLength: 0)
-
-                    Button {
-                        onSelectEffort(.default)
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(theme.colors.textMuted)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(selectedEffort == .default)
-                    .help("Reset effort to Default")
-                    .accessibilityLabel("Reset effort to Default")
+                Button {
+                    onSelectEffort(.default)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(theme.colors.textMuted)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(selectedEffort == .default)
+                .help("Reset effort to Default")
+                .accessibilityLabel("Reset effort to Default")
             }
 
             ComposerEffortScale(
@@ -358,14 +360,17 @@ struct ComposerOptionsMenuView: View {
             .frame(height: 46)
 
             Divider()
+            modelRefreshStatus
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: theme.spacing.xs) {
                     if groupedModels.isEmpty {
-                        Text(models.isEmpty ? "No models available" : "No matching models")
-                            .font(.system(size: theme.typography.caption))
-                            .foregroundColor(theme.colors.textMuted)
-                            .frame(maxWidth: .infinity, minHeight: 90)
+                        if !isRefreshing && !modelRefreshFailed {
+                            Text(models.isEmpty ? "No models available" : "No matching models")
+                                .font(.system(size: theme.typography.caption))
+                                .foregroundColor(theme.colors.textMuted)
+                                .frame(maxWidth: .infinity, minHeight: 90)
+                        }
                     } else {
                         ForEach(groupedModels) { group in
                             Text(group.title)
@@ -383,7 +388,10 @@ struct ComposerOptionsMenuView: View {
                 .padding(.vertical, theme.spacing.s)
             }
             .frame(minHeight: 160, maxHeight: 380)
-            .mobileRefreshable { await onRefreshModels() }
+            .mobileRefreshable {
+                guard !isRefreshing else { return }
+                await refreshModels()
+            }
 
             Divider()
             modelPickerActions
@@ -391,9 +399,55 @@ struct ComposerOptionsMenuView: View {
         .onAppear {
             searchText = ""
             isSearchFocused = true
+            isRefreshing = true
+            modelRefreshFailed = false
         }
-        .task { await onRefreshModels() }
+        .task(id: modelRefreshAttempt) { await refreshModels() }
         .accessibilityIdentifier("chat.composer.model-list")
+    }
+
+    @ViewBuilder
+    private var modelRefreshStatus: some View {
+        if isRefreshing {
+            HStack(spacing: theme.spacing.s) {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityHidden(true)
+                Text("Loading models…")
+            }
+            .font(.system(size: theme.typography.caption))
+            .foregroundColor(theme.colors.textSecondary)
+            .frame(maxWidth: .infinity, minHeight: 44)
+        } else if modelRefreshFailed {
+            VStack(spacing: theme.spacing.s) {
+                Text("Couldn’t load models.")
+                    .foregroundColor(theme.colors.textSecondary)
+                Button("Retry", action: retryModelRefresh)
+            }
+            .font(.system(size: theme.typography.caption))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, theme.spacing.s)
+        }
+    }
+
+    private func retryModelRefresh() {
+        isRefreshing = true
+        modelRefreshFailed = false
+        modelRefreshAttempt += 1
+    }
+
+    private func refreshModels() async {
+        guard !Task.isCancelled else { return }
+        isRefreshing = true
+        modelRefreshFailed = false
+        do {
+            try await onRefreshModels()
+        } catch {
+            guard !Task.isCancelled else { return }
+            modelRefreshFailed = true
+        }
+        guard !Task.isCancelled else { return }
+        isRefreshing = false
     }
 
     private func modelRow(_ model: ChatModelOption) -> some View {
@@ -430,13 +484,7 @@ struct ComposerOptionsMenuView: View {
     private var modelPickerActions: some View {
         HStack(spacing: theme.spacing.s) {
 #if !os(iOS)
-            Button {
-                Task {
-                    isRefreshing = true
-                    await onRefreshModels()
-                    isRefreshing = false
-                }
-            } label: {
+            Button(action: retryModelRefresh) {
                 Label(
                     isRefreshing ? "Refreshing…" : "Refresh",
                     systemImage: "arrow.clockwise"

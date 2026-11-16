@@ -412,6 +412,9 @@ struct ChatComposerRenderingTests {
     @Test("desktop composer exposes an effort scale above a searchable model picker")
     func desktopComposerExposesEffortScaleAndSearchableModelPicker() throws {
         let source = try chatComposerSource
+        let effortPickerStart = try #require(source.range(of: "private var effortPickerContent"))
+        let effortPickerEnd = try #require(source[effortPickerStart.upperBound...].range(of: "private var modelPickerContent"))
+        let effortPicker = source[effortPickerStart.lowerBound..<effortPickerEnd.lowerBound]
 
         #expect(source.contains("struct ComposerOptionsMenuView"))
         #expect(source.contains("Text(selectedModelTitle)"))
@@ -428,6 +431,8 @@ struct ChatComposerRenderingTests {
         #expect(source.contains(".clipShape(Capsule())"))
         #expect(source.contains("Text(selectedEffort.title)"))
         #expect(source.contains("Text(selectedModelTitle)"))
+        #expect(effortPicker.contains("chat.composer.open-model-list"))
+        #expect(!effortPicker.contains(".disabled(models.isEmpty)"))
         #expect(source.contains("onSelectEffort(.default)"))
         #expect(source.contains("chat.composer.effort-picker"))
         #expect(source.contains("chat.composer.effort-slider"))
@@ -447,6 +452,8 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("groupedModels"))
         #expect(source.contains("Constants.modelPickerRowHeight"))
         #expect(source.contains("isRefreshing ? \"Refreshing…\" : \"Refresh\""))
+        #expect(source.contains("Text(\"Loading models…\")"))
+        #expect(source.contains("Button(\"Retry\", action: retryModelRefresh)"))
         #expect(source.contains("Edit Models…"))
         #expect(source.contains("chat.composer.model-picker"))
         #expect(source.contains("chat.composer.model-list"))

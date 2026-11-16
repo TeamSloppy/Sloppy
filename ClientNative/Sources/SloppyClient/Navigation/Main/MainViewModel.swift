@@ -291,21 +291,19 @@ final class MainViewModel {
     func monitorSidebarSessionActivity(for session: ChatSessionSummary) async {
         let client = apiClient(for: session)
         while !Task.isCancelled {
-            guard let detail = try? await client.fetchAgentSession(
+            guard let status = try? await client.fetchAgentSessionStatus(
                 agentId: session.agentId,
-                sessionId: session.id,
-                eventLimit: 1
-            ) else {
+                sessionId: session.id
+            ), !Task.isCancelled else {
                 return
             }
-            let latestStatusEvent = (detail.stateEvents ?? detail.events).last { $0.runStatus != nil }
             let fetched = SidebarSessionActivity.resolve(
-                hasPendingInputRequest: detail.pendingInputRequest != nil,
-                runStage: detail.latestRunStatus?.stage
+                hasPendingInputRequest: status.hasPendingInputRequest,
+                runStage: status.runStage
             )
             let live = liveSidebarSessionActivity(for: session)
             let resolved = live == .working || live == .waitingForInput ? live : fetched
-            recordSidebarSessionActivity(resolved, for: session, eventID: latestStatusEvent?.id)
+            recordSidebarSessionActivity(resolved, for: session, eventID: status.runStatusEventId)
             guard resolved == .working else { return }
             try? await Task.sleep(for: .seconds(2))
         }

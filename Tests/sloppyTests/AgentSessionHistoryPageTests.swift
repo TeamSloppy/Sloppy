@@ -69,6 +69,56 @@ struct AgentSessionHistoryPageTests {
         #expect(answered.stateEvents?.compactMap(\.inputRequest).isEmpty == true)
     }
 
+    @Test func sessionStatusRouteReturnsOnlyControlState() async throws {
+        let service = CoreService(config: .test)
+        let router = CoreRouter(service: service)
+        let agentID = "status-agent"
+        let createAgent = await router.handle(method: "POST", path: "/v1/agents", body: try JSONEncoder().encode(
+            AgentCreateRequest(id: agentID, displayName: "Status Agent", role: "Testing")
+        ))
+        try #require(createAgent.status == 201)
+        let session = try await service.createAgentSession(agentID: agentID, request: .init(title: "Status"))
+        let store = await service.sessionStore
+        let path = "/v1/agents/\(agentID)/sessions/\(session.id)"
+        let idle = await router.handle(method: "GET", path: "\(path)/status", body: nil)
+        #expect(idle.status == 200)
+        #expect(try JSONDecoder().decode(AgentSessionStatus.self, from: idle.body) ==
+            AgentSessionStatus(runStage: nil, runStatusEventId: nil, hasPendingInputRequest: false))
+
+        let status = AgentSessionEvent(agentId: agentID, sessionId: session.id, type: .runStatus,
+                                       createdAt: Date(timeIntervalSince1970: 100),
+                                       runStatus: .init(stage: .paused, label: "Waiting"))
+        let request = PlanInputRequest(id: "question", questions: [])
+        _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [
+            status,
+            .init(agentId: agentID, sessionId: session.id, type: .inputRequest, inputRequest: request),
+            .init(agentId: agentID, sessionId: session.id, type: .message,
+                  message: .init(role: .user, segments: [.init(kind: .text, text: String(repeating: "x", count: 100_000))]))
+        ])
+
+        let response = await router.handle(method: "GET", path: "\(path)/status", body: nil)
+        #expect(response.status == 200)
+        let decoded = try JSONDecoder().decode(AgentSessionStatus.self, from: response.body)
+        #expect(decoded == AgentSessionStatus(runStage: .paused, runStatusEventId: status.id, hasPendingInputRequest: true))
+        #expect(response.body.count < 256)
+        let history = await router.handle(method: "GET", path: "\(path)?eventLimit=1", body: nil)
+        #expect(history.status == 200)
+        #expect(history.body.count > 100_000)
+
+        let done = AgentSessionEvent(agentId: agentID, sessionId: session.id, type: .runStatus,
+                                     createdAt: Date(timeIntervalSince1970: 200),
+                                     runStatus: .init(stage: .done, label: "Done"))
+        _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [
+            .init(agentId: agentID, sessionId: session.id, type: .inputResponse,
+                  inputResponse: .init(requestId: request.id, status: .cancelled, answers: [], userId: "owner")),
+            done
+        ])
+        let completed = await router.handle(method: "GET", path: "\(path)/status", body: nil)
+        #expect(completed.status == 200)
+        #expect(try JSONDecoder().decode(AgentSessionStatus.self, from: completed.body) ==
+            AgentSessionStatus(runStage: .done, runStatusEventId: done.id, hasPendingInputRequest: false))
+    }
+
     private func makeStore() throws -> (root: URL, store: AgentSessionFileStore, session: AgentSessionSummary) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("history-page-\(UUID())")
         let catalog = AgentCatalogFileStore(agentsRootURL: root)

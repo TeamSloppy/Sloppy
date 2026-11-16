@@ -715,6 +715,10 @@ public actor SloppyAPIClient {
         try await sessions.fetchAgentSessionData(agentId: agentId, sessionId: sessionId)
     }
 
+    public func fetchAgentSessionStatus(agentId: String, sessionId: String) async throws -> ChatSessionStatus {
+        try await sessions.fetchAgentSessionStatus(agentId: agentId, sessionId: sessionId)
+    }
+
     public func answerSessionInputRequest(
         agentId: String,
         sessionId: String,

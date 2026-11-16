@@ -211,6 +211,18 @@ extension CoreService {
         }
     }
 
+    public func getAgentSessionStatus(agentID: String, sessionID: String) throws -> AgentSessionStatus {
+        guard let agentID = normalizedAgentID(agentID) else { throw AgentSessionError.invalidAgentID }
+        guard let sessionID = normalizedSessionID(sessionID) else { throw AgentSessionError.invalidPayload }
+        _ = try getAgent(id: agentID)
+
+        do {
+            return try sessionStore.loadSessionStatus(agentID: agentID, sessionID: sessionID)
+        } catch {
+            throw mapSessionStoreError(error)
+        }
+    }
+
     private func classifyingLegacyWorker(_ summary: AgentSessionSummary) -> AgentSessionSummary {
         guard summary.kind == .chat else { return summary }
         guard legacyWorkflowWorkerSessionIDs.contains(summary.id)

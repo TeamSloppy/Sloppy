@@ -7,6 +7,44 @@ import Testing
 
 @Suite("Session creation", .serialized)
 struct SessionCreationTests {
+    @Test(arguments: [false, true])
+    func fetchesChatStatusWithoutHistory(viaMesh: Bool) async throws {
+        let path = "/v1/agents/agent%2Fone/sessions/chat%2Fone/status"
+        SessionCreationURLProtocol.install { request in
+            let url = try #require(request.url)
+            #expect(url.query == nil)
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            let body = Data(#"{"runStage":"paused","runStatusEventId":"event-1","hasPendingInputRequest":true}"#.utf8)
+            if viaMesh {
+                #expect(request.httpMethod == "POST")
+                #expect(url.path == "/v1/node/mesh/nodes/home/core")
+                let requestBody = try #require(request.httpBody ?? request.httpBodyStream?.sessionCreationReadAllData())
+                let payload = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+                #expect(payload["method"] as? String == "GET")
+                #expect(payload["path"] as? String == path)
+                let wrapped = try JSONSerialization.data(withJSONObject: [
+                    "status": 200, "contentType": "application/json", "bodyBase64": body.base64EncodedString(),
+                ])
+                return (response, wrapped)
+            }
+            #expect(request.httpMethod == "GET")
+            #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath == path)
+            return (response, body)
+        }
+        defer { SessionCreationURLProtocol.reset() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SessionCreationURLProtocol.self]
+        let url = try #require(URL(string: "https://sessions.sloppy.test"))
+        let endpoint: SloppyInstanceEndpoint = viaMesh ? .relay(coordinatorBaseURL: url, targetNodeID: "home") : .direct(baseURL: url)
+        let client = SloppyAPIClient(endpoint: endpoint,
+            session: URLSession(configuration: configuration), authSessionStore: AuthSessionStore(persistence: .memory))
+
+        let status = try await client.fetchAgentSessionStatus(agentId: "agent/one", sessionId: "chat/one")
+        #expect(status.runStage == .paused)
+        #expect(status.runStatusEventId == "event-1")
+        #expect(status.hasPendingInputRequest)
+    }
+
     @Test("catalog includes worker sessions and falls back on older servers", arguments: [false, true])
     func workerCatalog(supportsCatalog: Bool) async throws {
         let capture = SessionCreationRequestCapture()

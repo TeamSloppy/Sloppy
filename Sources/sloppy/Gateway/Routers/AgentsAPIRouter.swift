@@ -393,6 +393,19 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/agents/:agentId/sessions/:sessionId/status", metadata: RouteMetadata(summary: "Get agent session status", description: "Returns the current run stage, status event ID, and whether input is pending", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let sessionId = request.pathParam("sessionId") ?? ""
+            do {
+                let status = try await service.getAgentSessionStatus(agentID: agentId, sessionID: sessionId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionNotFound])
+            }
+        }
+
         router.post("/v1/agents/:agentId/sessions/:sessionId/ui-surfaces/:surfaceId/actions", metadata: RouteMetadata(summary: "Submit UI action", description: "Accept validated form values and queue one message in the owning session", tags: ["Agents"])) { request in
             guard let data = request.body, let body = CoreRouter.decode(data, as: AgentUISubmission.self) else { return CoreRouter.json(status: 400, payload: ["error": "invalid_ui_action"]) }
             let identityEnabled = await service.identityAuthEnabled()

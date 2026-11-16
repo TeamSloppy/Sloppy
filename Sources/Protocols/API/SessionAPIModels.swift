@@ -922,6 +922,18 @@ public struct AgentSessionHistoryPage: Codable, Sendable, Equatable {
     }
 }
 
+public struct AgentSessionStatus: Codable, Sendable, Equatable {
+    public let runStage: AgentRunStage?
+    public let runStatusEventId: String?
+    public let hasPendingInputRequest: Bool
+
+    public init(runStage: AgentRunStage?, runStatusEventId: String?, hasPendingInputRequest: Bool) {
+        self.runStage = runStage
+        self.runStatusEventId = runStatusEventId
+        self.hasPendingInputRequest = hasPendingInputRequest
+    }
+}
+
 public struct AgentSessionDetail: Codable, Sendable, Equatable {
     public var summary: AgentSessionSummary
     public var events: [AgentSessionEvent]

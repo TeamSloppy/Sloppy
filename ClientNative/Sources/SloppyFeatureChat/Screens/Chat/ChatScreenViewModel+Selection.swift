@@ -33,15 +33,10 @@ extension ChatScreenViewModel {
         selectedReasoningEffort = effort
     }
 
-    public func refreshAvailableModels() async {
-        do {
-            let models = try await apiClient.fetchAvailableModels()
-            guard !Task.isCancelled else { return }
-            applyAvailableModels(models)
-        } catch {
-            guard !Task.isCancelled else { return }
-            showSessionStatus("Couldn’t refresh models: \(error.localizedDescription)")
-        }
+    func refreshAvailableModels() async throws {
+        let models = try await apiClient.fetchAvailableModels()
+        try Task.checkCancellation()
+        applyAvailableModels(models)
     }
 
     public func pickSession(_ session: ChatSessionSummary) {
