@@ -172,6 +172,7 @@ extension RuntimeSystem {
                 }
             } catch is StreamIdleTimeoutError {
                 if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
+                if await haltRetryAfterExecutedTools(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                 let chunks = await tracker.chunks
                 let content = await tracker.latestContent
                 logger.warning(
@@ -230,8 +231,14 @@ extension RuntimeSystem {
                             if let observationHandler {
                                 await observationHandler(.toolCall(request))
                             }
-                            let result = await invoker(request)
-                    await self.usageToolOutcomeHandler?(channelId, toolCallID, result.ok)
+                            let result: ToolInvocationResult
+                            if let repeated = await self.duplicateReadResult(channelId: channelId, request: request) {
+                                result = repeated
+                            } else {
+                                result = await invoker(request)
+                                await self.recordLedgerObservation(channelId: channelId, request: request, result: result)
+                            }
+                            await self.usageToolOutcomeHandler?(channelId, toolCallID, result.ok)
                             if let observationHandler {
                                 await observationHandler(.toolResult(result))
                             }
@@ -565,7 +572,7 @@ extension RuntimeSystem {
                 observationHandler: observationHandler
             )
 
-            if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !(await tracker.hasExecutedTools) {
                 let completionStartedAt = Date()
                 logger.info(
                     "Model completion started",
@@ -753,6 +760,8 @@ extension RuntimeSystem {
             ))
         } catch {
             if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
+            if isInterruptedModelSessionError(error),
+               await haltRetryAfterExecutedTools(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
             if await retryInterruptedModelSessionIfNeeded(
                 channelId: channelId,
                 userMessage: userMessage,

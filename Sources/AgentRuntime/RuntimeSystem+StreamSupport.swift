@@ -110,9 +110,13 @@ actor StreamActivityTracker {
         guard let error = result.error else {
             return false
         }
-        let code = error.code.lowercased()
-        let message = error.message.lowercased()
-        return code.contains("timeout") || message.contains("timed out")
+        // Typed signal only: tool output text is data, not a classification source.
+        return error.code.lowercased().contains("timeout")
+    }
+
+    /// True once any tool ran in this turn; replaying the turn would repeat those side effects.
+    var hasExecutedTools: Bool {
+        toolCallCount > 0 || finishedToolCalls > 0 || !toolTranscriptEntries.isEmpty
     }
 
     var hasActiveTools: Bool {

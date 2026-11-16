@@ -147,6 +147,7 @@ private struct WorkerState: Sendable {
     var status: WorkerStatus
     var latestReport: String?
     var routeInbox: [String]
+    var inflightRoutes = 0
     var artifactId: String?
     var startedAt: Date?
     var createdAt: Date
@@ -265,6 +266,7 @@ public actor WorkerRuntime {
         }
 
         state.routeInbox.append(message)
+        state.inflightRoutes += 1
         state.status = .running
         state.latestReport = "routed: \(message)"
         state.updatedAt = Date()
@@ -279,6 +281,12 @@ public actor WorkerRuntime {
         )
 
         let executor = self.executor
+        defer {
+            if var current = workers[workerId] {
+                current.inflightRoutes = max(0, current.inflightRoutes - 1)
+                workers[workerId] = current
+            }
+        }
         do {
             let result = try await executor.route(workerId: workerId, spec: state.spec, message: message)
             switch result {
@@ -286,7 +294,10 @@ public actor WorkerRuntime {
                 guard var latestState = workers[workerId] else {
                     return WorkerRouteResult(accepted: true, completed: false, artifactRef: nil)
                 }
-                latestState.status = .waitingInput
+                // Another routed message may still be in flight; only the last one returns the worker to waiting.
+                let keepStatus = latestState.inflightRoutes > 1
+                    || latestState.status == .completed || latestState.status == .failed
+                latestState.status = keepStatus ? latestState.status : .waitingInput
                 latestState.latestReport = report ?? latestState.latestReport
                 latestState.updatedAt = Date()
                 workers[workerId] = latestState

@@ -593,7 +593,7 @@ public actor CoreRouter {
                     metadata: [
                         "method": .string(httpMethod.rawValue),
                         "path": .string(path),
-                        "query": .string(queryParams.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "&"))
+                        "query": .string(queryParams.keys.sorted().joined(separator: "&"))
                     ]
                 )
             }
@@ -607,7 +607,7 @@ public actor CoreRouter {
                         "path": .string(path),
                         "status": .stringConvertible(response.status),
                         "content_type": .string(response.contentType),
-                        "body_preview": .string(Self.responseBodyPreview(response.body))
+                        "body_preview": .string(Self.logsResponseBody(forPath: path) ? Self.responseBodyPreview(response.body) : "<redacted>")
                     ]
                 )
             }
@@ -679,6 +679,12 @@ public actor CoreRouter {
         }
         return text.localizedCaseInsensitiveContains("\"userId\":\"onboarding\"")
             || text.localizedCaseInsensitiveContains("\"userId\": \"onboarding\"")
+    }
+
+    /// Config, provider probe and OAuth responses can carry keys, tokens and device codes.
+    private static func logsResponseBody(forPath path: String) -> Bool {
+        let lowered = path.lowercased()
+        return !(lowered.hasPrefix("/v1/config") || lowered.contains("/oauth/") || lowered.hasPrefix("/v1/providers/probe"))
     }
 
     private static func responseBodyPreview(_ body: Data, maxLength: Int = 240) -> String {

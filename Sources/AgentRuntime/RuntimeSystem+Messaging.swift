@@ -65,6 +65,14 @@ public extension RuntimeSystem {
         nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)? = nil,
         shouldYieldAtToolBoundary: (@Sendable () async -> Bool)? = nil
     ) async -> ChannelRouteDecision {
+        // One model turn per channel: a second concurrent turn would share the cached session and orphan
+        // the first task from abort. Wait for the running turn (which yields at tool boundaries) to finish.
+        while let existing = activeResponseTasks[channelId] {
+            await existing.task.value
+            if activeResponseTasks[channelId]?.id == existing.id {
+                activeResponseTasks.removeValue(forKey: channelId)
+            }
+        }
         let ingest = await channels.ingest(channelId: channelId, request: request)
         let decision = forceInlineResponse
             ? ChannelRouteDecision(action: .respond, reason: "inline_response_required", confidence: 1, tokenBudget: ingest.decision.tokenBudget)
@@ -159,7 +167,7 @@ public extension RuntimeSystem {
             branchId: branchId,
             summary: "Branch finished with focused conclusion",
             artifactRefs: artifact.map { [$0] } ?? [],
-            tokenUsage: TokenUsage(prompt: 300, completion: 120)
+            tokenUsage: TokenUsage(prompt: 0, completion: 0)
         ) else {
             return nil
         }

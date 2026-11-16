@@ -15,6 +15,64 @@ private func normalizeHTTPHeaders(_ headers: HTTPHeaders) -> [String: String] {
     return normalized
 }
 
+/// Blocks drive-by access from web pages and DNS-rebinding hosts to the local API.
+///
+/// Browsers attach `Origin` to cross-site requests and WebSocket handshakes. A request that carries
+/// credentials of its own (an `Authorization` header or a `token` query item) is not ambient and is allowed.
+enum CoreHTTPAccessPolicy {
+    static func allows(uri: String, headers: [String: String], remoteAddress: String?) -> Bool {
+        if headers["authorization"] != nil || uri.contains("token=") { return true }
+        let host = headers["host"].flatMap(hostname(fromAuthority:))
+        if let origin = headers["origin"], origin != "null", !origin.isEmpty {
+            guard let originHost = URL(string: origin)?.host?.lowercased() else { return false }
+            return isLoopbackName(originHost) || originHost == host
+        }
+        if headers["origin"] == "null" { return false }
+        // DNS rebinding: a loopback peer reaching us under a foreign DNS name, outside any reverse proxy.
+        if isLoopbackAddress(remoteAddress), let host, !isLoopbackName(host), !isIPLiteral(host),
+           headers["x-forwarded-for"] == nil, headers["forwarded"] == nil, headers["x-forwarded-host"] == nil {
+            return false
+        }
+        return true
+    }
+
+    /// Origin echoed back for CORS, or nil when the response must not grant cross-origin access.
+    static func corsOrigin(headers: [String: String]) -> String? {
+        guard let origin = headers["origin"], origin != "null",
+              let originHost = URL(string: origin)?.host?.lowercased() else { return nil }
+        let host = headers["host"].flatMap(hostname(fromAuthority:))
+        return isLoopbackName(originHost) || originHost == host ? origin : nil
+    }
+
+    private static func hostname(fromAuthority authority: String) -> String? {
+        let trimmed = authority.trimmingCharacters(in: .whitespaces).lowercased()
+        if trimmed.hasPrefix("[") { return trimmed.firstIndex(of: "]").map { String(trimmed[trimmed.index(after: trimmed.startIndex)..<$0]) } }
+        return trimmed.split(separator: ":", maxSplits: 1).first.map(String.init)
+    }
+
+    private static func isLoopbackName(_ host: String) -> Bool {
+        let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        return h == "localhost" || h.hasSuffix(".localhost") || h == "::1" || h == "127.0.0.1"
+            || h.hasPrefix("127.") || h == "0.0.0.0"
+    }
+
+    private static func isLoopbackAddress(_ address: String?) -> Bool {
+        guard let address else { return false }
+        return address == "::1" || address.hasPrefix("127.") || address == "::ffff:127.0.0.1"
+    }
+
+    private static func isIPLiteral(_ host: String) -> Bool {
+        host.contains(":") || host.allSatisfy { $0.isNumber || $0 == "." }
+    }
+}
+
+enum CoreHTTPLimits {
+    static let uploadBodyBytes = 100 * 1_024 * 1_024
+    static let defaultBodyBytes = 64 * 1_024 * 1_024
+    static let webSocketMaxFrameBytes = 4 * 1_024 * 1_024
+    static let webSocketMaxMessageBytes = 16 * 1_024 * 1_024
+}
+
 /// Runs HTTP transport for CoreRouter using SwiftNIO HTTP/1.1.
 public final class CoreHTTPServer {
     private let host: String
@@ -47,6 +105,7 @@ public final class CoreHTTPServer {
             .childChannelInitializer { [router, logger] channel in
                 let httpHandler = CoreHTTPHandler(router: router, logger: logger)
                 let webSocketUpgrader = NIOWebSocketServerUpgrader(
+                    maxFrameSize: CoreHTTPLimits.webSocketMaxFrameBytes,
                     shouldUpgrade: { channel, head in
                         // `makeFutureWithTask` / `completeWithTask` complete the promise on Swift's
                         // concurrent executor, not on `channel.eventLoop`. The upgrade handler then
@@ -56,6 +115,13 @@ public final class CoreHTTPServer {
                         let remote = channel.remoteAddress?.ipAddress
                         Task {
                             do {
+                                guard CoreHTTPAccessPolicy.allows(
+                                    uri: head.uri,
+                                    headers: normalizeHTTPHeaders(head.headers),
+                                    remoteAddress: remote
+                                ) else {
+                                    throw WebSocketUpgradeRejected()
+                                }
                                 guard await router.canHandleWebSocket(
                                     path: head.uri,
                                     headers: normalizeHTTPHeaders(head.headers),
@@ -149,6 +215,7 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
     private var requestBodyTooLarge = false
+    private var requestOrigin: String?
     private var streamTask: Task<Void, Never>?
 
     init(router: CoreRouter, logger: Logger) {
@@ -164,13 +231,16 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
             streamTask?.cancel()
             streamTask = nil
             requestHead = head
+            requestOrigin = CoreHTTPAccessPolicy.corsOrigin(headers: normalizeHTTPHeaders(head.headers))
             requestBody = context.channel.allocator.buffer(capacity: 0)
             requestBodyTooLarge = false
 
         case .body(var bodyPart):
-            if requestHead?.uri.hasPrefix("/v1/agent-plugins/uploads") == true,
-               (requestBody?.readableBytes ?? 0) + bodyPart.readableBytes > 100 * 1_024 * 1_024 {
+            let isUpload = requestHead?.uri.hasPrefix("/v1/agent-plugins/uploads") == true
+            let bodyLimit = isUpload ? CoreHTTPLimits.uploadBodyBytes : CoreHTTPLimits.defaultBodyBytes
+            if (requestBody?.readableBytes ?? 0) + bodyPart.readableBytes > bodyLimit {
                 requestBodyTooLarge = true
+                requestBody = nil
                 return
             }
             guard !requestBodyTooLarge else { return }
@@ -195,8 +265,24 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
                     requestHead: head,
                     response: CoreRouter.json(
                         status: 413,
-                        payload: ["error": "agent_plugin_archive_too_large", "message": "Agent Plugin ZIP exceeds 100 MiB."]
+                        payload: head.uri.hasPrefix("/v1/agent-plugins/uploads")
+                            ? ["error": "agent_plugin_archive_too_large", "message": "Agent Plugin ZIP exceeds 100 MiB."]
+                            : ["error": "request_body_too_large", "message": "Request body exceeds 64 MiB."]
                     )
+                )
+                return
+            }
+
+            if !CoreHTTPAccessPolicy.allows(
+                uri: head.uri,
+                headers: normalizeHTTPHeaders(head.headers),
+                remoteAddress: context.channel.remoteAddress?.ipAddress
+            ) {
+                requestOrigin = nil
+                writeResponse(
+                    context: context,
+                    requestHead: head,
+                    response: CoreRouter.json(status: 403, payload: ["error": "origin_not_allowed"])
                 )
                 return
             }
@@ -472,11 +558,14 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
         if let contentLength {
             headers.add(name: "content-length", value: "\(contentLength)")
         }
-        headers.add(name: "access-control-allow-origin", value: "*")
-        headers.add(name: "access-control-allow-methods", value: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS")
-        headers.add(name: "access-control-allow-headers", value: "content-type,authorization,last-event-id,traceparent,tracestate")
-        headers.add(name: "access-control-expose-headers", value: "server-timing,x-sloppy-route")
-        headers.add(name: "access-control-max-age", value: "600")
+        if let origin = requestOrigin {
+            headers.add(name: "access-control-allow-origin", value: origin)
+            headers.add(name: "vary", value: "Origin")
+            headers.add(name: "access-control-allow-methods", value: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS")
+            headers.add(name: "access-control-allow-headers", value: "content-type,authorization,last-event-id,traceparent,tracestate")
+            headers.add(name: "access-control-expose-headers", value: "server-timing,x-sloppy-route")
+            headers.add(name: "access-control-max-age", value: "600")
+        }
         return headers
     }
 
@@ -500,6 +589,7 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
     private var context: ChannelHandlerContext?
     private var routeTask: Task<Void, Never>?
     private var closeRequested = false
+    private var fragmentBuffer: ByteBuffer?
     private let inboundMessages: AsyncStream<String>
     private let inboundMessagesContinuation: AsyncStream<String>.Continuation
 
@@ -551,10 +641,28 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
             let data = frame.unmaskedData
             let pong = WebSocketFrame(fin: true, opcode: .pong, data: data)
             context.writeAndFlush(wrapOutboundOut(pong), promise: nil)
-        case .text:
-            var data = frame.unmaskedData
-            if let text = data.readString(length: data.readableBytes) {
-                inboundMessagesContinuation.yield(text)
+        case .text, .continuation:
+            var part = frame.unmaskedData
+            if frame.opcode == .text {
+                fragmentBuffer = context.channel.allocator.buffer(capacity: part.readableBytes)
+            }
+            guard var buffer = fragmentBuffer else { return }
+            guard buffer.readableBytes + part.readableBytes <= CoreHTTPLimits.webSocketMaxMessageBytes else {
+                fragmentBuffer = nil
+                closeRequested = true
+                inboundMessagesContinuation.finish()
+                let close = WebSocketFrame(fin: true, opcode: .connectionClose, data: context.channel.allocator.buffer(integer: UInt16(1009)))
+                context.writeAndFlush(wrapOutboundOut(close)).whenComplete { _ in context.close(promise: nil) }
+                return
+            }
+            buffer.writeBuffer(&part)
+            if frame.fin {
+                fragmentBuffer = nil
+                if let text = buffer.readString(length: buffer.readableBytes) {
+                    inboundMessagesContinuation.yield(text)
+                }
+            } else {
+                fragmentBuffer = buffer
             }
         case .connectionClose:
             closeRequested = true
