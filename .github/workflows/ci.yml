@@ -56,7 +56,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y libsqlite3-dev zip unzip make clang
+          apt-get install -y libsqlite3-dev zip unzip make gcc
 
       - name: Swift Version
         run: swift --version
