@@ -86,6 +86,7 @@ jobs:
             swift-test.log
             swift-test-inventory.txt
             swift-test-batches.json
+            swift-test-batch-logs/
           if-no-files-found: ignore
 
   swift-test-macos:

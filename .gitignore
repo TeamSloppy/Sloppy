@@ -58,4 +58,5 @@ ClientNative/.artefacts/
 /swift-test.log
 /swift-test-inventory.txt
 /swift-test-batches.json
+/swift-test-batch-logs/
 scripts/__pycache__/
