@@ -56,7 +56,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y libsqlite3-dev zip unzip make gcc
+          apt-get install -y libsqlite3-dev zip unzip make gcc python3
 
       - name: Swift Version
         run: swift --version
@@ -67,8 +67,9 @@ jobs:
       - name: Run Test Suite
         timeout-minutes: 35
         run: |
-          # Swift Testing's parallel console recorder can deadlock under heavy log output.
-          swift test --no-parallel --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
+          # Run every discovered test once, with bounded process state. Stable
+          # Linux Foundation has a readdir over-read in Process.run (upstream #5472).
+          python3 scripts/test-swift-isolated.py > swift-test.log 2>&1 || {
             status=$?
             grep -n -B 2 -A 8 -E 'error:|recorded an issue' swift-test.log | head -n 300 || true
             tail -n 1000 swift-test.log
@@ -83,7 +84,8 @@ jobs:
           name: swift-test-linux-logs
           path: |
             swift-test.log
-            swift-test-results.xml
+            swift-test-inventory.txt
+            swift-test-batches.json
           if-no-files-found: ignore
 
   swift-test-macos:

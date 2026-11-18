@@ -53,3 +53,9 @@ Derived/
 **/.derivedData/
 ClientNative/.artifacts/
 ClientNative/.artefacts/
+
+# Swift CI test reports and Python runner cache
+/swift-test.log
+/swift-test-inventory.txt
+/swift-test-batches.json
+scripts/__pycache__/
