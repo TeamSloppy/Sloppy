@@ -152,11 +152,17 @@ actor SessionProcessRegistry {
             waiters[key]?.removeValue(forKey: id)
             if waiters[key]?.isEmpty == true { waiters.removeValue(forKey: key) }
         }
-        var iterator = stream.makeAsyncIterator()
-        let result = try await iterator.next()
-        try Task.checkCancellation()
-        guard let result else { throw RegistryError.processNotFound }
-        return result
+        return try await withTaskCancellationHandler {
+            var iterator = stream.makeAsyncIterator()
+            let result = try await iterator.next()
+            try Task.checkCancellation()
+            guard let result else { throw RegistryError.processNotFound }
+            return result
+        } onCancel: {
+            // Resume the caller explicitly even when cancellation races the first
+            // iterator.next(). Cancelling a waiter never stops its shared process.
+            waiter.finish(throwing: CancellationError())
+        }
     }
 
     private func processDidExit(_ key: ProcessKey, status: Int32) {

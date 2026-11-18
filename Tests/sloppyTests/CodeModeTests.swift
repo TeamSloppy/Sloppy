@@ -9,28 +9,35 @@ struct CodeModeTests {
     @Test("A process wait can time out or be cancelled, and later waits see final output")
     func waitForProcess() async throws {
         let registry = SessionProcessRegistry()
+        print("Process wait checkpoint: starting child")
         let start = try await registry.start(sessionID: "owner", command: "/bin/sh",
             arguments: ["-c", "sleep 0.3; printf finished; exit 7"], cwd: nil, maxProcesses: 1, captureOutput: true)
         let id = try #require(start.asObject?["processId"]?.asString)
+        print("Process wait checkpoint: child started")
         await #expect(throws: SessionProcessRegistry.RegistryError.waitTimedOut) {
             try await registry.wait(sessionID: "owner", processID: id, timeoutMs: 1)
         }
+        print("Process wait checkpoint: timeout observed")
         await #expect(throws: SessionProcessRegistry.RegistryError.processNotFound) {
             try await registry.wait(sessionID: "other", processID: id, timeoutMs: 1000)
         }
 
         let cancelled = Task { try await registry.wait(sessionID: "owner", processID: id, timeoutMs: 1000) }
         cancelled.cancel()
+        print("Process wait checkpoint: awaiting cancellation")
         await #expect(throws: CancellationError.self) { try await cancelled.value }
+        print("Process wait checkpoint: cancellation observed")
         async let first = registry.wait(sessionID: "owner", processID: id, timeoutMs: 5000)
         async let second = registry.wait(sessionID: "owner", processID: id, timeoutMs: 5000)
         let (a, b) = try await (first, second)
+        print("Process wait checkpoint: completion observed")
         let cached = try await registry.wait(sessionID: "owner", processID: id, timeoutMs: 1)
         #expect(a == b)
         #expect(a == cached)
         #expect(a.asObject?["exitCode"]?.asInt == 7)
         #expect(a.asObject?["outputTail"]?.asString == "finished")
         await registry.shutdown()
+        print("Process wait checkpoint: shutdown complete")
     }
 
     @Test("Disabled Code Mode is hidden and cannot invoke JavaScript or wait")

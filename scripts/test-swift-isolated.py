@@ -90,8 +90,10 @@ def native_runner():
 def run_batch(command, log_path, timeout, environment):
     timed_out = False
     with log_path.open("w") as output:
+        # Match SwiftPM's inherited ignored SIGPIPE, rather than Python's exec-time
+        # reset to SIG_DFL. Pipe probes must observe EPIPE instead of being killed.
         with subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
-                              start_new_session=True, env=environment) as process:
+                              start_new_session=True, restore_signals=False, env=environment) as process:
             try:
                 code = process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:

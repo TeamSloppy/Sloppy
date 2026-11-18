@@ -100,7 +100,11 @@ struct SessionApprovalDefaultsTests {
     }
 
     private func makeService() async throws -> CoreService {
-        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let config = CoreConfig.test
+        let root = config.resolvedWorkspaceRootURL()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let service = CoreService(config: config, configPath: root.appendingPathComponent("sloppy.json").path,
+                                  currentDirectory: root.path, persistenceBuilder: InMemoryCorePersistenceBuilder())
         _ = try await service.createAgent(.init(id: "defaults-agent", displayName: "Defaults", role: "Test"))
         return service
     }
