@@ -110,14 +110,10 @@ struct ForegroundProcessTests {
         let updates = AsyncStream<(ForegroundProcessState, Int32)>.makeStream()
         let run = Task {
             defer { updates.continuation.finish() }
-            print("Foreground stop checkpoint: starting child")
             return try await runForegroundProcess(
                 command: "/bin/sh", arguments: ["-c", "kill -STOP $$; sleep 0.5; printf resumed"],
                 cwd: nil, timeoutMs: 5_000, maxOutputBytes: 4096,
-                progress: { state, pid in
-                    print("Foreground stop checkpoint: pid=\(pid), state=\(state)")
-                    _ = updates.continuation.yield((state, pid))
-                }
+                progress: { state, pid in _ = updates.continuation.yield((state, pid)) }
             )
         }
         defer { run.cancel() }

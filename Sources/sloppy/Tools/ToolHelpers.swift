@@ -288,13 +288,16 @@ final class ProcessPipeReader: @unchecked Sendable {
         drainLocked()
     }
 
-    func stop() {
+    func stop(closeHandle: (() throws -> Void)? = nil) {
         lock.lock()
-        defer { lock.unlock() }
-        guard !stopped else { return }
+        guard !stopped else { lock.unlock(); return }
         drainLocked()
         stopped = true
-        try? handle.close()
+        lock.unlock()
+        // Linux FileHandle.close waits for the readability queue. A callback on
+        // that queue may need this lock, so close only after releasing it.
+        if let closeHandle { try? closeHandle() }
+        else { try? handle.close() }
     }
 
     private func drainLocked() {
