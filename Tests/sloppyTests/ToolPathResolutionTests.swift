@@ -67,16 +67,14 @@ struct ToolPathResolutionTests {
         #expect(resolved != nil)
     }
 
-    @Test("resolveExecCwd rejects absolute path outside workspaceRootURL when no extra roots")
+    @Test("resolveExecCwd rejects paths outside workspace and temporary roots")
     func resolveCwdOutsideWorkspaceNoRoots() throws {
         let tmp = FileManager.default.temporaryDirectory
         let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
-        let outside = tmp.appendingPathComponent("sloppy-outside-\(UUID().uuidString)", isDirectory: true)
+        let outside = tmp.deletingLastPathComponent().appendingPathComponent("sloppy-outside-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(at: workspace)
-            try? FileManager.default.removeItem(at: outside)
         }
 
         let context = makeContext(workspaceRootURL: workspace)
@@ -122,16 +120,14 @@ struct ToolPathResolutionTests {
 
     // MARK: - resolveReadablePath
 
-    @Test("resolveReadablePath rejects file outside workspace when no extra roots")
+    @Test("resolveReadablePath rejects files outside workspace and temporary roots")
     func resolveReadableOutsideNoRoots() throws {
         let tmp = FileManager.default.temporaryDirectory
         let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
-        let outside = tmp.appendingPathComponent("sloppy-out-\(UUID().uuidString)", isDirectory: true)
+        let outside = tmp.deletingLastPathComponent().appendingPathComponent("sloppy-out-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(at: workspace)
-            try? FileManager.default.removeItem(at: outside)
         }
 
         let context = makeContext(workspaceRootURL: workspace)
@@ -197,12 +193,10 @@ struct ToolPathResolutionTests {
     func resolveReadableWithReadOnlyRoots() throws {
         let tmp = FileManager.default.temporaryDirectory
         let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
-        let sharedRoot = tmp.appendingPathComponent("sloppy-shared-\(UUID().uuidString)", isDirectory: true)
+        let sharedRoot = tmp.deletingLastPathComponent().appendingPathComponent("sloppy-shared-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: sharedRoot, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(at: workspace)
-            try? FileManager.default.removeItem(at: sharedRoot)
         }
 
         let filePath = sharedRoot.appendingPathComponent("skills/prd/SKILL.md").path
@@ -210,6 +204,16 @@ struct ToolPathResolutionTests {
 
         #expect(context.resolveReadablePath(filePath) != nil)
         #expect(context.resolveWritablePath(filePath) == nil)
+    }
+
+    @Test("workspace sandbox permits temporary files and process directories")
+    func temporaryPathsRemainAvailable() {
+        let tmp = FileManager.default.temporaryDirectory
+        let context = makeContext(workspaceRootURL: tmp.appendingPathComponent(UUID().uuidString))
+        let scratch = tmp.appendingPathComponent("sloppy-scratch-\(UUID().uuidString)")
+        #expect(context.resolveReadablePath(scratch.path) != nil)
+        #expect(context.resolveWritablePath(scratch.path) != nil)
+        #expect(context.resolveExecCwd(scratch.path) != nil)
     }
 
     @Test("resolveReadablePath resolves relative paths from current session directory")

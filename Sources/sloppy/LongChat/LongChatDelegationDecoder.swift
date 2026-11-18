@@ -28,6 +28,14 @@ enum LongChatDelegationDecoder {
         for index in request.tasks.indices {
             request.tasks[index].reuseSessionId = optionalID(request.tasks[index].reuseSessionId)
             request.tasks[index].projectId = optionalID(request.tasks[index].projectId)
+            if let target = request.tasks[index].executionTarget {
+                // Providers can fill optional object fields with empty strings. No location
+                // was selected only when every field is blank; partial remote requests still fail validation.
+                let fields: [String?] = [target.targetId, target.nodeId, target.baseRevision, target.agentId, target.selectedModel]
+                if fields.allSatisfy({ optionalID($0) == nil }) {
+                    request.tasks[index].executionTarget = nil
+                }
+            }
         }
         return request
     }

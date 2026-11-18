@@ -63,6 +63,12 @@ struct LongChatTool: CoreTool {
                 .init(name: "dependsOn", description: "Other task keys that must finish first.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self))),
                 .init(name: "projectId", description: "Optional project ID.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
                 .init(name: "readOnly", description: "True for inspection, false for authorized changes.", schema: DynamicGenerationSchema(type: Bool.self)),
+                .init(name: "executionTarget", description: "Optional remote location. Omit or use null for local work, including local implementation of remote-execution features. Use a populated object only when the user selected a remote machine from long_chat.status executionTargets. Remote execution is unsupported in this build and is rejected before starting a worker. Resolve the user's machine alias semantically; never use ENV/shell substitution. Unknown/offline targets fail without local fallback. Agent and model are independent; baseRevision must be a clean committed full Git object ID available remotely. Never send dirty local input without explicit user choice.", schema: DynamicGenerationSchema(name: "RemoteExecutionSelection", properties: [
+                    .init(name: "targetId", description: "Exact registered target ID, not alias.", schema: DynamicGenerationSchema(type: String.self)),
+                    .init(name: "baseRevision", description: "Full immutable base Git object ID.", schema: DynamicGenerationSchema(type: String.self)),
+                    .init(name: "agentId", description: "Explicit allowed remote agent ID.", schema: DynamicGenerationSchema(type: String.self)),
+                    .init(name: "selectedModel", description: "Optional model; absent uses remote agent default.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+                ]), isOptional: true),
                 .init(name: "reuseSessionId", description: "Optional explicit worker session in this chat to continue. Keeps history, queues a separate task, preserves original project/resource/tool scope. No automatic replacement on failure.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             ]))),
         ])

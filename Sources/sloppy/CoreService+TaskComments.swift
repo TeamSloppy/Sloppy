@@ -183,7 +183,7 @@ extension CoreService {
         let sessionTitle = "task-comment:\(projectID):\(taskID)"
         let existingSession: AgentSessionSummary?
         do {
-            existingSession = try listAgentSessions(agentID: agentID)
+            existingSession = try await listAgentSessions(agentID: agentID)
                 .first(where: { $0.title == sessionTitle })
         } catch {
             existingSession = nil

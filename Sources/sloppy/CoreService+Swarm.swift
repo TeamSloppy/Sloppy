@@ -1082,6 +1082,14 @@ extension CoreService {
 
             var task = project.tasks[taskIndex]
             guard task.status != ProjectTaskStatus.cancelled.rawValue else { continue }
+            // An explicit block (including missing delegated completion) needs
+            // reconciliation. A later worker failure must not reopen or retry it.
+            let finish = event.payload.asObject?["delegateFinish"]?.asObject
+            let missingCompletion = event.messageType == .workerFailed
+                && finish?["synthetic"] == .bool(true) && finish?["status"] == .string("failed")
+            let declaredBlocked = event.messageType == .workerFailed
+                && finish?["finished"] == .bool(true) && finish?["status"] == .string("blocked")
+            let preservesBlockedStatus = task.status == ProjectTaskStatus.blocked.rawValue || missingCompletion || declaredBlocked
             var effectiveFailureNote = failureNote
             appendTaskLifecycleLog(
                 projectID: project.id,
@@ -1099,7 +1107,7 @@ extension CoreService {
                 ? task.description.components(separatedBy: "Model provider error").count - 1
                 : 0
 
-            if event.messageType == .workerFailed, isModelError, modelRetryCount < maxModelRetries {
+            if event.messageType == .workerFailed, !preservesBlockedStatus, isModelError, modelRetryCount < maxModelRetries {
                 let prevRetryStatus = task.status
                 task.status = ProjectTaskStatus.ready.rawValue
                 task.updatedAt = Date()
@@ -1137,6 +1145,7 @@ extension CoreService {
             }
 
             if event.messageType == .workerFailed,
+               !preservesBlockedStatus,
                let retryDelegate = await nextTeamRetryDelegate(project: project, task: task) {
                 let prevRetryStatus = task.status
                 task.status = ProjectTaskStatus.ready.rawValue
@@ -1200,7 +1209,7 @@ extension CoreService {
                 return
             }
 
-            var resolvedStatus = nextStatus
+            var resolvedStatus = preservesBlockedStatus ? ProjectTaskStatus.blocked.rawValue : nextStatus
             var completionArtifactPath: String?
             if event.messageType == .workerCompleted {
                 if let claimedActorID = task.claimedActorId {
@@ -1398,7 +1407,9 @@ extension CoreService {
                 }
                 await runtime.appendSystemMessage(
                     channelId: event.channelId,
-                    content: "\(failedActor) failed task \(task.id); moved back to backlog."
+                    content: resolvedStatus == ProjectTaskStatus.blocked.rawValue
+                        ? "\(failedActor) failed task \(task.id); task remains blocked."
+                        : "\(failedActor) failed task \(task.id); moved back to backlog."
                 )
             }
 
@@ -1409,6 +1420,8 @@ extension CoreService {
                       event.messageType == .workerCompleted,
                       effectiveFailureNote != nil {
                 statusMessage = "Task \(task.id) blocked: worker exited without explicit completion confirmation."
+            } else if resolvedStatus == ProjectTaskStatus.blocked.rawValue, let effectiveFailureNote {
+                statusMessage = "Task \(task.id) remains blocked: \(effectiveFailureNote)"
             } else if effectiveFailureNote != nil {
                 statusMessage = "Task \(task.id) failed; moved back to backlog."
             } else {

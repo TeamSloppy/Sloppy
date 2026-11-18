@@ -121,9 +121,10 @@ func workerCompletedWithDelegatedFinishEvidenceMovesToNeedsReview() async throws
     })
 }
 
-@Test
-func workerCompletedPreservesExplicitBlockedStatus() async throws {
+@Test(arguments: [MessageType.workerCompleted, .workerFailed])
+func workerTerminalEventPreservesExplicitBlockedStatus(_ messageType: MessageType) async throws {
     let (service, _, projectID, taskID) = try await makeCompletionTestContext()
+    defer { Task { await service.stop() } }
 
     _ = try await service.updateProjectTask(
         projectID: projectID,
@@ -136,15 +137,30 @@ func workerCompletedPreservesExplicitBlockedStatus() async throws {
 
     await service.handleVisorEvent(
         EventEnvelope(
-            messageType: .workerCompleted,
+            messageType: messageType,
             channelId: "general",
             taskId: taskID,
             workerId: "worker-2",
-            payload: .object([:])
+            payload: .object(["error": .string("Worker exited before confirming completion.")])
         )
     )
 
     let saved = try await service.getProject(id: projectID)
     let task = try #require(saved.tasks.first(where: { $0.id == taskID }))
     #expect(task.status == ProjectTaskStatus.blocked.rawValue)
+}
+
+@Test(arguments: ["failed", "blocked"])
+func incompleteOrBlockedWorkerCompletionRequiresReconciliation(_ status: String) async throws {
+    let (service, _, projectID, taskID) = try await makeCompletionTestContext()
+    defer { Task { await service.stop() } }
+    let synthetic = status == "failed"
+    await service.handleVisorEvent(.init(
+        messageType: .workerFailed, channelId: "general", taskId: taskID, workerId: "incomplete",
+        payload: .object([
+            "error": .string("Worker needs reconciliation."),
+            "delegateFinish": .object(["finished": .bool(!synthetic), "synthetic": .bool(synthetic), "status": .string(status)])
+        ])))
+    let saved = try await service.getProject(id: projectID)
+    #expect(saved.tasks.first(where: { $0.id == taskID })?.status == ProjectTaskStatus.blocked.rawValue)
 }

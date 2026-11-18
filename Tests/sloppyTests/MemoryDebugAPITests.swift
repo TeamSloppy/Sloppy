@@ -4,6 +4,9 @@ import Testing
 @testable import AgentRuntime
 @testable import Protocols
 @testable import sloppy
+#if canImport(CSQLite3)
+import CSQLite3
+#endif
 
 @Suite
 struct MemoryDebugAPITests {
@@ -63,4 +66,27 @@ struct MemoryDebugAPITests {
         #expect(diagnosed.stages.contains { $0.name == "graph" })
         #expect(diagnosed.stages.allSatisfy { $0.durationMs >= 0 && $0.error == nil })
     }
+
+#if canImport(CSQLite3)
+    @Test
+    func hybridRetrievalDoesNotPersistSearchText() async throws {
+        let config = CoreConfig.test
+        let store = HybridMemoryStore(config: config)
+        let ref = await store.save(entry: .init(note: "unique aurora fact"))
+        let hits = await store.recall(request: .init(query: "aurora"))
+        #expect(hits.contains { $0.ref.id == ref.id })
+
+        var db: OpaquePointer?
+        let path = config.resolvedSQLiteURL().path
+        try #require(sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var statement: OpaquePointer?
+        let sql = "SELECT count(*) FROM memory_recall_log;"
+        try #require(sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        try #require(sqlite3_step(statement) == SQLITE_ROW)
+        #expect(sqlite3_column_int(statement, 0) == 0)
+    }
+#endif
 }

@@ -30,7 +30,8 @@ struct SystemSearchToolsTool: CoreTool {
             return toolFailure(tool: name, code: "invalid_arguments", message: "Supply query or ids (not both), or server. limit must be 1-10, offset nonnegative, and includeSchemas boolean.", retryable: false)
         }
         let started = ContinuousClock.now
-        let entries = await ToolCatalog.discoveryEntries(mcpRegistry: context.mcpRegistry)
+        let entries = await ToolCatalog.discoveryEntries(mcpRegistry: context.mcpRegistry,
+            codeModeEnabled: CodeMode.enabled(workspaceRoot: context.workspaceRootURL))
         var result = ToolDiscoveryService.search(query, entries: entries, policy: context.policy,
             allowedIDs: context.discoveryAllowedToolIDs, maxOutputBytes: context.policy.guardrails.maxExecOutputBytes)
         let elapsed = started.duration(to: .now).components

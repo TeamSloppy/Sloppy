@@ -76,43 +76,46 @@ public final class AgentSessionFileStore: @unchecked Sendable {
         agentID: String,
         includeHeartbeat: Bool = false,
         limit: Int? = nil,
-        offset: Int = 0
+        offset: Int = 0,
+        expectedRootURL: URL? = nil
     ) throws -> [AgentSessionSummary] {
-        try withLock {
-            let normalizedAgentID = try normalizedAgentID(agentID)
+        let (normalizedAgentID, root, sessionFiles) = try withLock { () throws -> (String, URL, [URL]) in
+            if let expectedRootURL, agentsRootURL != expectedRootURL { throw CancellationError() }
+            let normalizedAgentID = try self.normalizedAgentID(agentID)
             let sessionsDirectory = try sessionsDirectoryURL(agentID: normalizedAgentID, createIfMissing: false)
 
             guard fileManager.fileExists(atPath: sessionsDirectory.path) else {
-                return []
+                return (normalizedAgentID, agentsRootURL, [URL]())
             }
             try migrateLegacySessions(in: sessionsDirectory)
 
             let resolver = try sessionPathResolver(agentID: normalizedAgentID)
-            var seenSessionIDs = Set<String>()
             let canonicalFiles = resolver.canonicalSessionFiles()
             let legacyFiles = try fileManager.contentsOfDirectory(
                 at: sessionsDirectory,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]
             ).filter { $0.pathExtension == "jsonl" }
-            let sessionFiles = canonicalFiles + legacyFiles
-            var summaries: [AgentSessionSummary] = []
-            for file in sessionFiles {
-                let sessionID = file.lastPathComponent == "session.jsonl"
-                    ? AgentSessionPathResolver.sessionID(fromCanonicalSessionFile: file)
-                    : file.deletingPathExtension().lastPathComponent
-                guard seenSessionIDs.insert(sessionID).inserted else {
-                    continue
-                }
-                if let summary = try? loadSessionSummary(agentID: normalizedAgentID, sessionID: sessionID, fileURL: file),
-                   includeHeartbeat || summary.kind != .heartbeat {
-                    summaries.append(summary)
-                }
-            }
-
-            let sorted = summaries.sorted { $0.updatedAt > $1.updatedAt }
-            return Self.paginated(sorted, limit: limit, offset: offset)
+            return (normalizedAgentID, agentsRootURL, canonicalFiles + legacyFiles)
         }
+        var seenSessionIDs = Set<String>()
+        var summaries: [AgentSessionSummary] = []
+        for file in sessionFiles {
+            let sessionID = file.lastPathComponent == "session.jsonl"
+                ? AgentSessionPathResolver.sessionID(fromCanonicalSessionFile: file)
+                : file.deletingPathExtension().lastPathComponent
+            guard seenSessionIDs.insert(sessionID).inserted else { continue }
+            // One catalog refresh must not monopolize the shared journal lock.
+            let summary: AgentSessionSummary? = try withLock {
+                guard agentsRootURL == root else { throw CancellationError() }
+                return try? loadSessionSummary(agentID: normalizedAgentID, sessionID: sessionID, fileURL: file)
+            }
+            if let summary, includeHeartbeat || summary.kind != .heartbeat {
+                summaries.append(summary)
+            }
+        }
+        let sorted = summaries.sorted { $0.updatedAt > $1.updatedAt }
+        return Self.paginated(sorted, limit: limit, offset: offset)
     }
 
     public func createSession(
@@ -215,6 +218,34 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             let events = try readEvents(agentID: normalizedAgentID, sessionID: normalizedSessionID)
             let summary = summaryForSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, events: events)
             return AgentSessionDetail(summary: summary, events: events)
+        }
+    }
+
+    public func deleteSessionIfExpired(agentID: String, sessionID: String, olderThan cutoffDate: Date) throws -> Bool {
+        try withLock {
+            let summary: AgentSessionSummary
+            do {
+                summary = try loadSessionSummary(agentID: agentID, sessionID: sessionID)
+            } catch StoreError.sessionNotFound {
+                return false
+            }
+            guard summary.updatedAt < cutoffDate, summary.kind != .longChat else { return false }
+            if let parentID = summary.parentSessionId,
+               (try? loadSessionSummary(agentID: agentID, sessionID: parentID))?.kind == .longChat {
+                return false
+            }
+            try deleteSession(agentID: agentID, sessionID: sessionID)
+            return true
+        }
+    }
+
+    public func loadSessionSummary(agentID: String, sessionID: String) throws -> AgentSessionSummary {
+        try withLock {
+            let agentID = try normalizedAgentID(agentID)
+            let sessionID = try normalizedSessionID(sessionID)
+            guard let fileURL = sessionFileURL(agentID: agentID, sessionID: sessionID),
+                  fileManager.fileExists(atPath: fileURL.path) else { throw StoreError.sessionNotFound }
+            return try loadSessionSummary(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
         }
     }
 
@@ -416,30 +447,25 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             let normalizedAgentID = try normalizedAgentID(agentID)
             let normalizedSessionID = try normalizedSessionID(sessionID)
 
-            guard let fileURL = sessionFileURL(agentID: normalizedAgentID, sessionID: normalizedSessionID),
-                  fileManager.fileExists(atPath: fileURL.path) else {
+            guard let resolver = try? sessionPathResolver(agentID: normalizedAgentID),
+                  let location = resolver.existingLocation(sessionID: normalizedSessionID) else {
                 throw StoreError.sessionNotFound
             }
 
-            let location = try sessionPathResolver(agentID: normalizedAgentID)
-                .existingLocation(sessionID: normalizedSessionID)
-            try fileManager.removeItem(at: fileURL)
-            invalidateDecodedEvents(for: fileURL)
-            removeSummaryCache(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            try fileManager.removeItem(at: location.sessionFileURL)
+            invalidateDecodedEvents(for: location.sessionFileURL)
+            resolver.forgetCachedDirectory(sessionID: normalizedSessionID)
 
-            if location?.isLegacy == false {
-                try? fileManager.removeItem(at: location!.directoryURL)
+            if !location.isLegacy {
+                try? fileManager.removeItem(at: location.directoryURL)
                 return
             }
 
-            if let sidecar = sessionSidecarURL(agentID: normalizedAgentID, sessionID: normalizedSessionID),
-               fileManager.fileExists(atPath: sidecar.path) {
-                try? fileManager.removeItem(at: sidecar)
-            }
+            try? fileManager.removeItem(at: location.summaryURL)
+            try? fileManager.removeItem(at: location.sidecarURL)
 
-            if let assetsDirectory = assetsDirectoryURL(agentID: normalizedAgentID, sessionID: normalizedSessionID),
-               fileManager.fileExists(atPath: assetsDirectory.path) {
-                try fileManager.removeItem(at: assetsDirectory)
+            if fileManager.fileExists(atPath: location.assetsURL.path) {
+                try fileManager.removeItem(at: location.assetsURL)
             }
         }
     }
@@ -502,8 +528,11 @@ public final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     private func readSidecar(agentID: String, sessionID: String) throws -> AgentSessionSidecar {
-        guard let url = sessionSidecarURL(agentID: agentID, sessionID: sessionID),
-              fileManager.fileExists(atPath: url.path) else {
+        try readSidecar(at: sessionSidecarURL(agentID: agentID, sessionID: sessionID))
+    }
+
+    private func readSidecar(at url: URL?) throws -> AgentSessionSidecar {
+        guard let url, fileManager.fileExists(atPath: url.path) else {
             return AgentSessionSidecar(userTurnCount: 0)
         }
         return try decoder.decode(AgentSessionSidecar.self, from: Data(contentsOf: url))
@@ -641,6 +670,12 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             )
         }
 
+        return try readEvents(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
+    }
+
+    private func readEvents(
+        agentID: String, sessionID: String, fileURL: URL, cacheDecodedEvents: Bool = true
+    ) throws -> [AgentSessionEvent] {
         guard fileManager.fileExists(atPath: fileURL.path) else {
             throw StoreError.sessionFileNotFound(
                 agentID: agentID,
@@ -683,7 +718,9 @@ public final class AgentSessionFileStore: @unchecked Sendable {
         }
 
         let sorted = events.sorted { $0.createdAt < $1.createdAt }
-        storeDecodedEvents(sorted, for: fileURL)
+        if cacheDecodedEvents {
+            storeDecodedEvents(sorted, for: fileURL)
+        }
         return sorted
     }
 
@@ -741,38 +778,39 @@ public final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     private func loadSessionSummary(agentID: String, sessionID: String, fileURL: URL) throws -> AgentSessionSummary {
-        if let cached = try? readSummaryCache(agentID: agentID, sessionID: sessionID, fileURL: fileURL) {
-            return cached
+        if let cached = try? readSummarySnapshot(fileURL: fileURL) {
+            return cached.summary
         }
-        return try refreshSummaryCache(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
+        // A catalog scan should leave the decoded cache for active conversations.
+        let events = try readEvents(agentID: agentID, sessionID: sessionID, fileURL: fileURL, cacheDecodedEvents: false)
+        let summary = summaryForSession(agentID: agentID, sessionID: sessionID, events: events, journalURL: fileURL)
+        // A readable journal is still usable when a disposable cache cannot be written.
+        try? writeSummaryCache(summary, events: events, fileURL: fileURL)
+        return summary
     }
 
     @discardableResult
     private func refreshSummaryCache(agentID: String, sessionID: String, fileURL: URL) throws -> AgentSessionSummary {
-        let events = try readEvents(agentID: agentID, sessionID: sessionID)
-        let summary = summaryForSession(agentID: agentID, sessionID: sessionID, events: events)
+        let events = try readEvents(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
+        let summary = summaryForSession(agentID: agentID, sessionID: sessionID, events: events, journalURL: fileURL)
         try writeSummaryCache(summary, events: events, fileURL: fileURL)
         return summary
     }
 
-    private func readSummaryCache(agentID: String, sessionID: String, fileURL: URL) throws -> AgentSessionSummary? {
-        try readSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL)?.summary
-    }
-
     private func loadSummarySnapshot(agentID: String, sessionID: String, fileURL: URL) throws -> AgentSessionSummaryCache {
-        if let cached = try? readSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL) {
+        if let cached = try? readSummarySnapshot(fileURL: fileURL) {
             return cached
         }
         try refreshSummaryCache(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
-        guard let cached = try readSummarySnapshot(agentID: agentID, sessionID: sessionID, fileURL: fileURL) else {
+        guard let cached = try readSummarySnapshot(fileURL: fileURL) else {
             throw StoreError.invalidPayload
         }
         return cached
     }
 
-    private func readSummarySnapshot(agentID: String, sessionID: String, fileURL: URL) throws -> AgentSessionSummaryCache? {
-        guard let cacheURL = sessionSummaryCacheURL(agentID: agentID, sessionID: sessionID),
-              fileManager.fileExists(atPath: cacheURL.path) else {
+    private func readSummarySnapshot(fileURL: URL) throws -> AgentSessionSummaryCache? {
+        let cacheURL = Self.metadataURL("summary", forJournal: fileURL)
+        guard fileManager.fileExists(atPath: cacheURL.path) else {
             return nil
         }
         let data = try Data(contentsOf: cacheURL)
@@ -787,8 +825,8 @@ public final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     private func writeSummaryCache(_ summary: AgentSessionSummary, events: [AgentSessionEvent], fileURL: URL) throws {
-        guard let cacheURL = sessionSummaryCacheURL(agentID: summary.agentId, sessionID: summary.id),
-              let fingerprint = try sourceFingerprint(fileURL: fileURL) else {
+        let cacheURL = Self.metadataURL("summary", forJournal: fileURL)
+        guard let fingerprint = try sourceFingerprint(fileURL: fileURL) else {
             return
         }
         let answeredIDs = Set(events.compactMap(\.inputResponse?.requestId))
@@ -834,6 +872,13 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             ?? resolver.legacyLocation(sessionID: sessionID).summaryURL
     }
 
+    private static func metadataURL(_ name: String, forJournal fileURL: URL) -> URL {
+        if fileURL.lastPathComponent == "session.jsonl" {
+            return fileURL.deletingLastPathComponent().appendingPathComponent("\(name).json", isDirectory: false)
+        }
+        return fileURL.deletingPathExtension().appendingPathExtension("\(name).json")
+    }
+
     private func sourceFingerprint(fileURL: URL) throws -> (byteCount: Int, modifiedAt: TimeInterval)? {
         // Not `URL.resourceValues`: a URL instance caches them, so a fingerprint taken from the same
         // URL after an append would still describe the file as it was before the write.
@@ -854,7 +899,9 @@ public final class AgentSessionFileStore: @unchecked Sendable {
         return Array(tail.prefix(max(0, limit)))
     }
 
-    private func summaryForSession(agentID: String, sessionID: String, events: [AgentSessionEvent]) -> AgentSessionSummary {
+    private func summaryForSession(
+        agentID: String, sessionID: String, events: [AgentSessionEvent], journalURL: URL? = nil
+    ) -> AgentSessionSummary {
         var title = "Session \(sessionID.prefix(8))"
         var parentSessionID: String?
         var kind: AgentSessionKind = .chat
@@ -904,7 +951,9 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             title = AgentSessionTitleGenerator.title(for: userMessages)
         }
 
-        let userTurnCount = (try? readUserTurnCount(agentID: agentID, sessionID: sessionID)) ?? 0
+        let sidecarURL = journalURL.map { Self.metadataURL("sidecar", forJournal: $0) }
+            ?? sessionSidecarURL(agentID: agentID, sessionID: sessionID)
+        let userTurnCount = max(0, (try? readSidecar(at: sidecarURL).userTurnCount) ?? 0)
 
         return AgentSessionSummary(
             id: sessionID,

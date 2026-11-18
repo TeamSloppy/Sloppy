@@ -23,7 +23,7 @@ public struct TranscriptContextCheckpoint: Codable, Sendable, Equatable {
         guard prefix.map(\.id) == sourcePrefixIDs else { return nil }
         let kept = Set(retainedPromptIDs)
         return Transcript(entries: [summaryEntry] + prefix.filter { kept.contains($0.id) }
-            + transcript.dropFirst(sourcePrefixIDs.count))
+            + Array(transcript.dropFirst(sourcePrefixIDs.count)))
     }
 
     /// Translate a checkpoint on top of an earlier projection back to journal IDs.

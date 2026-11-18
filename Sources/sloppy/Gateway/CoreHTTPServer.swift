@@ -92,11 +92,12 @@ public final class CoreHTTPServer {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
     }
 
-    /// Binds to host:port and starts accepting HTTP requests.
-    public func start() throws {
+    /// Binds to host:port, optionally deferring accepts until startup finishes.
+    public func start(acceptingRequests: Bool = true) throws {
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .serverChannelOption(ChannelOptions.autoRead, value: acceptingRequests)
             .serverChannelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(AcceptBackoffHandler(shouldForwardIOErrorCaught: false))
@@ -173,12 +174,16 @@ public final class CoreHTTPServer {
         channel = try bootstrap.bind(host: host, port: port).wait()
     }
 
+    func acceptRequests() async throws {
+        try await channel?.setOption(ChannelOptions.autoRead, value: true).get()
+    }
+
     /// Waits until server channel is closed.
-    public func waitUntilClosed() throws {
+    public func waitUntilClosed() async throws {
         guard let channel else {
             return
         }
-        try channel.closeFuture.wait()
+        try await channel.closeFuture.get()
     }
 
     /// Returns dynamically bound TCP port (useful when server starts with port 0 in tests).
@@ -217,6 +222,8 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
     private var requestBodyTooLarge = false
     private var requestOrigin: String?
     private var streamTask: Task<Void, Never>?
+    private var requestWatchdog: Scheduled<Void>?
+    private var pendingResponse: EventLoopPromise<CoreRouterResponse>?
 
     init(router: CoreRouter, logger: Logger) {
         self.router = router
@@ -298,18 +305,36 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
             let router = self.router
             let loop = context.eventLoop
             let remoteAddress = context.channel.remoteAddress?.ipAddress
+            var headers = normalizeHTTPHeaders(head.headers)
+            let requestID = headers["x-sloppy-request-id"]
+                .flatMap { UUID(uuidString: $0)?.uuidString.lowercased() } ?? UUID().uuidString.lowercased()
+            headers["x-sloppy-request-id"] = requestID
+            let started = ContinuousClock.now
+            let isHealthCheck = method == "GET" && path.split(separator: "?", maxSplits: 1).first == "/health"
+            let metadata: Logger.Metadata = [
+                "request_id": .string(requestID),
+                "method": .string(HTTPRouteMethod(rawValue: method)?.rawValue ?? "OTHER"),
+                "health_check": .stringConvertible(isHealthCheck),
+            ]
 
             let promise = loop.makePromise(of: CoreRouterResponse.self)
-            Task {
+            pendingResponse = promise
+            let routeTask = Task { [headers] in
                 let response = await router.handle(
                     method: method,
                     path: path,
                     body: bodyData,
-                    headers: normalizeHTTPHeaders(head.headers),
+                    headers: headers,
                     remoteAddress: remoteAddress
                 )
-                loop.execute {
-                    promise.succeed(response)
+                // A health timeout or channel closure may already have resolved the promise.
+                promise.succeed(response)
+            }
+            requestWatchdog = loop.scheduleTask(in: isHealthCheck ? .seconds(2) : .seconds(3)) { [logger] in
+                logger.warning("http.request.awaiting-router", metadata: metadata)
+                if isHealthCheck {
+                    routeTask.cancel()
+                    promise.succeed(CoreRouter.json(status: 503, payload: ["error": "core_health_timeout"]))
                 }
             }
             let responseFuture = promise.futureResult
@@ -318,8 +343,22 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
                 guard let self else {
                     return
                 }
+                self.requestWatchdog?.cancel()
+                self.requestWatchdog = nil
+                self.pendingResponse = nil
+                guard context.channel.isActive else { return }
                 switch result {
-                case .success(let response):
+                case .success(var response):
+                    response.headers["x-sloppy-request-id"] = requestID
+                    let elapsed = started.duration(to: .now)
+                    if elapsed >= .seconds(1) {
+                        var resultMetadata = metadata
+                        resultMetadata["route"] = .string(response.headers["x-sloppy-route"] ?? "unavailable")
+                        resultMetadata["elapsed"] = .stringConvertible(elapsed)
+                        resultMetadata["status"] = .stringConvertible(response.status)
+                        resultMetadata["response_bytes"] = .stringConvertible(response.body.count)
+                        self.logger.info("http.request.router-completed", metadata: resultMetadata)
+                    }
                     self.writeResponse(context: context, requestHead: head, response: response)
                 case .failure(let error):
                     self.logger.error("Failed to handle request: \(String(describing: error))")
@@ -562,14 +601,15 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
             headers.add(name: "access-control-allow-origin", value: origin)
             headers.add(name: "vary", value: "Origin")
             headers.add(name: "access-control-allow-methods", value: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS")
-            headers.add(name: "access-control-allow-headers", value: "content-type,authorization,last-event-id,traceparent,tracestate")
-            headers.add(name: "access-control-expose-headers", value: "server-timing,x-sloppy-route")
+            headers.add(name: "access-control-allow-headers", value: "content-type,authorization,last-event-id,traceparent,tracestate,x-sloppy-request-id")
+            headers.add(name: "access-control-expose-headers", value: "server-timing,x-sloppy-route,x-sloppy-request-id")
             headers.add(name: "access-control-max-age", value: "600")
         }
         return headers
     }
 
     func channelInactive(context: ChannelHandlerContext) {
+        pendingResponse?.fail(ChannelError.ioOnClosedChannel)
         streamTask?.cancel()
         streamTask = nil
         context.fireChannelInactive()

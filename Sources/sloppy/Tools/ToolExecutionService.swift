@@ -71,7 +71,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.mcpRegistry = mcpRegistry
         self.lspManager = LSPServerManager(config: lspConfig, workspaceRootURL: workspaceRootURL)
         self.logger = logger
-        self.registry = ToolRegistry.makeDefault()
+        self.registry = ToolRegistry.makeDefault(codeModeEnabled: true)
         self.applyAgentMarkdown = nil
         self.delegateSubagent = nil
         self.sessionEnvironmentOverrides = { _ in [:] }
@@ -119,7 +119,8 @@ final class ToolExecutionService: @unchecked Sendable {
         currentProjectID: String? = nil,
         currentDirectoryURL: URL? = nil,
         sessionMCPRegistry: MCPClientRegistry? = nil,
-        discoveryAllowedToolIDs: Set<String>? = nil
+        discoveryAllowedToolIDs: Set<String>? = nil,
+        invokeCodeModeTool: CodeMode.Invoke? = nil
     ) async -> ToolInvocationResult {
         await artifactRetention.sweepIfNeeded(workspaceRootURL: workspaceRootURL)
         let context = makeContext(
@@ -132,7 +133,8 @@ final class ToolExecutionService: @unchecked Sendable {
             environmentOverrides: await sessionEnvironmentOverrides(sessionID),
             userID: latestUserID(agentID: agentID, sessionID: sessionID),
             sessionMCPRegistry: sessionMCPRegistry,
-            discoveryAllowedToolIDs: discoveryAllowedToolIDs
+            discoveryAllowedToolIDs: discoveryAllowedToolIDs,
+            invokeCodeModeTool: invokeCodeModeTool
         )
         if let result = await registry.invoke(request: request, context: context) {
             return context.outputArtifacts.bound(result, maxBytes: min(50 * 1024, max(1, policy.guardrails.maxExecOutputBytes)))
@@ -176,7 +178,8 @@ final class ToolExecutionService: @unchecked Sendable {
         environmentOverrides: [String: String] = [:],
         userID: String? = nil,
         sessionMCPRegistry: MCPClientRegistry? = nil,
-        discoveryAllowedToolIDs: Set<String>? = nil
+        discoveryAllowedToolIDs: Set<String>? = nil,
+        invokeCodeModeTool: CodeMode.Invoke? = nil
     ) -> ToolContext {
         let boundApply = applyAgentMarkdown.map { handler in
             { (field: AgentMarkdownDocumentField, markdown: String) async throws in
@@ -192,6 +195,7 @@ final class ToolExecutionService: @unchecked Sendable {
             channelID: channelID,
             policy: policy,
             discoveryAllowedToolIDs: discoveryAllowedToolIDs,
+            invokeCodeModeTool: invokeCodeModeTool,
             workspaceRootURL: workspaceRootURL,
             readOnlyRoots: agentSkillsStore?.sharedSkillsRootPaths() ?? [],
             currentDirectoryURL: currentDirectoryURL,

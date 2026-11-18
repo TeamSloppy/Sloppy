@@ -714,7 +714,7 @@ extension CoreService {
         // Collect all channel IDs that belong to this agent:
         // 1. Agent chat session channels: agent:{agentId}:session:{sessionId}
         var channelIDs: Set<String> = []
-        if let sessions = try? listAgentSessions(agentID: normalizedID) {
+        if let sessions = try? await listAgentSessions(agentID: normalizedID) {
             for session in sessions {
                 channelIDs.insert("agent:\(normalizedID):session:\(session.id)")
             }

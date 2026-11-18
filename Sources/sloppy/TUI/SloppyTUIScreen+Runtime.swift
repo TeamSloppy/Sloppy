@@ -1,3 +1,4 @@
+import AgentRuntime
 import Foundation
 #if canImport(AppKit)
 import AppKit
@@ -718,7 +719,7 @@ extension SloppyTUIScreen {
                 tokenUsageCostUSD = agentUsage.totalCostUSD
             }
         }
-        let ledger = await service.contextLedgerSnapshot(channelId: currentSessionChannelID())
+        let ledger = await selectedModelContextLedger()
         tokenUsageSummary = SloppyTUITokenUsageSummary(
             promptTokens: usage.totalPromptTokens,
             completionTokens: usage.totalCompletionTokens,
@@ -737,13 +738,23 @@ extension SloppyTUIScreen {
         "agent:\(agent.id):session:\(session.id)"
     }
 
-    func contextWindowTokens(for modelID: String, in models: [ProviderModelOption]) -> Int {
+    func selectedModelContextLedger() async -> ContextLedgerSnapshot? {
+        guard let ledger = await service.contextLedgerSnapshot(channelId: currentSessionChannelID()),
+              selectedModel == "default" || ledger.modelID == nil || ledger.modelID == selectedModel else {
+            return nil
+        }
+        return ledger
+    }
+
+    static func contextWindowTokens(for modelID: String, in models: [ProviderModelOption]) -> Int {
         let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let option = models.first { $0.id == trimmed } ?? models.first
-        guard let value = option?.contextWindow else {
+        guard let option = models.first(where: { $0.id == trimmed }) else {
             return 0
         }
-        return CoreService.parseContextWindowString(value)
+        if let tokens = option.contextWindowTokens, tokens > 0 {
+            return tokens
+        }
+        return CoreService.parseContextWindowString(option.contextWindow ?? "")
     }
 
     func isFinalAssistantMessage(_ event: AgentSessionEvent) -> Bool {

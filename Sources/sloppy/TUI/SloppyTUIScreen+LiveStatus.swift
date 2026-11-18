@@ -535,7 +535,7 @@ extension SloppyTUIScreen {
         let config = try? await service.getAgentConfig(agentID: agent.id)
         selectedModel = config?.selectedModel ?? "default"
         selectedModelContextWindowTokens = config.map {
-            contextWindowTokens(for: selectedModel, in: $0.availableModels)
+            Self.contextWindowTokens(for: selectedModel, in: $0.availableModels)
         } ?? 0
         await refreshTokenUsage(includeCost: true)
         refreshStaticChrome()

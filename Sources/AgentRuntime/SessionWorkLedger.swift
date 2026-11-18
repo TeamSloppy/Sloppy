@@ -67,6 +67,8 @@ public struct SessionWorkLedger: Sendable, Equatable {
     }
 
     public mutating func observe(request: ToolInvocationRequest, result: ToolInvocationResult) {
+        // A script could mutate files before its last step fails.
+        if request.tool == "tools.execute_js" { fileEpoch += 1 }
         guard result.ok else { return }
         if request.tool == Self.planTool {
             plan = Self.clip(Self.compactJSON(.object(request.arguments)), 1500)

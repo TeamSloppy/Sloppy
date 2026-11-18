@@ -30,6 +30,7 @@ final class LongChatFileStore {
         /// Ordinary chats using the worker queue, without becoming coordinators.
         var workerOnlySessionIds: [String]?
         var workerContexts: [String: WorkerContext]?
+        var remoteExecutions: [String: RemoteWorkerBinding]?
         var sessionGoals: [String: AgentSessionGoalRecord]?
     }
 
@@ -43,6 +44,7 @@ final class LongChatFileStore {
         var resourceKeys: [String]
         var readOnly: Bool
         var sourceTaskId: String?
+        var executionTarget: RemoteExecutionSelection?
     }
 
     private let url: URL
@@ -73,6 +75,48 @@ final class LongChatFileStore {
             throw StoreError.notFound
         }
         return result
+    }
+
+    /// Rebuild a missing index entry only when the journal proves ownership and all work has stopped.
+    /// Never replace a surviving entry or recreate an executable queue from partial evidence.
+    func recoverConversation(from detail: AgentSessionDetail) throws -> LongChatConversation {
+        let summary = detail.summary
+        if let existing = state.conversations.first(where: { $0.sessionId == summary.id }) {
+            guard existing.agentId == summary.agentId else { throw StoreError.invalidPayload }
+            return existing
+        }
+        guard summary.kind == .longChat, summary.parentSessionId == nil,
+              state.workerOnlySessionIds?.contains(summary.id) != true,
+              let owner = detail.events.last(where: { $0.message?.role == .user })?.message?.userId,
+              !owner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StoreError.notFound
+        }
+
+        var assignments: [LongChatAssignment] = []
+        for event in detail.events {
+            if let result = event.toolResult, result.tool == "long_chat.delegate", result.ok,
+               let data = result.data {
+                let assignment = try JSONDecoder().decode(LongChatAssignment.self, from: JSONEncoder().encode(data))
+                if !assignments.contains(where: { $0.id == assignment.id }) { assignments.append(assignment) }
+            }
+        }
+        for event in detail.events {
+            guard let update = event.longChatTask else { continue }
+            guard let a = assignments.firstIndex(where: { $0.id == update.assignmentId }),
+                  let t = assignments[a].tasks.firstIndex(where: { $0.id == update.task.id }) else {
+                throw StoreError.invalidPayload
+            }
+            assignments[a].tasks[t] = update.task
+        }
+        guard assignments.flatMap(\.tasks).allSatisfy({
+            $0.status.isTerminal && $0.attempts.last?.executionStopped != false
+        }) else { throw StoreError.conflict }
+
+        let recovered = LongChatConversation(
+            agentId: summary.agentId, userId: owner, sessionId: summary.id,
+            assignments: assignments, projectId: summary.projectId)
+        try transaction { $0.conversations.append(recovered) }
+        return recovered
     }
 
     func recordResolvedModel(_ model: String?, turnId: String) throws {
@@ -152,7 +196,7 @@ final class LongChatFileStore {
                         id: UUID().uuidString, key: task.key, title: task.title, objective: task.objective,
                         projectId: task.projectId, resourceKeys: task.resourceKeys, dependsOn: task.dependsOn,
                         attempts: [LongChatAttempt(number: 1)], readOnly: task.readOnly ?? task.resourceKeys.isEmpty,
-                        reuseSessionId: task.reuseSessionId)
+                        reuseSessionId: task.reuseSessionId, executionTarget: task.executionTarget)
                 }, createdAt: Date()
             )
             state.conversations[index].assignments.append(assignment)
@@ -218,6 +262,9 @@ final class LongChatFileStore {
     /// Resource locks are global; concurrency is bounded per conversation.
     func runnableTasks(sessionId: String, busySessionIDs: Set<String> = []) throws -> [(assignment: LongChatAssignment, task: LongChatTask)] {
         let conversation = try conversation(sessionId: sessionId)
+        guard conversation.assignments.contains(where: { $0.tasks.contains { $0.status == .queued } }) else {
+            return []
+        }
         let all = state.conversations.flatMap(\.assignments).flatMap(\.tasks)
         let occupied = Set(
             all.filter {

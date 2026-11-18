@@ -144,6 +144,9 @@ struct RunCommand: AsyncParsableCommand {
                 return
             }
 
+            // Establish ownership of the API port before starting background work.
+            try server.start(acceptingRequests: false)
+
             let coffeeModeHandle = CoffeeModeController(logger: logger).start(config: config.coffeeMode)
             defer {
                 coffeeModeHandle?.end()
@@ -167,7 +170,7 @@ struct RunCommand: AsyncParsableCommand {
 
             await service.bootstrapChannelPlugins()
 
-            try server.start()
+            try await server.acceptRequests()
             do {
                 try await service.publishLocalClientCredential(
                     port: server.boundPort ?? config.listen.port,
@@ -216,7 +219,7 @@ struct RunCommand: AsyncParsableCommand {
                 try? dashboardServer?.shutdown()
                 Task { await service.shutdownChannelPlugins() }
             }
-            try server.waitUntilClosed()
+            try await server.waitUntilClosed()
             await CoreObservability.shared.shutdown()
         } catch {
             await CoreObservability.shared.shutdown()

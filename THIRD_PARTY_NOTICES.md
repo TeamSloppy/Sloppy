@@ -11,6 +11,7 @@ The current Swift dependency graph includes:
 | CodexBar, SweetCookieKit | MIT |
 | EventSource, JSONSchema | MIT |
 | PartialJSONDecoder | Apache-2.0 |
+| [QuickJS 2026-06-04](https://bellard.org/quickjs/) | MIT |
 | swift-argument-parser | Apache-2.0 |
 | swift-configuration | Apache-2.0 |
 | swift-distributed-tracing | Apache-2.0 |

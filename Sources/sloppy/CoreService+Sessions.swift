@@ -5,12 +5,58 @@ import Protocols
 // MARK: - Agent Sessions
 
 extension CoreService {
+    func scanSessionCatalog(agentID: String, includeHeartbeat: Bool = false) async throws -> [AgentSessionSummary] {
+        let root = agentsRootURL
+        let scan: Task<[AgentSessionSummary], Error>
+        if let existing = sessionCatalogScans[root]?[agentID] {
+            scan = existing
+        } else {
+            let store = sessionStore
+            scan = Task {
+                defer {
+                    sessionCatalogScans[root]?[agentID] = nil
+                    if sessionCatalogScans[root]?.isEmpty == true {
+                        sessionCatalogScans[root] = nil
+                    }
+                }
+                let enqueued = ContinuousClock.now
+                let scanResult: (sessions: [AgentSessionSummary], queued: Duration, scan: Duration) =
+                    try await withCheckedThrowingContinuation { continuation in
+                        sessionCatalogQueue.async {
+                            let started = ContinuousClock.now
+                            continuation.resume(with: Result {
+                                let sessions = try store.listSessions(
+                                    agentID: agentID, includeHeartbeat: true, expectedRootURL: root
+                                )
+                                return (sessions, enqueued.duration(to: started), started.duration(to: .now))
+                            })
+                        }
+                    }
+                let elapsed = scanResult.queued + scanResult.scan
+                if elapsed >= .seconds(1) {
+                    logger.info("session-catalog.scan.completed", metadata: [
+                        "elapsed": .stringConvertible(elapsed),
+                        "queue_wait": .stringConvertible(scanResult.queued),
+                        "scan_time": .stringConvertible(scanResult.scan),
+                        "session_count": .stringConvertible(scanResult.sessions.count),
+                    ])
+                }
+                return scanResult.sessions
+            }
+            sessionCatalogScans[root, default: [:]][agentID] = scan
+        }
+        let sessions = try await scan.value
+        try Task.checkCancellation()
+        guard agentsRootURL == root else { throw CancellationError() }
+        return includeHeartbeat ? sessions : sessions.filter { $0.kind != .heartbeat }
+    }
+
     public func listAgentSessions(
         agentID: String,
         projectID: String? = nil,
         limit: Int? = nil,
         offset: Int = 0
-    ) throws -> [AgentSessionSummary] {
+    ) async throws -> [AgentSessionSummary] {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw AgentSessionError.invalidAgentID
         }
@@ -18,8 +64,8 @@ extension CoreService {
         _ = try getAgent(id: normalizedAgentID)
 
         do {
-            _ = deleteExpiredAgentSessionsIfNeeded()
-            var sessions = try sessionStore.listSessions(agentID: normalizedAgentID)
+            _ = await deleteExpiredAgentSessionsIfNeeded()
+            var sessions = try await scanSessionCatalog(agentID: normalizedAgentID)
             let longChatIDs = Set(sessions.filter { $0.kind == .longChat }.map(\.id))
             sessions.removeAll { $0.parentSessionId.map(longChatIDs.contains) == true }
             if let filter = projectID?.trimmingCharacters(in: .whitespacesAndNewlines), !filter.isEmpty {
@@ -34,12 +80,19 @@ extension CoreService {
     public func listAllAgentSessions(
         includeWorkers: Bool = false, query: String? = nil, projectID: String? = nil,
         agentID: String? = nil, limit: Int? = nil, offset: Int = 0
-    ) throws -> [AgentSessionSummary] {
-        _ = deleteExpiredAgentSessionsIfNeeded()
-        return try SessionToolQuery.list(
-            agentID: agentID, projectID: projectID, query: query,
-            limit: limit, offset: offset, includeWorkers: includeWorkers,
-            catalog: agentCatalogStore, store: sessionStore).map(classifyingLegacyWorker)
+    ) async throws -> [AgentSessionSummary] {
+        _ = await deleteExpiredAgentSessionsIfNeeded()
+        let agents = try SessionToolQuery.nonempty(agentID).map { [try agentCatalogStore.getAgent(id: $0)] }
+            ?? agentCatalogStore.listAgents()
+        let root = agentsRootURL
+        var sessions: [AgentSessionSummary] = []
+        for agent in agents {
+            guard agentsRootURL == root else { throw CancellationError() }
+            sessions += try await scanSessionCatalog(agentID: agent.id)
+        }
+        return SessionToolQuery.page(
+            sessions, projectID: projectID, query: query, limit: limit, offset: offset, includeWorkers: includeWorkers
+        ).map(classifyingLegacyWorker)
     }
 
     /// Creates a session for a given agent.

@@ -6,9 +6,9 @@ extension CoreService {
         CodeReviewSessionStore(url: workspaceRootURL.appendingPathComponent("code-review-sessions.json"))
     }
 
-    func codeReviewSessions(_ review: CodeReviewReference) throws -> [AgentSessionSummary] {
+    func codeReviewSessions(_ review: CodeReviewReference) async throws -> [AgentSessionSummary] {
         try validateCodeReviewReference(review)
-        let sessions = try listAllAgentSessions(includeWorkers: true)
+        let sessions = try await listAllAgentSessions(includeWorkers: true)
         return CodeReviewSessionStore.associatedSessions(
             review: review, links: try codeReviewSessionStore.links(), sessions: sessions
         )
@@ -28,7 +28,6 @@ extension CoreService {
             return try attachCodeReviewSession(review, agentID: request.agentId, sessionID: sessionID)
         }
         if let task = codeReviewChatOpenTasks[review] { return try await task.value }
-        if let existing = try codeReviewSessions(review).first { return existing }
         let task = Task { try await self.createCodeReviewSession(review, request: request) }
         codeReviewChatOpenTasks[review] = task
         defer { codeReviewChatOpenTasks.removeValue(forKey: review) }
@@ -38,7 +37,7 @@ extension CoreService {
     private func createCodeReviewSession(_ review: CodeReviewReference, request: CodeReviewSessionRequest) async throws -> AgentSessionSummary {
         // Recheck after startup/task scheduling in case an agent has just attached its working chat.
         await waitForStartup()
-        if let existing = try codeReviewSessions(review).first { return existing }
+        if let existing = try await codeReviewSessions(review).first { return existing }
         let summary = try await createAgentSession(agentID: request.agentId, request: .init(
             title: "PR \(review.reviewId): \(request.title ?? review.repository)", separateChat: true
         ))

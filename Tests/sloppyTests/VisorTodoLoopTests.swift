@@ -349,9 +349,8 @@ func fireAndForgetWorkerPersistsObjectiveArtifact() async throws {
     )
     #expect(updateResponse.status == 200)
 
-    // DefaultWorkerExecutor completes fire-and-forget workers immediately, but CoreService only
-    // marks the task `done` after explicit `project.task_update` confirmation. Until then the
-    // task is `blocked` while the worker summary is still persisted as a system task comment.
+    // The mock model does not emit agent_delegate.finish. That explicit block
+    // survives the subsequent worker failure; artifacts and system comments remain available.
     let terminalProject = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 5) { project in
         guard let status = project.tasks.first(where: { $0.id == taskID })?.status else {
             return false
@@ -501,7 +500,7 @@ func swarmHierarchyCycleBlocksRootTask() async throws {
         ],
         teams: []
     )
-    try await createProject(router: router, projectID: projectID, channelId: "general")
+    try await createProject(router: router, projectID: projectID, channelId: "general", autopilotEnabled: false)
 
     let taskID = try await createTask(
         router: router,
@@ -564,7 +563,7 @@ func swarmPlannerFailureBlocksRootTask() async throws {
         ],
         teams: []
     )
-    try await createProject(router: router, projectID: projectID, channelId: "general")
+    try await createProject(router: router, projectID: projectID, channelId: "general", autopilotEnabled: false)
 
     let taskID = try await createTask(
         router: router,
@@ -673,7 +672,7 @@ private func makeRouter() throws -> CoreRouter {
     return CoreRouter(service: service)
 }
 
-private func createProject(router: CoreRouter, projectID: String, channelId: String) async throws {
+private func createProject(router: CoreRouter, projectID: String, channelId: String, autopilotEnabled: Bool = true) async throws {
     let body = try JSONEncoder().encode(
         ProjectCreateRequest(
             id: projectID,
@@ -685,6 +684,12 @@ private func createProject(router: CoreRouter, projectID: String, channelId: Str
 
     let response = await router.handle(method: "POST", path: "/v1/projects", body: body)
     #expect(response.status == 201)
+    if !autopilotEnabled {
+        let update = ProjectUpdateRequest(autopilotSettings: .init(enabled: false))
+        let updated = await router.handle(method: "PATCH", path: "/v1/projects/\(projectID)",
+                                          body: try JSONEncoder().encode(update))
+        #expect(updated.status == 200)
+    }
 }
 
 private func createTask(

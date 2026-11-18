@@ -88,12 +88,12 @@ struct DebugReadLogsToolTests {
         #expect(result.error?.code == "file_too_large")
     }
 
-    @Test("rejects path outside workspace")
+    @Test("rejects paths outside workspace and temporary roots before reading")
     func rejectsPathOutsideWorkspace() async throws {
         let workspace = try makeWorkspace()
-        let outside = try makeWorkspace()
-        let outsideLog = outside.appendingPathComponent("debug.log")
-        try "{}\n".write(to: outsideLog, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let outsideLog = FileManager.default.temporaryDirectory.deletingLastPathComponent()
+            .appendingPathComponent("sloppy-outside-\(UUID().uuidString).log")
 
         let result = await DebugReadLogsTool().invoke(
             arguments: ["path": .string(outsideLog.path)],

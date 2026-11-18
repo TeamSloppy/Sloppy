@@ -90,23 +90,14 @@ public enum NodeMeshGitPolicy {
     }
 
     private static func gitOutput(_ arguments: [String], at repositoryPath: String) throws -> String {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.currentDirectoryURL = URL(fileURLWithPath: repositoryPath, isDirectory: true)
-        process.arguments = arguments
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let data = stderr.fileHandleForReading.readDataToEndOfFile()
-            let message = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw NodeMeshGitPolicyError.gitCommandFailed((["git"] + arguments).joined(separator: " ") + (message.isEmpty ? "" : ": \(message)"))
+        let result = try NodeMeshProcess.run(executable: "/usr/bin/git",
+            arguments: ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"] + arguments,
+            directory: repositoryPath)
+        guard result.exitCode == 0 else {
+            throw NodeMeshGitPolicyError.gitCommandFailed((["git"] + arguments).joined(separator: " ") + ": " + result.stderr)
         }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !result.stdoutTruncated, !result.stderrTruncated else { throw NodeMeshWorkerError.outputTooLarge }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func slug(_ value: String, fallback: String) -> String {

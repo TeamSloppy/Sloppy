@@ -5608,18 +5608,18 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
         request: AgentSessionCreateRequest(title: "Branch usage session")
     )
 
-    let toolResult = await service.invokeToolFromRuntime(
-        agentID: "branch-usage-agent",
-        sessionID: session.id,
-        request: ToolInvocationRequest(
-            tool: "branches.spawn",
-            arguments: [
-                "prompt": .string("Research architecture options and summarize the tradeoffs.")
-            ],
-            reason: "Need a focused side branch for token usage regression coverage"
-        )
-    )
-    #expect(toolResult.ok)
+    // This integration checks reported branch usage, independent of the default
+    // local branch executor, which performs no model call and reports zero tokens.
+    await service.waitForStartup()
+    let runtime = await service.runtime
+    let branches = BranchRuntime(eventBus: runtime.eventBus, memoryStore: InMemoryMemoryStore())
+    let branchID = await branches.spawn(
+        channelId: "agent:branch-usage-agent:session:\(session.id)",
+        prompt: "Research architecture options and summarize the tradeoffs.")
+    let conclusion = await branches.conclude(
+        branchId: branchID, summary: "Compared architecture tradeoffs.", artifactRefs: [],
+        tokenUsage: TokenUsage(prompt: 300, completion: 120))
+    #expect(conclusion != nil)
 
     let hasPersistedBranchUsage = await waitForCondition(timeoutSeconds: 3) {
         let usage = await service.listTokenUsage(channelId: "agent:branch-usage-agent:session:\(session.id)")

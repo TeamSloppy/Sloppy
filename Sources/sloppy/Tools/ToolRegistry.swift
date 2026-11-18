@@ -76,7 +76,7 @@ struct ToolRegistry: Sendable {
     }
 
     /// Builds a ToolRegistry containing all built-in Sloppy tools.
-    static func makeDefault() -> ToolRegistry {
+    static func makeDefault(codeModeEnabled: Bool = false) -> ToolRegistry {
         ToolRegistry(tools: [
             UICatalogTool(),
             UIRenderTool(),
@@ -107,7 +107,7 @@ struct ToolRegistry: Sendable {
             WorkspaceArtifactPlaceTool(),
             LaunchConfigureTool(),
             RuntimeExecTool(),
-            RuntimeProcessTool(),
+            RuntimeProcessTool(advertisesWait: codeModeEnabled),
             ComputerClickTool(),
             ComputerTypeTool(),
             ComputerKeyTool(),
@@ -201,6 +201,6 @@ struct ToolRegistry: Sendable {
             AgentDocumentsSetUserMarkdownTool(),
             AgentDocumentsSetMemoryMarkdownTool(),
             ProjectMetaMemoryTool(),
-        ] + SafariBridgeToolFactory.makeTools())
+        ] + SafariBridgeToolFactory.makeTools() + (codeModeEnabled ? [ExecuteJavaScriptTool()] : []))
     }
 }

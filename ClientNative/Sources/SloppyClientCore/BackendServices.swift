@@ -4,11 +4,13 @@ public struct HealthCheckResult: Sendable {
     public let isHealthy: Bool
     public let failureMessage: String?
     public let requiresTransportReconnect: Bool
+    public let requestID: UUID?
 
-    public init(isHealthy: Bool, failureMessage: String? = nil, requiresTransportReconnect: Bool = false) {
+    public init(isHealthy: Bool, failureMessage: String? = nil, requiresTransportReconnect: Bool = false, requestID: UUID? = nil) {
         self.isHealthy = isHealthy
         self.failureMessage = failureMessage
         self.requiresTransportReconnect = requiresTransportReconnect
+        self.requestID = requestID
     }
 }
 
@@ -65,24 +67,35 @@ public actor HealthService {
     public nonisolated var baseURL: URL { http.baseURL }
 
     public func check(timeout: TimeInterval = 5) async -> HealthCheckResult {
+        let requestID = http.endpoint.isDirect ? UUID() : nil
+        func result(isHealthy: Bool, failureMessage: String? = nil, requiresTransportReconnect: Bool = false) -> HealthCheckResult {
+            HealthCheckResult(
+                isHealthy: isHealthy, failureMessage: failureMessage,
+                requiresTransportReconnect: requiresTransportReconnect, requestID: requestID
+            )
+        }
         do {
-            _ = try await http.getData("/health", timeout: timeout)
-            return HealthCheckResult(isHealthy: true)
+            _ = try await http.getData("/health", timeout: timeout, diagnosticRequestID: requestID)
+            return result(isHealthy: true)
         } catch let apiError as APIError {
             switch apiError {
             case .invalidResponse:
-                return HealthCheckResult(isHealthy: false, failureMessage: "Invalid HTTP response")
-            case let .httpError(statusCode, _):
-                return HealthCheckResult(isHealthy: false, failureMessage: "HTTP \(statusCode)")
+                return result(isHealthy: false, failureMessage: "Invalid HTTP response")
+            case let .httpError(statusCode, body):
+                let errorCode = body.flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) }?["error"]
+                if statusCode == 503 && errorCode == "core_health_timeout" {
+                    return result(isHealthy: false, failureMessage: "Core accepted the connection but did not answer its health check in time.")
+                }
+                return result(isHealthy: false, failureMessage: "HTTP \(statusCode)")
             case let .decodingFailed(message):
-                return HealthCheckResult(isHealthy: false, failureMessage: message)
+                return result(isHealthy: false, failureMessage: message)
             }
         } catch {
             let nsError = error as NSError
             let reconnect = (error as? URLError).map {
                 [.timedOut, .networkConnectionLost, .cannotConnectToHost].contains($0.code)
             } ?? false
-            return HealthCheckResult(
+            return result(
                 isHealthy: false,
                 failureMessage: "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)",
                 requiresTransportReconnect: reconnect

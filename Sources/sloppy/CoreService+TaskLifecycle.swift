@@ -1725,7 +1725,7 @@ extension CoreService {
         }
 
         let sessionBaseTitle = "task-\(taskID)"
-        let existingSessions = (try? listAgentSessions(agentID: agentID)) ?? []
+        let existingSessions = (try? await listAgentSessions(agentID: agentID)) ?? []
         let attemptNumber = nextSubagentTaskAttemptNumber(baseTitle: sessionBaseTitle, existingSessions: existingSessions)
         let sessionTitle = "\(sessionBaseTitle)-attempt-\(attemptNumber)"
 
@@ -2207,15 +2207,9 @@ extension CoreService {
     }
 
     private func delegatedTaskWorkerPayload(from outcome: DelegatedTaskFinishOutcome) -> [String: JSONValue] {
-        guard outcome.status == "completed",
-              !outcome.synthetic
-        else {
-            return [:]
-        }
-
         return [
             "delegateFinish": .object([
-                "finished": .bool(true),
+                "finished": .bool(!outcome.synthetic),
                 "status": .string(outcome.status),
                 "summary": .string(outcome.summary),
                 "error": outcome.error.map(JSONValue.string) ?? .null,

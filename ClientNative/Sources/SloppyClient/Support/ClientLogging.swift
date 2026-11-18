@@ -2,6 +2,7 @@
 import Foundation
 #endif
 import Logging
+import OSLog
 
 enum ClientLogging {
     private static let bootstrapOnce: Void = {
@@ -13,11 +14,13 @@ enum ClientLogging {
             handler.logLevel = .info
             #endif
             #if DEBUG
-            var combined = MultiplexLogHandler([handler, ClientNetworkFileLogHandler(label: label)])
+            var combined = MultiplexLogHandler([
+                handler, ClientNetworkFileLogHandler(label: label), ClientNetworkUnifiedLogHandler(label: label),
+            ])
             combined.logLevel = .debug
             return combined
             #else
-            return handler
+            return MultiplexLogHandler([handler, ClientNetworkUnifiedLogHandler(label: label)])
             #endif
         }
     }()
@@ -27,17 +30,51 @@ enum ClientLogging {
     }
 }
 
-#if DEBUG
-private struct ClientNetworkFileLogHandler: LogHandler {
+private struct ClientNetworkUnifiedLogHandler: LogHandler {
     let label: String
-    var metadata: Logger.Metadata = [:]
-    var logLevel: Logger.Level = .debug
-    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+    var metadata: Logging.Logger.Metadata = [:]
+    var logLevel: Logging.Logger.Level = .info
+    private static let logger = OSLog(subsystem: "team.sloppy.client", category: "Connection")
+
+    subscript(metadataKey key: String) -> Logging.Logger.Metadata.Value? {
         get { metadata[key] }
         set { metadata[key] = newValue }
     }
 
-    func log(level: Logger.Level, message: Logger.Message, metadata extra: Logger.Metadata?,
+    func log(level: Logging.Logger.Level, message: Logging.Logger.Message, metadata extra: Logging.Logger.Metadata?,
+             source: String, file: String, function: String, line: UInt) {
+        let event = String(describing: message)
+        switch (label, event) {
+        case ("sloppy.backend-http", "http.request.completed") where level >= .warning:
+            break
+        case ("sloppy.backend-http", "http.request.failed"),
+             ("sloppy.backend-http", "http.request.network-timing"),
+             ("sloppy.connection-monitor", "connection.health.failed"),
+             ("sloppy.connection-monitor", "connection.health.recovered"):
+            break
+        default:
+            return
+        }
+        let keys = ["request_id", "elapsed", "error_domain", "error_code", "total_ms", "dns_ms",
+                    "connect_ms", "tls_ms", "first_byte_ms", "download_ms", "reused_connection", "attempt", "in_flight", "status"]
+        let fields = keys.compactMap { key in
+            (extra?[key] ?? metadata[key]).map { "\(key)=\($0)" }
+        }.joined(separator: " ")
+        os_log("%{public}@ %{public}@", log: Self.logger, type: level >= .warning ? .error : .info, event, fields)
+    }
+}
+
+#if DEBUG
+private struct ClientNetworkFileLogHandler: LogHandler {
+    let label: String
+    var metadata: Logging.Logger.Metadata = [:]
+    var logLevel: Logging.Logger.Level = .debug
+    subscript(metadataKey key: String) -> Logging.Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+
+    func log(level: Logging.Logger.Level, message: Logging.Logger.Message, metadata extra: Logging.Logger.Metadata?,
              source: String, file: String, function: String, line: UInt) {
         let labels: Set<String> = ["sloppy.root-shell", "sloppy.console-account", "sloppy.console-http",
             "sloppy.console-network", "sloppy.console-transport", "sloppy.connection-monitor", "sloppy.backend-http"]
@@ -57,16 +94,23 @@ private struct ClientNetworkFileLogHandler: LogHandler {
     }
 }
 
-/// LogHandler is synchronous; serialize bounded DEBUG-only file appends.
+/// Keep diagnostics off the caller's executor, including when the disk stalls.
 private final class ClientNetworkLogFile: @unchecked Sendable {
     static let shared = ClientNetworkLogFile()
-    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "sloppy.client-network-log", qos: .utility)
+    private let availableSlots = DispatchSemaphore(value: 128)
     private let directory = (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         ?? FileManager.default.temporaryDirectory).appendingPathComponent("SloppyNetwork", isDirectory: true)
 
     func append(_ data: Data) {
-        lock.lock()
-        defer { lock.unlock() }
+        guard availableSlots.wait(timeout: .now()) == .success else { return }
+        queue.async {
+            defer { self.availableSlots.signal() }
+            self.write(data)
+        }
+    }
+
+    private func write(_ data: Data) {
         let manager = FileManager.default
         let url = directory.appendingPathComponent("client-network.log")
         do {

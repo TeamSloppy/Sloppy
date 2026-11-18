@@ -307,7 +307,6 @@ public actor HybridMemoryStore: MemoryStore {
 
         let returnedHits = Array(hits.prefix(limit))
         let durationMs = memoryElapsedMilliseconds(since: started)
-        persistRecallLog(request: request, ids: returnedHits.map { $0.ref.id }, latencyMs: Int(durationMs.rounded()))
         return MemoryRecallResult(hits: returnedHits, durationMs: durationMs, stages: stages)
 #else
         stages.append(MemoryRetrievalStage(name: "local_index", durationMs: 0, candidateCount: 0, error: "SQLite is unavailable"))
@@ -1559,44 +1558,6 @@ private extension HybridMemoryStore {
             _ = sqlite3_step(statement)
         }
         sqlite3_finalize(statement)
-    }
-
-    func persistRecallLog(request: MemoryRecallRequest, ids: [String], latencyMs: Int) {
-        guard let db else {
-            return
-        }
-
-        let sql =
-            """
-            INSERT INTO memory_recall_log(
-                id,
-                query,
-                scope_type,
-                scope_id,
-                top_k,
-                result_ids_json,
-                latency_ms,
-                created_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?);
-            """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            return
-        }
-        defer { sqlite3_finalize(statement) }
-
-        let resultIDs = (try? String(data: JSONEncoder().encode(ids), encoding: .utf8)) ?? "[]"
-        bindText(UUID().uuidString, at: 1, statement: statement)
-        bindText(request.query, at: 2, statement: statement)
-        bindOptionalText(request.scope?.type.rawValue, at: 3, statement: statement)
-        bindOptionalText(request.scope?.id, at: 4, statement: statement)
-        sqlite3_bind_int(statement, 5, Int32(request.limit))
-        bindText(resultIDs, at: 6, statement: statement)
-        sqlite3_bind_int64(statement, 7, Int64(max(0, latencyMs)))
-        bindText(isoFormatter.string(from: Date()), at: 8, statement: statement)
-
-        _ = sqlite3_step(statement)
     }
 
     func bindText(_ value: String, at index: Int32, statement: OpaquePointer?) {

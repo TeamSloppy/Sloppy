@@ -112,7 +112,7 @@ private func freshLaunchService() -> LaunchRunService {
     let agentID = "launch-" + UUID().uuidString.lowercased()
     _ = try await service.createAgent(AgentCreateRequest(id: agentID, displayName: "Launch", role: "Testing"))
     let session = try await service.createAgentSession(agentID: agentID, request: .init(title: "Play"))
-    let root = URL(fileURLWithPath: "/tmp").appendingPathComponent("play-router-" + UUID().uuidString)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("play-router-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
     let router = CoreRouter(service: service)

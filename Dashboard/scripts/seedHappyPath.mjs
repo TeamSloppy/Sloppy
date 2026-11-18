@@ -129,6 +129,9 @@ async function markOnboardingComplete() {
   const config = await request("/v1/config");
   const nextConfig = {
     ...config,
+    // The CI fixture must not depend on external providers or operator credentials.
+    models: [{ title: "Happy Path Mock", apiKey: "", apiUrl: "", model: "mock:happy-path" }],
+    disableModelInference: true,
     onboarding: {
       ...(typeof config?.onboarding === "object" && config.onboarding ? config.onboarding : {}),
       completed: true

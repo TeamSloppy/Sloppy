@@ -262,6 +262,7 @@ private struct MacSidebarPrimaryActions: View {
 private struct SidebarConnectionStatus: View {
     let monitor: ConnectionMonitor
     @State private var showsDetails = false
+    @State private var detailsPinned = false
 
     private var status: (title: String, symbol: String, color: Color) {
         switch monitor.state {
@@ -272,7 +273,10 @@ private struct SidebarConnectionStatus: View {
     }
 
     var body: some View {
-        Button { showsDetails = true } label: {
+        Button {
+            detailsPinned = true
+            showsDetails = true
+        } label: {
             ViewThatFits(in: .horizontal) {
                 Label {
                     Text(status.title).foregroundStyle(.secondary)
@@ -289,7 +293,12 @@ private struct SidebarConnectionStatus: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Server connection: \(status.title)")
         .accessibilityIdentifier("sidebar.connection")
-        .onHover { showsDetails = $0 }
+        .onHover { hovering in
+            if !detailsPinned { showsDetails = hovering }
+        }
+        .onChange(of: showsDetails) { _, shown in
+            if !shown { detailsPinned = false }
+        }
         .popover(isPresented: $showsDetails, arrowEdge: .bottom) {
             details
         }
@@ -331,6 +340,17 @@ private struct SidebarConnectionStatus: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let requestID = monitor.lastFailedRequestID {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Last failed check ID")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(requestID.uuidString.lowercased())
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("sidebar.connection.failed-request-id")
+                    }
                 }
             }
             .frame(width: 270, alignment: .leading)

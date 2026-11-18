@@ -34,7 +34,7 @@ extension CoreService {
         let modelProvider = CoreModelProviderFactory.buildModelProvider(
             config: config,
             resolvedModels: resolvedModels,
-            tools: ToolRegistry.makeDefault().allTools,
+            tools: ToolRegistry.makeDefault(codeModeEnabled: CodeMode.enabled(workspaceRoot: workspaceRootURL)).allTools,
             oauthTokenProvider: { oauthSvc.currentAccessToken() },
             oauthAccountId: oauthSvc.currentAccountId(),
             oauthTokenRefresh: { try await oauthSvc.ensureValidToken() },

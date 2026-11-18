@@ -55,6 +55,7 @@ extension ChatScreenViewModel {
         }
 
         sendMessageImmediately(content: content, attachments: attachments, quotes: quotes, agent: agent, steering: canSteerActiveRun)
+        requestTranscriptScrollToEnd()
         return true
     }
 

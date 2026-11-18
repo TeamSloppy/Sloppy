@@ -238,7 +238,8 @@ extension RuntimeSystem {
             channelId: channelId,
             contextWindowTokens: contextWindowTokens,
             reservedOutputTokens: limits?.outputReserve(maxOutputTokens) ?? maxOutputTokens,
-            entries: entries
+            entries: entries,
+            modelID: activeModel
         )
     }
 

@@ -41,7 +41,14 @@ enum SessionToolQuery {
         catalog: AgentCatalogFileStore, store: AgentSessionFileStore
     ) throws -> [AgentSessionSummary] {
         let agents = try nonempty(agentID).map { [try catalog.getAgent(id: $0)] } ?? catalog.listAgents()
-        var sessions = try agents.flatMap { try store.listSessions(agentID: $0.id) }
+        let sessions = try agents.flatMap { try store.listSessions(agentID: $0.id) }
+        return page(sessions, projectID: projectID, query: query, limit: limit, offset: offset, includeWorkers: includeWorkers)
+    }
+
+    static func page(
+        _ summaries: [AgentSessionSummary], projectID: String?, query: String?, limit: Int?, offset: Int, includeWorkers: Bool
+    ) -> [AgentSessionSummary] {
+        var sessions = summaries
         if !includeWorkers {
             let coordinatorIDs = Set(sessions.filter { $0.kind == .longChat }.map(\.id))
             sessions.removeAll { $0.kind == .longChatWorker || $0.parentSessionId.map(coordinatorIDs.contains) == true }

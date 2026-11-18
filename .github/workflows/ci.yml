@@ -17,7 +17,8 @@ concurrency:
 jobs:
   license-compliance:
     name: License Compliance
-    runs-on: ubuntu-latest
+    # setup-swift v2 does not support the Ubuntu 26.04 image used by ubuntu-latest.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,8 +41,6 @@ jobs:
 
   swift-test:
     name: Swift Tests
-    # Temporarily disabled.
-    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -88,8 +87,6 @@ jobs:
 
   swift-test-macos:
     name: Swift Tests (macOS)
-    # Temporarily disabled.
-    if: ${{ false }}
     # Swift 6.2.1 needs an SDK from the Xcode 16 generation. macos-latest can
     # move to Xcode 26 first, whose WebKit interfaces require a newer compiler.
     runs-on: macos-15

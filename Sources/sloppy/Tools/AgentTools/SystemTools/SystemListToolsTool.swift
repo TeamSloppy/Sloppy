@@ -14,7 +14,8 @@ struct SystemListToolsTool: CoreTool {
     }
 
     func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
-        let payload = await ToolCatalog.listToolsPayload(mcpRegistry: context.mcpRegistry)
+        let payload = await ToolCatalog.listToolsPayload(mcpRegistry: context.mcpRegistry,
+            codeModeEnabled: CodeMode.enabled(workspaceRoot: context.workspaceRootURL))
         return toolSuccess(tool: name, data: .array(payload))
     }
 }

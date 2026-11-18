@@ -467,6 +467,9 @@ public actor CoreRouter {
         return await withSpan("\(metricMethod) \(routeName)", context: traceContext, ofKind: .server) { span in
             span.attributes["http.request.method"] = metricMethod
             span.attributes["http.route"] = routeName
+            if let requestID = headers["x-sloppy-request-id"].flatMap({ UUID(uuidString: $0) }) {
+                span.attributes["sloppy.request.id"] = requestID.uuidString.lowercased()
+            }
             var response = await handleRequest(method: method, path: path, body: body, headers: headers, remoteAddress: remoteAddress, consoleContext: consoleContext)
             let elapsed = started.duration(to: .now)
             let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18

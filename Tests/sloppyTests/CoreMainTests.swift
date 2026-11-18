@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 @testable import sloppy
 import Configuration
@@ -6,6 +9,25 @@ import Logging
 #if canImport(CSQLite3)
 import CSQLite3
 #endif
+
+@Test
+func coreCanReservePortBeforeAcceptingRequests() async throws {
+    let router = CoreRouter(service: CoreService(config: .test))
+    let logger = Logger.sloppy(label: "sloppy.core.startup.tests")
+    let owner = CoreHTTPServer(host: "127.0.0.1", port: 0, router: router, logger: logger)
+    defer { try? owner.shutdown() }
+    try owner.start(acceptingRequests: false)
+
+    let port = try #require(owner.boundPort)
+    let duplicate = CoreHTTPServer(host: "127.0.0.1", port: port, router: router, logger: logger)
+    defer { try? duplicate.shutdown() }
+    #expect(throws: (any Error).self) { try duplicate.start(acceptingRequests: false) }
+
+    try await owner.acceptRequests()
+    let url = try #require(URL(string: "http://127.0.0.1:\(port)/health"))
+    let (_, response) = try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 5))
+    #expect((response as? HTTPURLResponse)?.statusCode == 200)
+}
 
 @Test
 func bootstrapBulletinDefaultsToVisorConfig() {

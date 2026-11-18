@@ -34,6 +34,59 @@ private struct AsyncTestTimeoutError: Error {
     let operation: String
 }
 
+@Test
+func coreHTTPHealthReportsBlockedServiceAndRecovers() async throws {
+    let service = CoreService(config: .test)
+    let server = CoreHTTPServer(
+        host: "127.0.0.1",
+        port: 0,
+        router: CoreRouter(service: service),
+        logger: .sloppy(label: "sloppy.core.httpserver.tests")
+    )
+    try server.start()
+    defer { try? server.shutdown() }
+    let client = URLSession(configuration: .ephemeral)
+    defer { client.finishTasksAndInvalidate() }
+
+    let (entered, signal) = AsyncStream<Void>.makeStream()
+    let release = DispatchSemaphore(value: 0)
+    let blockedService = Task.detached {
+        await service.holdForHealthCheckTest {
+            signal.yield()
+            signal.finish()
+            _ = release.wait(timeout: .now() + 60)
+        }
+    }
+    defer { release.signal() }
+    for await _ in entered { break }
+
+    let port = try #require(server.boundPort)
+    let url = try #require(URL(string: "http://127.0.0.1:\(port)/health"))
+    var request = URLRequest(url: url, timeoutInterval: 5)
+    let requestID = UUID().uuidString.lowercased()
+    request.setValue(requestID, forHTTPHeaderField: "X-Sloppy-Request-ID")
+    let (body, stalledResponse) = try await client.data(for: request)
+    let stalled = try #require(stalledResponse as? HTTPURLResponse)
+    #expect(stalled.statusCode == 503)
+    #expect(stalled.value(forHTTPHeaderField: "X-Sloppy-Request-ID") == requestID)
+    #expect(String(decoding: body, as: UTF8.self).contains("core_health_timeout"))
+
+    release.signal()
+    await blockedService.value
+
+    let (_, healthyResponse) = try await client.data(for: request)
+    let healthy = try #require(healthyResponse as? HTTPURLResponse)
+    #expect(healthy.statusCode == 200)
+    #expect(healthy.value(forHTTPHeaderField: "X-Sloppy-Request-ID") == requestID)
+    #expect(healthy.value(forHTTPHeaderField: "X-Sloppy-Route") == "/health")
+}
+
+private extension CoreService {
+    func holdForHealthCheckTest(_ hold: @Sendable () -> Void) {
+        hold()
+    }
+}
+
 private final class SSEDataCollector: NSObject, @unchecked Sendable, URLSessionDataDelegate {
     private let lock = NSLock()
     private var receivedData = Data()
@@ -222,6 +275,12 @@ func nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes() async throws
 
     try await authenticateMeshSocket(identity: laptopIdentity, encoder: encoder, decoder: decoder, over: laptopSocket)
     try await authenticateMeshSocket(identity: workerIdentity, encoder: encoder, decoder: decoder, over: workerSocket)
+
+    try await waitUntil("both mesh peers registered") {
+        guard let state = try? store.load() else { return false }
+        let online = state.nodes.filter { $0.status == .online }.map(\.id)
+        return online.contains(laptopIdentity.nodeId) && online.contains(workerIdentity.nodeId)
+    }
 
     try await sendMeshEnvelope(
         MeshEnvelope(

@@ -38,7 +38,12 @@ extension CoreService {
                     try storage.updateTask(sessionId: conversation.sessionId, taskId: task.id) {
                         $0.attempts[$0.attempts.count - 1].status = .running
                     }
+                    if task.executionTarget != nil {
+                        dispatchRemoteLongChatWorker(conversation: conversation, task: task)
+                        continue
+                    }
                     do {
+                        if try remoteBinding(taskID: task.id) != nil { try RemoteExecutionRegistry.requireSupportedExecutor() }
                         let session: AgentSessionSummary
                         if let sessionID = task.reuseSessionId {
                             _ = try reusableSubagent(agentID: conversation.agentId, parentSessionID: conversation.sessionId, sessionID: sessionID)
@@ -201,14 +206,21 @@ extension CoreService {
         do {
             let policy = try await toolsAuthorization.policy(agentID: conversation.agentId)
             let known = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
-            let allowed = try continuedSubagentTools(agentID: conversation.agentId, task: task, tools: longChatWorkerTools(
+            var allowed = try continuedSubagentTools(agentID: conversation.agentId, task: task, tools: longChatWorkerTools(
                 task: task, policy: policy, known: known, readOnlyMCPTools: await readOnlyLongChatMCPTools()))
+            let remote = try remoteBinding(taskID: task.id)
+            if let remote {
+                try RemoteExecutionRegistry.requireSupportedExecutor()
+                let target = try remoteTarget(remote.request.selection, projectID: remote.request.projectId)
+                guard target.allowedPeerIds.contains(remote.peerId) else { throw RemoteExecutionError.forbidden }
+                allowed = allowed.intersection(remote.request.toolIDs).intersection(target.toolIDs)
+            }
             sessionSubagentToolAllowList[childID] = allowed
             let inherited = await subagentToolContext(
                 agentID: conversation.agentId, parentSessionID: conversation.sessionId, fallbackWorkingDirectory: nil)
             let saved = try longChats().state.workerContexts?[childID]
-            let directory = saved != nil ? saved?.workingDirectory : inherited.workingDirectory
-            let roots = saved?.extraRoots ?? inherited.extraRoots
+            let directory = remote?.worktreePath ?? (saved != nil ? saved?.workingDirectory : inherited.workingDirectory)
+            let roots = remote != nil ? [] : (saved?.extraRoots ?? inherited.extraRoots)
             sessionWorkingDirectories[childID] = directory
             sessionExtraRoots[childID] = roots
             try rememberSubagentContext(
@@ -218,7 +230,7 @@ extension CoreService {
             // Carry only attachments from the user turn that authorized this assignment.
             var sourceImageUploads: [AgentAttachmentUpload] = []
             var sourceAttachmentContext: [String] = []
-            if let assignment = conversation.assignments.first(where: { $0.tasks.contains(where: { $0.id == task.id }) }),
+            if remote == nil, let assignment = conversation.assignments.first(where: { $0.tasks.contains(where: { $0.id == task.id }) }),
                let parent = try? getAgentSession(agentID: conversation.agentId, sessionID: conversation.sessionId),
                let message = parent.events.compactMap(\.message).first(where: { $0.id == assignment.sourceMessageId }) {
                 var bytes = 0
@@ -255,7 +267,7 @@ extension CoreService {
                         \(task.objective)
                         [Source attachments]
                         \(sourceAttachmentContext.joined(separator: "\n"))
-                        """, attachments: sourceImageUploads), longChatWorkerDelivery: true)
+                        """, attachments: sourceImageUploads, selectedModel: remote?.request.selection.selectedModel), longChatWorkerDelivery: true)
         } catch {
             guard !longChatIsStopping,
                 let current = try? currentLongChatTask(sessionID: conversation.sessionId, taskID: task.id),

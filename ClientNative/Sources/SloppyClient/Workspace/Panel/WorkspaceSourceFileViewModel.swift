@@ -14,6 +14,27 @@ final class WorkspaceSourceFileViewModel {
         case unavailable
     }
 
+    enum DisplayMode: String, CaseIterable {
+        case preview = "Preview"
+        case raw = "Raw"
+    }
+
+    enum DocumentKind: Equatable {
+        case markdown
+        case html
+
+        init?(path: String) {
+            switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+            case "md", "markdown", "mdown": self = .markdown
+            case "html", "htm": self = .html
+            default: return nil
+            }
+        }
+    }
+
+    var displayMode: DisplayMode
+    var documentKind: DocumentKind? { DocumentKind(path: reference.path) }
+
     let apiClient: SloppyAPIClient
     let scope: Scope
     private(set) var reference: SourceFileReference
@@ -31,6 +52,7 @@ final class WorkspaceSourceFileViewModel {
         self.reference = reference
         self.apiClient = apiClient
         self.scope = scope
+        self.displayMode = DocumentKind(path: reference.path) != nil && reference.line == nil ? .preview : .raw
     }
 
     var title: String { URL(fileURLWithPath: reference.path).lastPathComponent }
@@ -40,6 +62,7 @@ final class WorkspaceSourceFileViewModel {
     func navigate(to reference: SourceFileReference) {
         guard self.reference.path == reference.path else { return }
         self.reference = reference
+        if reference.line != nil { displayMode = .raw }
         navigationRevision += 1
     }
 

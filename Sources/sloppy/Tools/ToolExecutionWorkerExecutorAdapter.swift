@@ -2,10 +2,16 @@ import AgentRuntime
 import Foundation
 import Protocols
 
-struct AgentRunnerModelError: Error, LocalizedError {
+struct AgentRunnerModelError: Error, LocalizedError, WorkerFailureDetails {
     let detail: String
     var outcome: ExecutionOutcome = .init(state: .failed, category: .provider, code: "model_provider_error")
+    var payload: [String: JSONValue] = [:]
     var errorDescription: String? { detail }
+    var workerFailurePayload: [String: JSONValue] {
+        var evidence = payload
+        if let value = try? JSONValueCoder.encode(outcome) { evidence["executionOutcome"] = value }
+        return evidence
+    }
 }
 
 /// Bridge executor that plugs worker execution into the agent session orchestrator.
@@ -58,7 +64,8 @@ final class ToolExecutionWorkerExecutorAdapter: @unchecked Sendable, WorkerExecu
             case .completed: return .completed(summary: result.summary, payload: result.payload)
             case .waitingInput, .waitingApproval: return .waitingForRoute(report: result.summary)
             case .cancelled: throw CancellationError()
-            case .failed, .interrupted: throw AgentRunnerModelError(detail: result.summary, outcome: result.executionOutcome)
+            case .failed, .interrupted:
+                throw AgentRunnerModelError(detail: result.summary, outcome: result.executionOutcome, payload: result.payload)
             }
         }
         return try await fallback.execute(workerId: workerId, spec: spec)

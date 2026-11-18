@@ -228,7 +228,9 @@ func petProgressCombinesSourcesAndCapsRepeatedShortMessages() throws {
 
 @Test
 func petProgressTracksCoreServiceToolInvocationEvents() async throws {
-    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    defer { Task { await service.stop() } }
     let agentID = "pet-tool-events-\(UUID().uuidString)"
     _ = try await service.createAgent(
         AgentCreateRequest(id: agentID, displayName: "Pet Tool Events", role: "Debugger")
@@ -250,5 +252,13 @@ func petProgressTracksCoreServiceToolInvocationEvents() async throws {
     let updated = try await service.getAgent(id: agentID)
     let updatedPet = try #require(updated.pet)
     #expect((updatedPet.evolution?.totalXp ?? 0) > (before.evolution?.totalXp ?? 0))
-    #expect(updatedPet.currentStats.debugging > before.currentStats.debugging)
+    // Cosmetic variance can cancel an individual stat gain. The persisted counter
+    // verifies tool-call delivery independently of that random decay.
+    let stateURL = config.resolvedWorkspaceRootURL()
+        .appendingPathComponent("agents/\(agentID)/pet-state.json")
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let state = try decoder.decode(AgentPetProgressState.self, from: Data(contentsOf: stateURL))
+    #expect(state.counters.toolCallCount == 1)
+    #expect(updatedPet.currentStats.debugging >= before.baseStats.debugging)
 }

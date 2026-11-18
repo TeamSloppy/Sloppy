@@ -8,6 +8,7 @@ public final class ConnectionMonitor {
     public private(set) var state: ConnectionState = .disconnected
     public private(set) var checkedURL: URL?
     public private(set) var lastFailureMessage: String?
+    public private(set) var lastFailedRequestID: UUID?
     public private(set) var lastCheckedAt: Date?
     public private(set) var lastSuccessfulCheckDuration: Duration?
 
@@ -17,6 +18,7 @@ public final class ConnectionMonitor {
     private let logger: Logger
     private let checkInterval: TimeInterval = 10
     private var healthCheckAttempt = 0
+    private var consecutiveHealthFailures = 0
     private var consecutiveTransportFailures = 0
     private var monitorID = UUID()
     private let healthCheck: @Sendable (SloppyInstanceEndpoint) async -> HealthCheckResult
@@ -29,11 +31,18 @@ public final class ConnectionMonitor {
         self.baseURL = baseURL
         self.endpoint = .direct(baseURL: baseURL)
         self.logger = logger
+        let probeConfiguration = URLSessionConfiguration.ephemeral
+        probeConfiguration.httpMaximumConnectionsPerHost = 1
+        probeConfiguration.timeoutIntervalForResource = 5
+        probeConfiguration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let loopbackProbeSession = URLSession(configuration: probeConfiguration)
         self.healthCheck = { endpoint in
             // A managed check can include proof, Relay authentication, a fresh
             // WebSocket and peer TLS before the Core request itself is sent.
             let timeout: TimeInterval = if case .managed = endpoint { 10 } else { 5 }
-            return await HealthService(http: BackendHTTPClient(endpoint: endpoint)).check(timeout: timeout)
+            let probeSession = endpoint.isDirect && endpoint.coordinatorBaseURL.scheme == "http"
+                && ServerAddress.isLoopbackHost(endpoint.coordinatorBaseURL.host) ? loopbackProbeSession : nil
+            return await HealthService(http: BackendHTTPClient(endpoint: endpoint, session: probeSession)).check(timeout: timeout)
         }
         self.recoverTransport = { endpoint in
             guard case .managed(_, let hostID) = endpoint else { return false }
@@ -68,9 +77,11 @@ public final class ConnectionMonitor {
         state = .reconnecting
         checkedURL = baseURL.appendingPathComponent("health")
         lastFailureMessage = nil
+        lastFailedRequestID = nil
         lastCheckedAt = nil
         lastSuccessfulCheckDuration = nil
         healthCheckAttempt = 0
+        consecutiveHealthFailures = 0
         consecutiveTransportFailures = 0
         logger.info("Starting connection monitor for \(baseURL.absoluteString)")
         checkTask = Task { [weak self] in
@@ -101,7 +112,9 @@ public final class ConnectionMonitor {
             if !Task.isCancelled {
                 state = reachable ? .connected : .disconnected
             }
-            try? await Task.sleep(nanoseconds: UInt64(checkInterval * 1_000_000_000))
+            let isLoopback = endpoint.isDirect && ServerAddress.isLoopbackHost(baseURL.host)
+            let delay: TimeInterval = !reachable && isLoopback ? 2 : checkInterval
+            try? await Task.sleep(for: .seconds(delay))
         }
     }
 
@@ -112,14 +125,33 @@ public final class ConnectionMonitor {
         let currentID = monitorID
         let checkedEndpoint = endpoint
         let startedAt = ContinuousClock.now
+        let attempt = healthCheckAttempt
         let result = await healthCheck(checkedEndpoint)
         guard !Task.isCancelled, monitorID == currentID else { return false }
         lastCheckedAt = .now
-        lastSuccessfulCheckDuration = result.isHealthy ? startedAt.duration(to: .now) : nil
+        let elapsed = startedAt.duration(to: .now)
+        lastSuccessfulCheckDuration = result.isHealthy ? elapsed : nil
         lastFailureMessage = result.failureMessage
 
-        if !result.isHealthy {
-            logger.warning("Health check attempt \(healthCheckAttempt) failed: \(result.failureMessage ?? "unknown error")")
+        var metadata: Logger.Metadata = [
+            "attempt": .stringConvertible(attempt),
+            "elapsed": .stringConvertible(elapsed),
+            "in_flight": .stringConvertible(trafficSnapshot().requestsInFlight),
+        ]
+        if let requestID = result.requestID {
+            metadata["request_id"] = .string(requestID.uuidString.lowercased())
+        }
+        if result.isHealthy {
+            if consecutiveHealthFailures > 0 {
+                logger.info("connection.health.recovered", metadata: metadata)
+            }
+            consecutiveHealthFailures = 0
+        } else {
+            lastFailedRequestID = result.requestID
+            consecutiveHealthFailures += 1
+            if consecutiveHealthFailures == 1 || consecutiveHealthFailures.isMultiple(of: 10) {
+                logger.warning("connection.health.failed", metadata: metadata)
+            }
         }
 
         consecutiveTransportFailures = !result.isHealthy && result.requiresTransportReconnect

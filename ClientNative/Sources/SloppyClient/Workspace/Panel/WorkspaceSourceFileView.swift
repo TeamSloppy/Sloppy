@@ -3,7 +3,7 @@ import SloppyClientUI
 
 @MainActor
 struct WorkspaceSourceFileView: View {
-    let viewModel: WorkspaceSourceFileViewModel
+    @Bindable var viewModel: WorkspaceSourceFileViewModel
     @Environment(\.theme) private var theme
     @Environment(\.colorScheme) private var colorScheme
 
@@ -20,7 +20,17 @@ struct WorkspaceSourceFileView: View {
                     .truncationMode(.middle)
                     .help(viewModel.reference.path)
                 Spacer(minLength: 0)
-                if let line = viewModel.reference.line {
+                if viewModel.documentKind != nil {
+                    Picker("Display mode", selection: $viewModel.displayMode) {
+                        ForEach(WorkspaceSourceFileViewModel.DisplayMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    .accessibilityIdentifier("workspace.source-file.display-mode")
+                }
+                if let line = viewModel.reference.line, viewModel.displayMode == .raw {
                     Text("Line \(line)").fixedSize()
                 }
 #if !os(iOS)
@@ -59,8 +69,12 @@ struct WorkspaceSourceFileView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel(viewModel.title)
                     .accessibilityIdentifier("workspace.source-file.image")
-            } else if viewModel.content != nil {
-                sourceContent
+            } else if let content = viewModel.content {
+                if viewModel.displayMode == .preview, let kind = viewModel.documentKind {
+                    documentPreview(content.content, kind: kind)
+                } else {
+                    sourceContent
+                }
             } else {
                 ScrollView {
                     ProgressView("Loading file…")
@@ -73,6 +87,22 @@ struct WorkspaceSourceFileView: View {
         .mobileRefreshable(id: viewModel.reference.path) { await viewModel.loadIfNeeded(force: true) }
         .task(id: viewModel.loadRevision) { await viewModel.loadIfNeeded() }
         .accessibilityIdentifier("workspace.source-file")
+    }
+
+    @ViewBuilder
+    private func documentPreview(_ source: String, kind: WorkspaceSourceFileViewModel.DocumentKind) -> some View {
+        switch kind {
+        case .markdown:
+            ScrollView {
+                MarkdownDocumentView(source: source)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            }
+            .accessibilityIdentifier("workspace.source-file.markdown-preview")
+        case .html:
+            WorkspaceHTMLPreview(source: source)
+                .accessibilityIdentifier("workspace.source-file.html-preview")
+        }
     }
 
     private var sourceContent: some View {

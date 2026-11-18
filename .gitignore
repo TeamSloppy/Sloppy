@@ -37,6 +37,7 @@ logs/
 .sloppy/
 .worktrees/
 .sloppy-worktrees/
+.claude/worktrees/
 
 # Cursor
 .cursor/*

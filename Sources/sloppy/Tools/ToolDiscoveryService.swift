@@ -28,9 +28,10 @@ struct ToolDiscoveryEntry: Sendable {
 }
 
 extension ToolCatalog {
-    static func discoveryEntries(mcpRegistry: (any MCPToolDiscovering)?) async -> [ToolDiscoveryEntry] {
-        let builtIns = builtInEntries.map { entry in
-            let schema = builtInRegistry.tool(for: entry.id).flatMap { tool -> JSONValue? in
+    static func discoveryEntries(mcpRegistry: (any MCPToolDiscovering)?, codeModeEnabled: Bool = false) async -> [ToolDiscoveryEntry] {
+        let registry = codeModeEnabled ? builtInRegistry : standardRegistry
+        let builtIns = registry.catalogEntries.map { entry in
+            let schema = registry.tool(for: entry.id).flatMap { tool -> JSONValue? in
                 guard let data = try? JSONEncoder().encode(tool.parameters) else { return nil }
                 return try? JSONDecoder().decode(JSONValue.self, from: data)
             }

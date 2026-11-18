@@ -35,7 +35,10 @@ let browser;
 try {
   await server.listen();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-  browser = await chromium.launch(process.platform === "win32" ? { channel: "msedge" } : {});
+  browser = await chromium.launch({
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    ...(process.platform === "win32" && !process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { channel: "msedge" } : {})
+  });
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   page.setDefaultTimeout(30000);
   page.on("pageerror", error => errors.push(error.message));

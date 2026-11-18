@@ -673,7 +673,7 @@ enum SloppyTUITheme {
                 details.append("free \(formatTokenCountShort(freeTokens))")
             }
         } else {
-            details.append("context unknown")
+            details.append(contextWindowStatus(summary.contextWindowTokens))
             details.append("spent \(formatTokenCountShort(summary.totalTokens)) tokens")
         }
         if let costUSD = summary.costUSD {
@@ -865,7 +865,7 @@ enum SloppyTUITheme {
             }
         } else {
             parts.append(foreground("spent \(formatTokenCountCompact(summary.totalTokens))"))
-            parts.append(muted("context unknown"))
+            parts.append(muted(contextWindowStatus(summary.contextWindowTokens)))
         }
         if let lastTurnUsage {
             parts.append(foreground("turn \(formatTokenCountCompact(lastTurnUsage.prompt))↑/\(formatTokenCountCompact(lastTurnUsage.completion))↓"))
@@ -880,6 +880,10 @@ enum SloppyTUITheme {
             parts.append(muted(formatUSD(costUSD)))
         }
         return parts.joined(separator: muted(" │ "))
+    }
+
+    private static func contextWindowStatus(_ tokens: Int) -> String {
+        tokens > 0 ? "window \(formatTokenCountCompact(tokens))" : "context unknown"
     }
 
     private static func contextIndicatorBar(_ summary: SloppyTUITokenUsageSummary, width: Int) -> String {

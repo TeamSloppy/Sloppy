@@ -97,8 +97,10 @@ struct ToolOutputArtifactStore: Sendable {
         var changed = false
         func preview(_ value: JSONValue, key: String = "") -> JSONValue {
             switch value {
-            case .string(let text) where ["text", "content", "output", "stdout", "stderr", "html", "markdown"].contains(key):
-                let bounded = boundedToolText(text, maxBytes: budget)
+            case .string(let text) where ["text", "content", "output", "stdout", "stderr", "html", "markdown", "console", "outputTail"].contains(key):
+                let bounded = key == "outputTail"
+                    ? String(decoding: text.utf8.suffix(budget).drop(while: { $0 & 0xC0 == 0x80 }), as: UTF8.self)
+                    : boundedToolText(text, maxBytes: budget)
                 budget = max(0, budget - bounded.utf8.count)
                 changed = changed || bounded != text
                 return .string(bounded)

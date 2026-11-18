@@ -23,15 +23,27 @@ extension CoreService {
             guard !projectID.isEmpty else { throw AgentSessionError.invalidPayload }
             _ = try await getProject(id: projectID)
         }
+        let candidates = if projectID != nil {
+            try await scanSessionCatalog(agentID: agentID)
+        } else {
+            [AgentSessionSummary]()
+        }
         // From here, no suspension between migration, lookup and reservation.
         let storage = try longChats()
         if let projectID {
             let separate = Set(storage.state.separateSessionIds ?? [])
-            for session in try sessionStore.listSessions(agentID: agentID)
+            for session in candidates
                 where session.projectId == projectID && session.parentSessionId == nil
                     && session.taskId == nil && session.workspaceId == nil
                     && session.kind == .chat && !separate.contains(session.id) {
                 if storage.state.workerOnlySessionIds?.contains(session.id) == true { continue }
+                // Another open may have promoted the candidate while this call awaited the scan.
+                do {
+                    let current = try sessionStore.loadSessionSummary(agentID: agentID, sessionID: session.id)
+                    guard current.kind == .chat else { continue }
+                } catch AgentSessionFileStore.StoreError.sessionNotFound {
+                    continue
+                }
                 // Reserve ownership before promotion; an interrupted migration is repaired on reopening.
                 if !storage.state.conversations.contains(where: { $0.sessionId == session.id }) {
                     try storage.transaction {
@@ -46,7 +58,11 @@ extension CoreService {
             $0.agentId == agentID && $0.userId == userID && $0.projectId == projectID
                 && storage.state.workerOnlySessionIds?.contains($0.sessionId) != true
         }) {
-            return try getAgentSession(agentID: agentID, sessionID: existing.sessionId).summary
+            do {
+                return try sessionStore.loadSessionSummary(agentID: agentID, sessionID: existing.sessionId)
+            } catch {
+                throw mapSessionStoreError(error)
+            }
         }
         let session = try sessionStore.createSession(
             agentID: agentID, request: .init(title: "Conversation", kind: .longChat, projectId: projectID))
@@ -66,7 +82,17 @@ extension CoreService {
     public func getLongChat(agentID: String, sessionID: String) throws -> LongChatConversation {
         let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
         guard detail.summary.kind == .longChat else { throw AgentSessionError.invalidPayload }
-        let conversation = try longChats().conversation(sessionId: sessionID)
+        let storage = try longChats()
+        let conversation: LongChatConversation
+        do {
+            conversation = try storage.conversation(sessionId: sessionID)
+        } catch LongChatFileStore.StoreError.notFound {
+            conversation = try storage.recoverConversation(from: detail)
+            logger.warning("long_chat.index_recovered", metadata: [
+                "agent_id": .string(agentID), "session_id": .string(sessionID),
+                "assignment_count": .stringConvertible(conversation.assignments.count),
+            ])
+        }
         guard conversation.agentId == agentID else { throw AgentSessionError.invalidAgentID }
         return conversation
     }
@@ -285,6 +311,8 @@ extension CoreService {
                             "attempt": .number(Double(task.attempts.last?.number ?? 0)),
                             "sessionId": task.attempts.last?.sessionId.map(JSONValue.string) ?? .null,
                             "reuseSessionId": task.reuseSessionId.map(JSONValue.string) ?? .null,
+                            "executionTarget": (try? JSONValueCoder.encode(task.executionTarget)) ?? .null,
+                            "remoteExecution": (try? JSONValueCoder.encode(task.attempts.last?.remoteExecution)) ?? .null,
                             "summary": .string(String((task.attempts.last?.summary ?? "").prefix(1000))),
                             "automaticRetryAllowed": .bool(task.attempts.last?.automaticRetryAllowed != false),
                         ])
@@ -292,6 +320,8 @@ extension CoreService {
             ])
         }
         let snapshot = JSONValue.object([
+            "remoteExecutionSupported": .bool(false),
+            "executionTargets": (try? JSONValueCoder.encode(remoteExecutionTargets())) ?? .array([]),
             "assignmentCount": .number(Double(conversation.assignments.count)), "assignments": .array(assignments),
         ])
         return (try? JSONEncoder().encode(snapshot)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
@@ -346,6 +376,11 @@ extension CoreService {
             return .init(tool: request.tool, ok: false, error: .init(
                 code: "invalid_arguments", message: error.message, retryable: false,
                 hint: error.hint, argumentRecovery: .init(invalidFields: ["assignment"])))
+        } catch let error as RemoteExecutionError {
+            return .init(tool: request.tool, ok: false, error: .init(
+                code: error == .unsupportedExecution ? "remote_execution_unsupported" : "remote_target_invalid",
+                message: error.localizedDescription, retryable: false,
+                hint: "Inspect executionTargets and remoteExecutionSupported in long_chat.status. Do not omit executionTarget to retry remotely requested work locally."))
         } catch let error as SubagentReuseError {
             return .init(tool: request.tool, ok: false, error: .init(
                 code: "invalid_arguments", message: "The requested reuseSessionId cannot be continued: \(error).",
@@ -388,7 +423,12 @@ extension CoreService {
             request.tasks[i].resourceKeys = try LongChatResourceLocks.canonicalKeys(
                 request.tasks[i].resourceKeys, projectID: request.tasks[i].projectId, repositoryPath: repositoryPath)
             request.tasks[i].readOnly = request.tasks[i].readOnly ?? request.tasks[i].resourceKeys.isEmpty
-            try validateSubagentReuse(agentID: agentID, parentSessionID: sessionID, task: request.tasks[i])
+            if let selection = request.tasks[i].executionTarget {
+                request.tasks[i].executionTarget = try resolveRemoteSelection(selection, projectID: request.tasks[i].projectId)
+                try validateRemoteDelegation(request.tasks[i], parentID: sessionID)
+            } else {
+                try validateSubagentReuse(agentID: agentID, parentSessionID: sessionID, task: request.tasks[i])
+            }
             guard !request.tasks[i].resourceKeys.contains(""),
                 request.tasks[i].readOnly != false || !request.tasks[i].resourceKeys.isEmpty
             else { throw AgentSessionError.invalidPayload }
@@ -415,6 +455,20 @@ extension CoreService {
             !$0.status.isTerminal && (taskID == nil || $0.id == taskID)
         }
         for task in tasks {
+            if let selection = task.executionTarget, let attemptID = task.attempts.last?.id {
+                let target = try remoteTarget(selection, projectID: task.projectId)
+                let remote = try await sendRemoteWorkerRPC(target: target, method: "subagent.cancel", request: RemoteWorkerOperation(attemptId: attemptID))
+                guard remote.attemptId == attemptID, remote.status == .cancelled, remote.executionStopped else { throw RemoteExecutionError.conflictingStart }
+                try longChats().updateTask(sessionId: sessionID, taskId: task.id) {
+                    let i = $0.attempts.count - 1
+                    $0.attempts[i].status = .cancelled
+                    $0.attempts[i].executionStopped = true
+                    $0.attempts[i].remoteExecution = remote
+                }
+                longChatWorkerRuns[attemptID]?.cancel()
+                try await publishLongChatTask(sessionID: sessionID, taskID: task.id, reason: "cancelled", notify: true)
+                continue
+            }
             try longChats().updateTask(sessionId: sessionID, taskId: task.id) {
                 $0.attempts[$0.attempts.count - 1].status = .cancelled
                 $0.attempts[$0.attempts.count - 1].executionStopped = false
@@ -468,6 +522,12 @@ extension CoreService {
         guard request.userId == conversation.userId,
             !request.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !task.status.isTerminal
         else { throw AgentSessionError.invalidPayload }
+        if let selection = task.executionTarget, task.status != .queued, let attempt = task.attempts.last {
+            let target = try remoteTarget(selection, projectID: task.projectId)
+            _ = try await sendRemoteWorkerRPC(target: target, method: "subagent.message", request: RemoteWorkerOperation(
+                attemptId: attempt.id, messageId: request.clientMessageId ?? UUID().uuidString, content: request.content))
+            return
+        }
         if task.status == .queued {
             try longChats().updateTask(sessionId: sessionID, taskId: taskID) {
                 $0.objective += "\n[Clarification]\n" + request.content
@@ -524,7 +584,7 @@ extension CoreService {
                     for a in state.conversations[c].assignments.indices {
                         for t in state.conversations[c].assignments[a].tasks.indices {
                             var task = state.conversations[c].assignments[a].tasks[t]
-                            if task.status == .running {
+                            if task.executionTarget == nil, task.status == .running {
                                 task.attempts[task.attempts.count - 1].status = .failed
                                 task.attempts[task.attempts.count - 1].automaticRetryAllowed = false
                                 task.attempts[task.attempts.count - 1].summary =
@@ -542,7 +602,10 @@ extension CoreService {
             }
             for conversation in storage.state.conversations {
                 scheduleLongChatTurns(sessionID: conversation.sessionId)
-                for task in conversation.assignments.flatMap(\.tasks) where task.status == .waitingInput {
+                for task in conversation.assignments.flatMap(\.tasks) where task.executionTarget != nil && !task.status.isTerminal && task.status != .queued {
+                    dispatchRemoteLongChatWorker(conversation: conversation, task: task)
+                }
+                for task in conversation.assignments.flatMap(\.tasks) where task.executionTarget == nil && task.status == .waitingInput {
                     if let childID = task.attempts.last?.sessionId { scheduleLongChatWorkerTurns(childID: childID) }
                 }
             }

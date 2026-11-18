@@ -83,7 +83,7 @@ public struct AgentSessionPathResolver {
         let cached = Self.locationCache[key]
         Self.locationCacheLock.unlock()
         guard let cached else { return nil }
-        if fileManager.fileExists(atPath: cached.appendingPathComponent("session.jsonl").path) {
+        if fileManager.fileExists(atPath: cached.appendingPathComponent("session.jsonl", isDirectory: false).path) {
             return cached
         }
         Self.locationCacheLock.lock()
@@ -96,6 +96,13 @@ public struct AgentSessionPathResolver {
         let key = sessionsDirectoryURL.path + "\u{0}" + sessionID
         Self.locationCacheLock.lock()
         Self.locationCache[key] = directoryURL
+        Self.locationCacheLock.unlock()
+    }
+
+    func forgetCachedDirectory(sessionID: String) {
+        let key = sessionsDirectoryURL.path + "\u{0}" + sessionID
+        Self.locationCacheLock.lock()
+        Self.locationCache.removeValue(forKey: key)
         Self.locationCacheLock.unlock()
     }
 
@@ -112,6 +119,7 @@ public struct AgentSessionPathResolver {
         }
 
         for case let fileURL as URL in enumerator {
+            if skipSessionAssets(fileURL, enumerator: enumerator) { continue }
             guard fileURL.lastPathComponent == "session.jsonl",
                   fileURL.deletingLastPathComponent().lastPathComponent == sessionID,
                   fileManager.fileExists(atPath: fileURL.path) else {
@@ -133,10 +141,27 @@ public struct AgentSessionPathResolver {
             return []
         }
         var files: [URL] = []
-        for case let fileURL as URL in enumerator where fileURL.lastPathComponent == "session.jsonl" {
-            files.append(fileURL)
+        var seen = Set<String>()
+        for case let fileURL as URL in enumerator {
+            if skipSessionAssets(fileURL, enumerator: enumerator) { continue }
+            if fileURL.lastPathComponent == "session.jsonl" {
+                files.append(fileURL)
+                let directory = fileURL.deletingLastPathComponent()
+                let sessionID = directory.lastPathComponent
+                if seen.insert(sessionID).inserted {
+                    rememberDirectory(directory, sessionID: sessionID)
+                }
+            }
         }
         return files
+    }
+
+    private func skipSessionAssets(_ url: URL, enumerator: FileManager.DirectoryEnumerator) -> Bool {
+        guard url.lastPathComponent == "assets",
+              fileManager.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent("session.jsonl", isDirectory: false).path)
+        else { return false }
+        enumerator.skipDescendants()
+        return true
     }
 
     public static func sessionID(fromCanonicalSessionFile fileURL: URL) -> String {

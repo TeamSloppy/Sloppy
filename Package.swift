@@ -107,6 +107,12 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main"),
     ] + platformDependencies,
     targets: [
+        .target(
+            name: "CSloppyQuickJS",
+            exclude: ["LICENSE", "VERSION"],
+            cSettings: [.define("_GNU_SOURCE"), .define("CONFIG_VERSION", to: "\"2026-06-04\"")],
+            linkerSettings: [.linkedLibrary("m", .when(platforms: [.linux]))]
+        ),
         .systemLibrary(name: "CWidgetZlib", pkgConfig: "zlib", providers: [.apt(["zlib1g-dev"]), .brew(["zlib"])]),
         .target(
             name: "Protocols",
@@ -163,6 +169,7 @@ let package = Package(
         .executableTarget(
             name: "sloppy",
             dependencies: [
+                .target(name: "CSloppyQuickJS", condition: .when(platforms: [.macOS, .linux])),
                 .product(name: "SloppyConsoleProtocol", package: "SloppyConsoleProtocol"),
                 .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
                 .product(name: "SloppyMigration", package: "SloppyMigration"),
@@ -201,6 +208,7 @@ let package = Package(
                 .copy("Resources/Skills"),
                 .copy("Resources/Windows"),
                 .process("Resources/sloppy-version.json"),
+                .copy("Resources/CodeModeBridge.js"),
                 .process("Storage/schema.sql"),
             ]
         ),

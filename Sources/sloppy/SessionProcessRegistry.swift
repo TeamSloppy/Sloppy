@@ -10,8 +10,10 @@ actor SessionProcessRegistry {
     enum RegistryError: Error {
         case processLimitReached
         case processNotFound
+        case waitTimedOut
         case invalidPayload
         case launchFailed
+        case sessionClosing
     }
 
     private struct ManagedProcess {
@@ -25,9 +27,18 @@ actor SessionProcessRegistry {
         var exitCode: Int32?
         var outputBuffer: ProcessOutputBuffer?
         var outputPipe: Pipe?
+        var outputReader: ProcessPipeReader?
         var ownsProcessGroup: Bool
     }
 
+    private struct ProcessKey: Hashable {
+        let sessionID: String
+        let processID: String
+    }
+
+    private typealias Waiter = AsyncThrowingStream<JSONValue, Error>.Continuation
+    private var waiters: [ProcessKey: [UUID: Waiter]] = [:]
+    private var closingSessions: Set<String> = []
     private var processesBySession: [String: [String: ManagedProcess]] = [:]
 
     func activeCount(sessionID: String) -> Int {
@@ -48,6 +59,7 @@ actor SessionProcessRegistry {
             throw RegistryError.invalidPayload
         }
 
+        guard !closingSessions.contains(sessionID) else { throw RegistryError.sessionClosing }
         let current = activeCount(sessionID: sessionID)
         if current >= maxProcesses {
             throw RegistryError.processLimitReached
@@ -58,11 +70,15 @@ actor SessionProcessRegistry {
                                       environment: childProcessEnvironment(overrides: environmentOverrides))
         let outputBuffer = captureOutput ? ProcessOutputBuffer(maxBytes: 256 * 1024, keepsTail: true) : nil
         let outputPipe = captureOutput ? Pipe() : nil
+        let outputReader: ProcessPipeReader?
         if let outputPipe, let outputBuffer {
-            outputPipe.fileHandleForReading.readabilityHandler = { handle in outputBuffer.append(handle.availableData) }
+            let reader = ProcessPipeReader(handle: outputPipe.fileHandleForReading, buffer: outputBuffer)
+            outputReader = reader
+            outputPipe.fileHandleForReading.readabilityHandler = { _ in reader.drain() }
             process.standardOutput = outputPipe
             process.standardError = outputPipe
         } else {
+            outputReader = nil
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
         }
@@ -73,13 +89,21 @@ actor SessionProcessRegistry {
 
         process.environment = childProcessEnvironment(overrides: environmentOverrides)
 
+        let id = "proc-\(UUID().uuidString.lowercased())"
+        let key = ProcessKey(sessionID: sessionID, processID: id)
+        process.terminationHandler = { [weak self] process in
+            let status = process.terminationStatus
+            Task { await self?.processDidExit(key, status: status) }
+        }
         do {
             try process.run()
         } catch {
+            outputPipe?.fileHandleForReading.readabilityHandler = nil
+            outputReader?.stop()
             throw RegistryError.launchFailed
         }
+        try? outputPipe?.fileHandleForWriting.close()
 
-        let id = "proc-\(UUID().uuidString.lowercased())"
         let now = Date()
         let managed = ManagedProcess(
             id: id,
@@ -92,11 +116,10 @@ actor SessionProcessRegistry {
             exitCode: nil,
             outputBuffer: outputBuffer,
             outputPipe: outputPipe,
+            outputReader: outputReader,
             ownsProcessGroup: ownsProcessGroup(process, captureOutput: captureOutput)
         )
-        var sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
-        sessionProcesses[id] = managed
-        processesBySession[sessionID] = sessionProcesses
+        processesBySession[sessionID, default: [:]][id] = managed
 
         return .object([
             "processId": .string(id),
@@ -106,6 +129,58 @@ actor SessionProcessRegistry {
         ])
     }
 
+    func wait(sessionID: String, processID: String, timeoutMs: Int) async throws -> JSONValue {
+        try Task.checkCancellation()
+        let key = ProcessKey(sessionID: sessionID, processID: processID)
+        guard let process = processesBySession[sessionID]?[processID] else {
+            throw RegistryError.processNotFound
+        }
+        if process.exitCode != nil {
+            return completionPayload(process, sessionID: sessionID)
+        }
+
+        let id = UUID()
+        let (stream, waiter) = AsyncThrowingStream<JSONValue, Error>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        waiters[key, default: [:]][id] = waiter
+        let timeout = Task {
+            do { try await Task.sleep(for: .milliseconds(timeoutMs)) }
+            catch { return }
+            waiter.finish(throwing: RegistryError.waitTimedOut)
+        }
+        defer {
+            timeout.cancel()
+            waiters[key]?.removeValue(forKey: id)
+            if waiters[key]?.isEmpty == true { waiters.removeValue(forKey: key) }
+        }
+        var iterator = stream.makeAsyncIterator()
+        let result = try await iterator.next()
+        try Task.checkCancellation()
+        guard let result else { throw RegistryError.processNotFound }
+        return result
+    }
+
+    private func processDidExit(_ key: ProcessKey, status: Int32) {
+        guard var process = processesBySession[key.sessionID]?[key.processID] else { return }
+        process.outputPipe?.fileHandleForReading.readabilityHandler = nil
+        process.outputReader?.stop()
+        process.finishedAt = Date()
+        process.exitCode = status
+        processesBySession[key.sessionID]?[key.processID] = process
+        if let listeners = waiters.removeValue(forKey: key) {
+            let result = completionPayload(process, sessionID: key.sessionID)
+            for listener in listeners.values {
+                listener.yield(result)
+                listener.finish()
+            }
+        }
+    }
+
+    private func completionPayload(_ process: ManagedProcess, sessionID: String) -> JSONValue {
+        var payload = processPayload(process).asObject ?? [:]
+        payload["outputTail"] = .string(output(sessionID: sessionID, processID: process.id))
+        return .object(payload)
+    }
+
     func output(sessionID: String, processID: String) -> String {
         guard let buffer = processesBySession[sessionID]?[processID]?.outputBuffer else { return "" }
         let snapshot = buffer.snapshot()
@@ -113,20 +188,15 @@ actor SessionProcessRegistry {
     }
 
     func status(sessionID: String, processID: String) throws -> JSONValue {
-        var sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
-        guard var process = sessionProcesses[processID] else {
+        guard let process = processesBySession[sessionID]?[processID] else {
             throw RegistryError.processNotFound
         }
-
-        process = refreshed(process)
-        sessionProcesses[processID] = process
-        processesBySession[sessionID] = sessionProcesses
-        return processPayload(process)
+        return processPayload(refreshed(process))
     }
 
     func stop(sessionID: String, processID: String) async throws -> JSONValue {
-        var sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
-        guard var process = sessionProcesses[processID] else {
+        let sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
+        guard let process = sessionProcesses[processID] else {
             throw RegistryError.processNotFound
         }
 
@@ -142,10 +212,7 @@ actor SessionProcessRegistry {
         #else
         if process.process.isRunning { await terminateProcess(process.process) }
         #endif
-        process = refreshed(process)
-        sessionProcesses[processID] = process
-        processesBySession[sessionID] = sessionProcesses
-        return processPayload(process)
+        return processPayload(refreshed(processesBySession[sessionID]?[processID] ?? process))
     }
 
     func list(sessionID: String) -> JSONValue {
@@ -153,28 +220,29 @@ actor SessionProcessRegistry {
         let items = sessionProcesses.values
             .sorted { $0.startedAt > $1.startedAt }
 
-        var refreshedSessionMap: [String: ManagedProcess] = [:]
-        for item in items {
-            refreshedSessionMap[item.id] = item
-        }
-        processesBySession[sessionID] = refreshedSessionMap
 
         return .array(items.map(processPayload))
     }
 
     func cleanup(sessionID: String) async {
-        guard let sessionProcesses = processesBySession[sessionID] else {
+        guard let sessionProcesses = processesBySession[sessionID], closingSessions.insert(sessionID).inserted else {
             return
         }
+        defer { closingSessions.remove(sessionID) }
         for process in sessionProcesses.values where process.process.isRunning || process.ownsProcessGroup {
             _ = try? await stop(sessionID: sessionID, processID: process.id)
         }
-        for process in sessionProcesses.values { process.outputPipe?.fileHandleForReading.readabilityHandler = nil }
+        for process in sessionProcesses.values {
+            process.outputPipe?.fileHandleForReading.readabilityHandler = nil
+            process.outputReader?.stop()
+            let key = ProcessKey(sessionID: sessionID, processID: process.id)
+            waiters.removeValue(forKey: key)?.values.forEach { $0.finish() }
+        }
         processesBySession.removeValue(forKey: sessionID)
     }
 
     func shutdown() async {
-        for sessionID in processesBySession.keys {
+        for sessionID in Array(processesBySession.keys) {
             await cleanup(sessionID: sessionID)
         }
     }
@@ -195,10 +263,7 @@ actor SessionProcessRegistry {
     }
 
     private func normalizedSessionProcesses(sessionID: String) -> [String: ManagedProcess] {
-        let sessionProcesses = processesBySession[sessionID] ?? [:]
-        let normalized = sessionProcesses.mapValues(refreshed)
-        processesBySession[sessionID] = normalized
-        return normalized
+        (processesBySession[sessionID] ?? [:]).mapValues(refreshed)
     }
 
     private func processPayload(_ process: ManagedProcess) -> JSONValue {

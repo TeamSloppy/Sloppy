@@ -17,7 +17,7 @@ if [[ -d .build/checkouts ]]; then
   done < <(find .build/checkouts -mindepth 1 -maxdepth 1 -type d | sort)
 fi
 
-for bundled in Packages/TauTUI Vendor/AdaEngine Vendor/AdaMCP; do
+for bundled in Packages/TauTUI Vendor/AdaEngine Vendor/AdaMCP Sources/CSloppyQuickJS; do
   if [[ -d "$bundled" ]]; then
     roots+=("$bundled")
   fi

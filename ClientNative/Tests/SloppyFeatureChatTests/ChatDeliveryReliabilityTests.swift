@@ -6,6 +6,22 @@ import Testing
 @Suite("Chat delivery reliability", .serialized)
 @MainActor
 struct ChatDeliveryReliabilityTests {
+    @Test("sending a message requests a jump to the latest transcript entry")
+    func sendingMessageRequestsTranscriptScroll() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        let model = fixture.model
+        let initialRequest = model.transcriptScrollToEndRequest
+
+        #expect(!model.sendMessage(content: ""))
+        #expect(model.transcriptScrollToEndRequest == initialRequest)
+
+        #expect(model.sendMessage(content: "Read the project"))
+        #expect(model.transcript.messages.last?.role == .user)
+        #expect(model.transcriptScrollToEndRequest == initialRequest + 1)
+        try await fixture.wait { !fixture.server.posts.isEmpty }
+    }
+
     @Test("streamed response blocks alternate with tool batches in arrival order")
     func chronologicalResponseBlocks() async throws {
         let fixture = try await DeliveryFixture.make()

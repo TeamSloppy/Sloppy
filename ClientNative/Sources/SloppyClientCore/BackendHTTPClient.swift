@@ -136,6 +136,10 @@ public actor BackendHTTPClient {
         try await data(method: "GET", path: path, timeout: timeout)
     }
 
+    func getData(_ path: String, timeout: TimeInterval, diagnosticRequestID: UUID?) async throws -> Data {
+        try await data(method: "GET", path: path, bodyData: nil, timeout: timeout, diagnosticRequestID: diagnosticRequestID)
+    }
+
     public func post<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
         let data = try await data(method: "POST", path: path, body: body)
         return try decode(T.self, from: data)
@@ -230,7 +234,8 @@ public actor BackendHTTPClient {
         path: String,
         bodyData: Data?,
         timeout: TimeInterval? = nil,
-        contentType: String = "application/json"
+        contentType: String = "application/json",
+        diagnosticRequestID: UUID? = nil
     ) async throws -> Data {
         // #region agent debug
 #if DEBUG
@@ -265,7 +270,7 @@ public actor BackendHTTPClient {
             ConnectionTraffic.shared.update(endpoint, sent: bodyData?.count ?? 0, received: response.body.count)
             logger.info("http.managed.completed", metadata: [
                 "duration_ms": .stringConvertible(Int(Date().timeIntervalSince(startedAt) * 1_000)),
-                "method": .string(method), "path": .string(path),
+                "method": .string(method), "path": .string(url(for: path).path),
                 "status": .stringConvertible(response.status), "bytes": .stringConvertible(response.body.count),
             ])
             guard (200..<300).contains(response.status) else {
@@ -283,7 +288,8 @@ public actor BackendHTTPClient {
             bodyData: bodyData,
             timeout: timeout,
             authToken: initialToken,
-            contentType: contentType
+            contentType: contentType,
+            diagnosticRequestID: diagnosticRequestID
         )
 
         guard statusCode(for: initial.response) == 401,
@@ -327,7 +333,8 @@ public actor BackendHTTPClient {
                 bodyData: bodyData,
                 timeout: timeout,
                 authToken: refreshedSession.accessToken,
-                contentType: contentType
+                contentType: contentType,
+                diagnosticRequestID: diagnosticRequestID
             )
             if statusCode(for: retried.response) == 401 {
                 authToken = ""
@@ -369,10 +376,11 @@ public actor BackendHTTPClient {
         bodyData: Data?,
         timeout: TimeInterval?,
         authToken: String?,
-        contentType: String
+        contentType: String,
+        diagnosticRequestID: UUID? = nil
     ) async throws -> (data: Data, response: URLResponse) {
         let targetURL = url(for: path)
-        let request = try await makeURLRequest(
+        var request = try await makeURLRequest(
             method: method,
             path: path,
             targetURL: targetURL,
@@ -382,8 +390,9 @@ public actor BackendHTTPClient {
             contentType: contentType
         )
 
-        let requestID = String(UUID().uuidString.prefix(8)).lowercased()
-        let startedAt = Date()
+        let requestID = (diagnosticRequestID ?? UUID()).uuidString.lowercased()
+        request.setValue(requestID, forHTTPHeaderField: "X-Sloppy-Request-ID")
+        let startedAt = ContinuousClock.now
         let metadata: Logger.Metadata = [
             "auth": .string(authToken?.isEmpty == false ? "present" : "absent"),
             "body_bytes": .stringConvertible(bodyData?.count ?? 0),
@@ -400,7 +409,10 @@ public actor BackendHTTPClient {
             // Authentication/request preparation may suspend while the owner closes.
             // Foundation cannot create another task after URLSession invalidation.
             try Task.checkCancellation()
-            let rawResult = try await session.data(for: request)
+            let rawResult = try await session.data(
+                for: request,
+                delegate: HTTPRequestTimingLogger(logger: logger, metadata: metadata)
+            )
             let result = try decodeRelayedResponseIfNeeded(
                 data: rawResult.0,
                 response: rawResult.1,
@@ -408,10 +420,12 @@ public actor BackendHTTPClient {
             )
             ConnectionTraffic.shared.update(endpoint, sent: bodyData?.count ?? 0, received: result.0.count)
             var responseMetadata = metadata
-            responseMetadata["duration_ms"] = .stringConvertible(
-                max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
-            )
+            responseMetadata["elapsed"] = .stringConvertible(startedAt.duration(to: .now))
             responseMetadata["response_bytes"] = .stringConvertible(result.0.count)
+            if let http = rawResult.1 as? HTTPURLResponse {
+                responseMetadata["core_timing"] = http.value(forHTTPHeaderField: "Server-Timing").map(Logger.MetadataValue.string)
+                responseMetadata["core_route"] = http.value(forHTTPHeaderField: "X-Sloppy-Route").map(Logger.MetadataValue.string)
+            }
             if let statusCode = statusCode(for: result.1) {
                 responseMetadata["status"] = .stringConvertible(statusCode)
                 if statusCode >= 400 {
@@ -425,11 +439,15 @@ public actor BackendHTTPClient {
             return result
         } catch {
             var failureMetadata = metadata
-            failureMetadata["duration_ms"] = .stringConvertible(
-                max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
-            )
-            failureMetadata["error"] = .string(String(describing: error))
-            logger.error("http.request.failed", metadata: failureMetadata)
+            failureMetadata["elapsed"] = .stringConvertible(startedAt.duration(to: .now))
+            let failure = error as NSError
+            failureMetadata["error_domain"] = .string(failure.domain)
+            failureMetadata["error_code"] = .stringConvertible(failure.code)
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                logger.debug("http.request.cancelled", metadata: failureMetadata)
+            } else {
+                logger.warning("http.request.failed", metadata: failureMetadata)
+            }
             throw error
         }
     }
@@ -609,6 +627,43 @@ public actor BackendHTTPClient {
         } catch {
             throw APIError.decodingFailed(error.localizedDescription)
         }
+    }
+}
+
+private final class HTTPRequestTimingLogger: NSObject, URLSessionTaskDelegate {
+    private let logger: Logger
+    private let metadata: Logger.Metadata
+
+    init(logger: Logger, metadata: Logger.Metadata) {
+        self.logger = logger
+        self.metadata = metadata
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        let duration = metrics.taskInterval.duration
+        // Keep detailed timings for regressions, failures and health probes.
+        guard duration >= 1 || task.error != nil || metadata["path"] == .string("/health") else { return }
+        var details = metadata
+        details["total_ms"] = Self.milliseconds(duration)
+        details["transactions"] = .stringConvertible(metrics.transactionMetrics.count)
+        if let transaction = metrics.transactionMetrics.last {
+            details["dns_ms"] = Self.elapsed(transaction.domainLookupStartDate, transaction.domainLookupEndDate)
+            details["connect_ms"] = Self.elapsed(transaction.connectStartDate, transaction.connectEndDate)
+            details["tls_ms"] = Self.elapsed(transaction.secureConnectionStartDate, transaction.secureConnectionEndDate)
+            details["first_byte_ms"] = Self.elapsed(transaction.requestEndDate, transaction.responseStartDate)
+            details["download_ms"] = Self.elapsed(transaction.responseStartDate, transaction.responseEndDate)
+            details["reused_connection"] = .stringConvertible(transaction.isReusedConnection)
+        }
+        logger.info("http.request.network-timing", metadata: details)
+    }
+
+    private static func elapsed(_ start: Date?, _ end: Date?) -> Logger.MetadataValue? {
+        guard let start, let end else { return nil }
+        return milliseconds(end.timeIntervalSince(start))
+    }
+
+    private static func milliseconds(_ seconds: TimeInterval) -> Logger.MetadataValue {
+        .stringConvertible(max(0, Int(seconds * 1_000)))
     }
 }
 

@@ -1,10 +1,12 @@
 import Foundation
 @testable import AgentRuntime
 import Protocols
+import TauTUI
 import Testing
 @testable import sloppy
 
 @Test
+@MainActor
 func tuiBootstrapLoadsModelWindowBeforeFirstTurn() async throws {
     let tempRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-tui-model-catalog-\(UUID().uuidString)", isDirectory: true)
@@ -26,17 +28,34 @@ func tuiBootstrapLoadsModelWindowBeforeFirstTurn() async throws {
     ).prepare(loadModelCatalog: { service in
         await service.cacheOAuthModels([
             ProviderModelOption(
-                id: "gpt-6.1-sol", title: "Test model", contextWindow: "128K",
-                capabilities: ["tools"], contextWindowTokens: 128_000
+                id: "gpt-6.1-sol", title: "Test model",
+                capabilities: ["tools"], contextWindowTokens: 500_000
             )
         ])
     })
     defer { Task { await runtime.service.shutdownChannelPlugins() } }
     let backend = try #require(runtime.service as? LocalSloppyTUIBackend)
     let models = await backend.service.availableAgentModels()
-    #expect(models.first { $0.id == "openai-oauth:gpt-6.1-sol" }?.contextWindowTokens == 128_000)
-    #expect(await backend.service.runtime.catalogContextLimitsByModel["openai-oauth:gpt-6.1-sol"]?.contextWindowTokens == 128_000)
+    let modelID = "openai-oauth:gpt-6.1-sol"
+    #expect(models.first { $0.id == modelID }?.contextWindowTokens == 500_000)
+    #expect(await backend.service.runtime.catalogContextLimitsByModel[modelID]?.contextWindowTokens == 500_000)
     #expect(await runtime.service.listChannelPlugins().isEmpty)
+
+    let project = try await backend.service.createProject(.init(id: "context-test", name: "Context test")).project
+    let agent = try await backend.service.createAgent(.init(id: "context-test", displayName: "Agent", role: "Test"))
+    let session = try await backend.service.createAgentSession(agentID: agent.id, request: .init(separateChat: true, projectId: project.id))
+    let terminal = VirtualTerminal(columns: 140, rows: 40)
+    let tui = TUI(terminal: terminal)
+    let screen = SloppyTUIScreen(runtime: runtime, project: project, agent: agent, session: session,
+                                 hasPersistedSession: true, stateStore: .init(workspaceRoot: tempRoot), state: .init(),
+                                 tui: tui, terminal: terminal)
+    defer { screen.stopBackgroundTasks() }
+    screen.resetToDraftSession()
+    await screen.applyModel(modelID)
+    #expect(screen.selectedModel == modelID)
+    #expect(screen.tokenUsageSummary?.contextWindowTokens == 500_000)
+    #expect(screen.tokenUsageSummary?.contextUsedTokens == nil)
+    #expect(screen.render(width: 140).joined(separator: "\n").contains("window 500K"))
 }
 
 @Test

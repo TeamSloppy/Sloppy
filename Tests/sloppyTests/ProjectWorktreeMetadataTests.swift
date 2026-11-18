@@ -82,7 +82,10 @@ func projectSummariesAnnotateGitWorktreeParent() async throws {
     _ = try await createProject(service: service, id: "main-repo", name: "Main Repo", repoPath: repo.path)
     _ = try await createProject(service: service, id: "worktree-repo", name: "Feature Child", repoPath: worktree.path)
 
-    let summaries = await service.listProjectSummaries()
+    async let listing = service.listProjectSummaries()
+    async let repeatListing = service.listProjectSummaries()
+    let (summaries, repeated) = await (listing, repeatListing)
+    #expect(repeated.first { $0.id == "worktree-repo" }?.worktreeBranch == "feature/child")
     let parent = try #require(summaries.first { $0.id == "main-repo" })
     let child = try #require(summaries.first { $0.id == "worktree-repo" })
 

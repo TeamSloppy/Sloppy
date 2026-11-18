@@ -10,14 +10,14 @@ extension CoreService {
     /// Persist the original execution boundary once; later iterations may only narrow it.
     func rememberSubagentContext(
         session: AgentSessionSummary, parentSessionID: String, workingDirectory: String?, extraRoots: [String],
-        tools: Set<String>, resourceKeys: [String], readOnly: Bool, sourceTaskID: String? = nil
+        tools: Set<String>, resourceKeys: [String], readOnly: Bool, sourceTaskID: String? = nil, executionTarget: RemoteExecutionSelection? = nil
     ) throws {
         let storage = try longChats()
         guard storage.state.workerContexts?[session.id] == nil else { return }
         let context = LongChatFileStore.WorkerContext(
             agentId: session.agentId, parentSessionId: parentSessionID, projectId: session.projectId,
             workingDirectory: workingDirectory, extraRoots: extraRoots, toolIDs: tools,
-            resourceKeys: resourceKeys, readOnly: readOnly, sourceTaskId: sourceTaskID)
+            resourceKeys: resourceKeys, readOnly: readOnly, sourceTaskId: sourceTaskID, executionTarget: executionTarget)
         try storage.transaction {
             if $0.workerContexts == nil { $0.workerContexts = [:] }
             $0.workerContexts?[session.id] = context
@@ -43,8 +43,10 @@ extension CoreService {
     func validateSubagentReuse(agentID: String, parentSessionID: String, task: LongChatTaskRequest) throws {
         guard let sessionID = task.reuseSessionId else { return }
         let saved = try reusableSubagent(agentID: agentID, parentSessionID: parentSessionID, sessionID: sessionID)
-        guard task.projectId == saved.projectId, Set(task.resourceKeys) == Set(saved.resourceKeys),
-              !saved.readOnly || (task.readOnly ?? task.resourceKeys.isEmpty) else { throw SubagentReuseError.scopeMismatch }
+        try RemoteExecutionRegistry.validateReuse(original: saved.executionTarget, requested: task.executionTarget,
+            originalProject: saved.projectId, requestedProject: task.projectId,
+            originalKeys: saved.resourceKeys, requestedKeys: task.resourceKeys,
+            originalReadOnly: saved.readOnly, requestedReadOnly: task.readOnly ?? task.resourceKeys.isEmpty)
     }
 
     func continuedSubagentTools(agentID: String, task: LongChatTask, tools: Set<String>) throws -> Set<String> {
@@ -58,6 +60,7 @@ extension CoreService {
     /// Ordinary delegation keeps its synchronous creation API; explicit continuations use the durable worker queue.
     func continueSubagentTask(agentID: String, parentSessionID: String, sessionID: String, objective: String) async throws -> JSONValue {
         let saved = try reusableSubagent(agentID: agentID, parentSessionID: parentSessionID, sessionID: sessionID)
+        if saved.executionTarget != nil { try RemoteExecutionRegistry.requireSupportedExecutor() }
         let parent = try getAgentSession(agentID: agentID, sessionID: parentSessionID)
         let storage = try longChats()
         if !storage.state.conversations.contains(where: { $0.sessionId == parentSessionID }) {
@@ -73,7 +76,7 @@ extension CoreService {
             request: .init(requestKey: UUID().uuidString, title: "Continue subagent", acceptanceCriteria: objective,
                            tasks: [.init(key: "continue", title: "Continue subagent", objective: objective,
                                          resourceKeys: saved.resourceKeys, projectId: saved.projectId,
-                                         readOnly: saved.readOnly, reuseSessionId: sessionID)]))
+                                         readOnly: saved.readOnly, reuseSessionId: sessionID, executionTarget: saved.executionTarget)]))
         for task in assignment.tasks {
             try await publishLongChatTask(sessionID: parentSessionID, taskID: task.id, reason: "accepted")
         }

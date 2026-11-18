@@ -13,7 +13,6 @@ enum SloppyTUIContextUsageSummaryBuilder {
         modelTitle: String,
         modelID: String,
         contextWindowLabel: String,
-        contextWindowTokens: Int,
         usage: TokenUsageResponse,
         ledger: ContextLedgerSnapshot?,
         pendingContextAttached: Bool,
@@ -825,7 +824,7 @@ extension SloppyTUIScreen {
     func applyModel(_ model: String) async {
         do {
             let config = try await service.getAgentConfig(agentID: agent.id)
-            _ = try await service.updateAgentConfig(
+            let updated = try await service.updateAgentConfig(
                 agentID: agent.id,
                 request: AgentConfigUpdateRequest(
                     role: config.role,
@@ -836,12 +835,12 @@ extension SloppyTUIScreen {
                     runtime: config.runtime
                 )
             )
-            selectedModel = model
-            selectedModelContextWindowTokens = contextWindowTokens(for: model, in: config.availableModels)
+            selectedModel = updated.selectedModel ?? model
+            selectedModelContextWindowTokens = Self.contextWindowTokens(for: selectedModel, in: updated.availableModels)
             dismissFirstStartBootstrapCard()
             dismissModelSwitchCards()
             await refreshTokenUsage(includeCost: true)
-            appendLocalCard("Model switched to `\(model)`.", autoDismissAfter: 6)
+            appendLocalCard("Model switched to `\(selectedModel)`.", autoDismissAfter: 6)
         } catch {
             appendLocalCard("Model switch failed: \(String(describing: error))")
         }
@@ -1148,28 +1147,23 @@ extension SloppyTUIScreen {
     }
 
     func showContextUsage() async {
-        await refreshTokenUsage(includeCost: false)
         let config = try? await service.getAgentConfig(agentID: agent.id)
         let model = config?.selectedModel ?? selectedModel
         selectedModel = model
         let models = config?.availableModels ?? []
         let option = models.first { $0.id == model } ?? CoreService.providerModelOption(for: model)
-        let contextWindow = max(
-            contextWindowTokens(for: model, in: models),
-            CoreService.parseContextWindowString(option.contextWindow ?? "")
-        )
-        if contextWindow > 0 {
-            selectedModelContextWindowTokens = contextWindow
-            refreshStaticChrome()
+        if let config {
+            selectedModelContextWindowTokens = Self.contextWindowTokens(for: model, in: config.availableModels)
         }
+        await refreshTokenUsage(includeCost: false)
 
         let usage = await service.listTokenUsage(channelId: currentSessionChannelID())
-        let ledger = await service.contextLedgerSnapshot(channelId: currentSessionChannelID())
+        let ledger = await selectedModelContextLedger()
+        let contextWindow = ledger?.contextWindowTokens ?? selectedModelContextWindowTokens
         let summary = SloppyTUIContextUsageSummaryBuilder.makeSummary(
             modelTitle: option.title,
             modelID: model,
-            contextWindowLabel: option.contextWindow ?? (contextWindow > 0 ? formatContextWindowLabel(contextWindow) : "unknown"),
-            contextWindowTokens: contextWindow,
+            contextWindowLabel: contextWindow > 0 ? formatContextWindowLabel(contextWindow) : "unknown",
             usage: usage,
             ledger: ledger,
             pendingContextAttached: pendingContext?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,

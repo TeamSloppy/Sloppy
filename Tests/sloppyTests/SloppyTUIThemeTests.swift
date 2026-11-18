@@ -778,7 +778,6 @@ func contextUsageSummaryPrefersLedgerOverAggregateTokenUsageAndFallsBackWithoutI
         modelTitle: "GPT Test",
         modelID: "openai:gpt-test",
         contextWindowLabel: "32K",
-        contextWindowTokens: 32_000,
         usage: usage,
         ledger: ledger,
         pendingContextAttached: true,
@@ -802,7 +801,6 @@ func contextUsageSummaryPrefersLedgerOverAggregateTokenUsageAndFallsBackWithoutI
         modelTitle: "GPT Test",
         modelID: "openai:gpt-test",
         contextWindowLabel: "32K",
-        contextWindowTokens: 32_000,
         usage: usage,
         ledger: nil,
         pendingContextAttached: false,
@@ -1302,7 +1300,7 @@ private func ansiEscapeEnd(in line: String, from start: String.Index) -> String.
     let line = stripANSI(SloppyTUITheme.composerMetaLine(width: 240, mode: .auto,
         model: "sonnet", agent: "Anton", provider: "sloppy", tokenUsage: summary,
         lastTurnTokenUsage: .init(prompt: 220_000, completion: 335)))
-    #expect(line.contains("context unknown"))
+    #expect(line.contains("window 272K"))
     #expect(line.contains("spent 220K"))
     #expect(line.contains("turn 220K"))
     #expect(!line.contains("ctx 220K"))

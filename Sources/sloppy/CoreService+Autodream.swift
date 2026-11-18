@@ -29,7 +29,7 @@ extension CoreService {
         for agent in agents {
             let sessions: [AgentSessionSummary]
             do {
-                sessions = try listAgentSessions(agentID: agent.id, limit: limit)
+                sessions = try await listAgentSessions(agentID: agent.id, limit: limit)
             } catch {
                 logger.warning(
                     "autodream.list_sessions_failed",

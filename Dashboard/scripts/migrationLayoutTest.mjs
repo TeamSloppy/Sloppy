@@ -51,7 +51,10 @@ try {
   await server.listen();
   const address = server.httpServer.address();
   const base = `http://127.0.0.1:${address.port}`;
-  browser = await chromium.launch(process.platform === "win32" ? { channel: "msedge" } : {});
+  browser = await chromium.launch({
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    ...(process.platform === "win32" && !process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { channel: "msedge" } : {})
+  });
   const page = await browser.newPage();
   page.setDefaultTimeout(10_000);
   await page.addInitScript(() => localStorage.clear());
@@ -84,7 +87,7 @@ try {
 
   for (const width of [1440, 640, 375]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(`${base}/__migration-layout?width=${width}`);
+    await page.goto(`${base}/__migration-layout?width=${width}`, { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.getByRole("button", { name: "Import data", exact: true }).click();
     await page.locator(".migration-choice").first().waitFor();
     await checkLayout();
@@ -114,7 +117,7 @@ try {
   }
 
   // Settings embeds the same wizard without a modal or Close action.
-  await page.goto(`${base}/__migration-layout?inline`);
+  await page.goto(`${base}/__migration-layout?inline`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.locator(".migration-choice").first().waitFor();
   await checkLayout();
   assert.equal(await page.locator(".migration-close").count(), 0);
@@ -123,7 +126,7 @@ try {
   assert.ok(requests.filter(request => request.path.endsWith("/scan")).every(request => request.body.sources.length === 2));
   availableSources = sources.slice(0, 1);
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${base}/__migration-layout?single-source`);
+  await page.goto(`${base}/__migration-layout?single-source`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.getByRole("button", { name: "Import data", exact: true }).click();
   await page.locator(".migration-choice").waitFor();
   await checkLayout();

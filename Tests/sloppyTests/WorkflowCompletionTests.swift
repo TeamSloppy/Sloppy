@@ -329,7 +329,9 @@ struct WorkflowChildTaskOwnershipTests {
         try Data().write(to: URL(fileURLWithPath: path).appendingPathComponent("allow-repair"))
         _ = try await h.service.retryWorkflowRun(projectID: h.project, runID: childID,
             request: .init(stepId: effect.id, decision: .retry, evidence: "Fixed the inspected prerequisite.", userId: "owner"))
-        let waiting = try await h.wait(childID) { $0.run.status == .waitingForHuman }
+        let waiting = try await h.wait(childID) {
+            $0.run.status == .waitingForHuman && $0.pendingActions.contains { $0.resolvedAt == nil }
+        }
         #expect(await h.service.workflowTaskOwner(projectID: h.project, taskID: task.id) == childID)
         await #expect(throws: CoreService.ProjectError.self) {
             _ = try await h.service.startWorkflowRun(projectID: h.project, workflowID: parent.id, request: .init(taskId: task.id, startedBy: "competing"))

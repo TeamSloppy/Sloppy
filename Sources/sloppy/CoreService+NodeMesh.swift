@@ -441,6 +441,7 @@ extension CoreService {
     }
 
     func handleMeshCoreHTTPRPC(envelope: MeshEnvelope, method: String, params: JSONValue) async -> JSONValue {
+        if method.hasPrefix("subagent.") { return await handleRemoteWorkerRPC(envelope: envelope, method: method, params: params) }
         if method == "models.catalog" { return await handleMeshModelCatalog(envelope) }
         guard method == "core.http" else {
             return meshCoreRPCErrorPayload(

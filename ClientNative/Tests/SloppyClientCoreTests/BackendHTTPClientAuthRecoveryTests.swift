@@ -109,7 +109,9 @@ struct BackendHTTPClientAuthRecoveryTests {
         let recorder = HTTPLogRecorder()
 
         StubURLProtocol.install { request in
-            try Self.response(for: request, status: 200, body: Data("ok".utf8))
+            let requestID = try #require(request.value(forHTTPHeaderField: "X-Sloppy-Request-ID"))
+            #expect(UUID(uuidString: requestID) != nil)
+            return try Self.response(for: request, status: 200, body: Data(requestID.utf8))
         }
         defer { StubURLProtocol.reset() }
 
@@ -119,22 +121,47 @@ struct BackendHTTPClientAuthRecoveryTests {
             authSessionStore: store,
             logger: makeHTTPLogger(recorder)
         )
-        _ = try await client.getData("/v1/projects")
+        let requestID = String(decoding: try await client.getData("/v1/projects"), as: UTF8.self)
 
         let logs = recorder.snapshot()
         #expect(logs.contains { record in
             record.message == "http.request.started"
                 && record.metadata["auth"] == "present"
                 && record.metadata["path"] == "/v1/projects"
+                && record.metadata["request_id"] == requestID
         })
         #expect(logs.contains { record in
             record.message == "http.request.completed"
                 && record.metadata["status"] == "200"
+                && record.metadata["request_id"] == requestID
         })
         #expect(!logs.contains { record in
             record.message.contains(secret)
                 || record.metadata.values.contains(where: { $0.contains(secret) })
         })
+    }
+
+    @Test("A Core health timeout identifies the answering server as stalled")
+    func healthCheckReportsCoreTimeout() async throws {
+        let baseURL = try #require(URL(string: "https://health.sloppy.test"))
+        let recorder = HTTPLogRecorder()
+        StubURLProtocol.install { request in
+            try Self.response(for: request, status: 503, body: Data(#"{"error":"core_health_timeout"}"#.utf8))
+        }
+        defer { StubURLProtocol.reset() }
+        let client = BackendHTTPClient(
+            baseURL: baseURL,
+            session: Self.makeSession(),
+            authSessionStore: AuthSessionStore(persistence: .memory),
+            logger: makeHTTPLogger(recorder)
+        )
+
+        let health = await HealthService(http: client).check()
+        let requestID = try #require(health.requestID).uuidString.lowercased()
+        #expect(!health.isHealthy)
+        #expect(!health.requiresTransportReconnect)
+        #expect(health.failureMessage == "Core accepted the connection but did not answer its health check in time.")
+        #expect(recorder.snapshot().contains { $0.message == "http.request.completed" && $0.metadata["request_id"] == requestID })
     }
 
     @Test("stored access token is available to an embedded authenticated surface")

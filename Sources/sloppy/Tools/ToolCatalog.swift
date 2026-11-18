@@ -7,11 +7,13 @@ protocol MCPToolDiscovering: Sendable {
 }
 
 enum ToolCatalog {
-    static let builtInRegistry = ToolRegistry.makeDefault()
+    static let builtInRegistry = ToolRegistry.makeDefault(codeModeEnabled: true)
+    static let standardRegistry = ToolRegistry.makeDefault()
     /// Tool catalog entries auto-generated from the ToolRegistry.
     static let builtInEntries: [AgentToolCatalogEntry] = builtInRegistry.catalogEntries
 
-    static func entries(mcpRegistry: (any MCPToolDiscovering)?) async -> [AgentToolCatalogEntry] {
+    static func entries(mcpRegistry: (any MCPToolDiscovering)?, codeModeEnabled: Bool = false) async -> [AgentToolCatalogEntry] {
+        let builtInEntries = codeModeEnabled ? Self.builtInEntries : standardRegistry.catalogEntries
         guard let mcpRegistry else {
             return builtInEntries
         }
@@ -34,12 +36,13 @@ enum ToolCatalog {
         return knownToolIDs.union(await mcpRegistry.dynamicToolIDs())
     }
 
-    static func listToolsPayload(mcpRegistry: (any MCPToolDiscovering)?) async -> [JSONValue] {
-        let catalogEntries = await entries(mcpRegistry: mcpRegistry)
+    static func listToolsPayload(mcpRegistry: (any MCPToolDiscovering)?, codeModeEnabled: Bool = false) async -> [JSONValue] {
+        let catalogEntries = await entries(mcpRegistry: mcpRegistry, codeModeEnabled: codeModeEnabled)
         let dynamicTools = Dictionary(uniqueKeysWithValues: await (mcpRegistry?.dynamicTools() ?? []).map { ($0.id, $0) })
 
         return catalogEntries.map { entry in
-            let parameters = dynamicTools[entry.id]?.inputSchema ?? parameterSchema(for: entry.id)
+            let parameters = dynamicTools[entry.id]?.inputSchema ?? (codeModeEnabled && ["runtime.process", CodeMode.toolID].contains(entry.id)
+                ? codeModeSchema(for: entry.id) : parameterSchema(for: entry.id))
             return .object([
                 "name": .string(entry.id),
                 "title": .string(entry.title),
@@ -52,6 +55,15 @@ enum ToolCatalog {
     }
 
     static let knownToolIDs: Set<String> = builtInRegistry.knownToolIDs
+
+    static func codeModeSchema(for toolID: String) -> JSONValue {
+        guard let tool = builtInRegistry.tool(for: toolID),
+              let data = try? JSONEncoder().encode(tool.parameters),
+              let schema = try? JSONDecoder().decode(JSONValue.self, from: data) else {
+            return parameterSchema(for: toolID)
+        }
+        return schema
+    }
 
     private static func parameterSchema(for toolID: String) -> JSONValue {
         if ["browser.tabs", "browser.groups", "browser.create_note", "browser.create_todo", "devices.preview"].contains(toolID),

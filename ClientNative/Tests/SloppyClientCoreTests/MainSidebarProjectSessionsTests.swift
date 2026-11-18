@@ -53,8 +53,9 @@ struct MainSidebarProjectSessionsTests {
         #expect(avatarSource.contains("sidebar.session.avatar"))
         #expect(listSource.contains("viewModel.sidebarSessionActivity(for: session)"))
         #expect(listSource.contains("viewModel.monitorSidebarSessionActivity(for: session)"))
-        #expect(mainViewModelSource.contains("detail.latestRunStatus?.stage"))
-        #expect(mainViewModelSource.contains("detail.pendingInputRequest != nil"))
+        #expect(mainViewModelSource.contains("fetchAgentSessionStatus("))
+        #expect(mainViewModelSource.contains("runStage: status.runStage"))
+        #expect(mainViewModelSource.contains("hasPendingInputRequest: status.hasPendingInputRequest"))
     }
 
     @Test("aggregated project chats install after the primary catalog finishes loading")

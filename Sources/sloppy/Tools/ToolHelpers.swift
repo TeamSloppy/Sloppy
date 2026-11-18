@@ -265,7 +265,7 @@ final class ProcessOutputBuffer: @unchecked Sendable {
 
 /// Synchronizes readability callbacks with the final drain. Nonblocking reads
 /// prevent inherited pipe descriptors in background children from hanging exec.
-private final class ProcessPipeReader: @unchecked Sendable {
+final class ProcessPipeReader: @unchecked Sendable {
     private let lock = NSLock()
     private let handle: FileHandle
     private let buffer: ProcessOutputBuffer

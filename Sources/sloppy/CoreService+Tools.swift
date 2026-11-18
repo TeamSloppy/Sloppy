@@ -50,6 +50,8 @@ extension CoreService {
             )
         }
 
+        if let unavailable = codeModeAvailabilityError(request) { return unavailable }
+
         let sessionDetail: AgentSessionDetail
         do {
             _ = try getAgent(id: normalizedAgentID)
@@ -445,6 +447,11 @@ extension CoreService {
                             break
                         }
                     }
+                    guard !Task.isCancelled else {
+                        result = toolFailure(tool: effectiveRequest.tool, code: "tool_cancelled",
+                            message: "Tool execution cancelled.", retryable: false)
+                        break
+                    }
                     if loopGuardEnabled {
                         await toolLoopGuard.recordStarted(
                             sessionID: normalizedSessionID,
@@ -472,6 +479,18 @@ extension CoreService {
                         discoveryAllowedToolIDs = discoveryAllowedToolIDs.map { $0.intersection(readScope) } ?? readScope
                     }
                     let invocationDiscoveryScope = discoveryAllowedToolIDs
+                    let invokeCodeModeTool: CodeMode.Invoke?
+                    if invocationRequest.tool == CodeMode.toolID {
+                        invokeCodeModeTool = { [weak self] request in
+                            guard let self else { return Self.codeModeUnavailable(tool: request.tool) }
+                            let result = await self.invokeToolFromRuntime(agentID: normalizedAgentID, sessionID: normalizedSessionID,
+                                request: request, recordSessionEvents: false, requireApproval: requireApproval, chatMode: chatMode)
+                            return await self.sessionOrchestrator.recordCodeModeVerification(
+                                agentID: normalizedAgentID, sessionID: normalizedSessionID, request: request, result: result)
+                        }
+                    } else {
+                        invokeCodeModeTool = nil
+                    }
                     let timeoutMs = toolInvocationHardTimeoutMs(request: invocationRequest, policy: invocationPolicy)
                     result = await runToolInvocationWithHardTimeout(
                         toolID: invocationRequest.tool,
@@ -489,7 +508,8 @@ extension CoreService {
                                 currentProjectID: sessionDetail.summary.projectId,
                                 currentDirectoryURL: currentDirectoryURL,
                                 sessionMCPRegistry: sessionMCPRegistry,
-                                discoveryAllowedToolIDs: invocationDiscoveryScope
+                                discoveryAllowedToolIDs: invocationDiscoveryScope,
+                                invokeCodeModeTool: invokeCodeModeTool
                             )
                         }
                     }
@@ -637,6 +657,8 @@ extension CoreService {
                 error: .init(code: "invalid_tool", message: "Tool id is required.", retryable: false)
             )
         }
+
+        if let unavailable = codeModeAvailabilityError(request) { return unavailable }
 
         do {
             _ = try getAgent(id: normalizedAgentID)
@@ -860,6 +882,11 @@ extension CoreService {
                         result = deniedResult
                         break
                     }
+                    guard !Task.isCancelled else {
+                        result = toolFailure(tool: effectiveRequest.tool, code: "tool_cancelled",
+                            message: "Tool execution cancelled.", retryable: false)
+                        break
+                    }
                     if loopGuardEnabled {
                         await toolLoopGuard.recordStarted(
                             sessionID: channelID,
@@ -872,6 +899,16 @@ extension CoreService {
                     let toolExecution = self.toolExecution
                     let invocationPolicy = effectivePolicy
                     let invocationRequest = effectiveRequest
+                    let invokeCodeModeTool: CodeMode.Invoke?
+                    if invocationRequest.tool == CodeMode.toolID {
+                        invokeCodeModeTool = { [weak self] request in
+                            guard let self else { return Self.codeModeUnavailable(tool: request.tool) }
+                            return await self.invokeToolFromChannelRuntime(agentID: normalizedAgentID, channelID: channelID,
+                                request: request, topicID: topicID, requireApproval: requireApproval, chatMode: chatMode)
+                        }
+                    } else {
+                        invokeCodeModeTool = nil
+                    }
                     let timeoutMs = toolInvocationHardTimeoutMs(request: invocationRequest, policy: invocationPolicy)
                     result = await runToolInvocationWithHardTimeout(
                         toolID: invocationRequest.tool,
@@ -887,7 +924,8 @@ extension CoreService {
                                 currentChannelID: channelID,
                                 request: invocationRequest,
                                 policy: invocationPolicy,
-                                currentDirectoryURL: currentDirectoryURL
+                                currentDirectoryURL: currentDirectoryURL,
+                                invokeCodeModeTool: invokeCodeModeTool
                             )
                         }
                     }
@@ -1214,7 +1252,16 @@ extension CoreService {
 
     /// Persists config to file and updates in-memory snapshot.
     public func toolCatalog() async -> [AgentToolCatalogEntry] {
-        await ToolCatalog.entries(mcpRegistry: mcpRegistry)
+        await ToolCatalog.entries(mcpRegistry: mcpRegistry, codeModeEnabled: CodeMode.enabled(workspaceRoot: workspaceRootURL))
+    }
+
+    private func codeModeAvailabilityError(_ request: ToolInvocationRequest) -> ToolInvocationResult? {
+        guard request.tool.trimmingCharacters(in: .whitespacesAndNewlines) == CodeMode.toolID || isProcessWait(request) else { return nil }
+        return CodeMode.enabled(workspaceRoot: workspaceRootURL) ? nil : Self.codeModeUnavailable(tool: request.tool)
+    }
+
+    private static func codeModeUnavailable(tool: String) -> ToolInvocationResult {
+        toolFailure(tool: tool, code: "code_mode_unavailable", message: "Code Mode is disabled.", retryable: false)
     }
 
     /// Returns agent tools policy from `/agents/<agentID>/tools/tools.json`.
@@ -1538,17 +1585,9 @@ extension CoreService {
 
 }
 
-private actor ToolInvocationResultBox {
-    private var stored: ToolInvocationResult?
-
-    func complete(_ result: ToolInvocationResult) {
-        guard stored == nil else { return }
-        stored = result
-    }
-
-    var value: ToolInvocationResult? {
-        stored
-    }
+private func isProcessWait(_ request: ToolInvocationRequest) -> Bool {
+    request.tool.trimmingCharacters(in: .whitespacesAndNewlines) == "runtime.process" &&
+        request.arguments["action"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "wait"
 }
 
 private func runToolInvocationWithHardTimeout(
@@ -1556,27 +1595,28 @@ private func runToolInvocationWithHardTimeout(
     timeoutMs: Int,
     operation: @escaping @Sendable () async -> ToolInvocationResult
 ) async -> ToolInvocationResult {
-    let box = ToolInvocationResultBox()
     let startedAt = Date()
     let timeoutMs = max(1, timeoutMs)
+    let (stream, continuation) = AsyncStream<ToolInvocationResult>.makeStream(bufferingPolicy: .bufferingOldest(1))
     let task = Task {
-        let result = await operation()
-        await box.complete(result)
+        guard !Task.isCancelled else { return }
+        continuation.yield(await operation())
+        continuation.finish()
     }
-    let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
-
-    while Date() < deadline {
-        if let result = await box.value {
-            return result
-        }
-        try? await Task.sleep(nanoseconds: 25_000_000)
+    let timer = Task {
+        do { try await Task.sleep(for: .milliseconds(timeoutMs)) }
+        catch { return }
+        continuation.finish()
     }
-
-    if let result = await box.value {
-        return result
+    defer {
+        task.cancel()
+        timer.cancel()
     }
-
-    task.cancel()
+    var iterator = stream.makeAsyncIterator()
+    if let result = await iterator.next() { return result }
+    if Task.isCancelled {
+        return toolFailure(tool: toolID, code: "tool_cancelled", message: "Tool execution cancelled.", retryable: false)
+    }
     let durationMs = max(timeoutMs, Int(Date().timeIntervalSince(startedAt) * 1000))
     return ToolInvocationResult(
         tool: toolID,
@@ -1588,8 +1628,8 @@ private func runToolInvocationWithHardTimeout(
         error: ToolErrorPayload(
             code: "tool_timeout",
             message: "Tool execution timed out after \(timeoutMs) ms.",
-            retryable: true,
-            hint: "Stop retrying the same tool call. Summarize the blocker or use runtime.process for long-running commands."
+            retryable: toolID != CodeMode.toolID,
+            hint: "Inspect the outcome before retrying a tool that may have produced side effects."
         ),
         durationMs: durationMs
     )
@@ -1598,6 +1638,13 @@ private func runToolInvocationWithHardTimeout(
 private func toolInvocationHardTimeoutMs(request: ToolInvocationRequest, policy: AgentToolsPolicy) -> Int {
     let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
     switch toolID {
+    case CodeMode.toolID:
+        let timeout = request.arguments["code"]?.asString.flatMap { try? CodeMode.Options.parse($0).timeoutMs }
+        return (timeout ?? CodeMode.defaultTimeoutMs) + 1_000
+
+    case "runtime.process" where isProcessWait(request):
+        return (RuntimeProcessTool.waitTimeoutMs(request.arguments["timeoutMs"]) ?? CodeMode.defaultTimeoutMs) + 1_000
+
     case "runtime.exec":
         return resolvedExecTimeoutMs(arguments: request.arguments, guardrails: policy.guardrails) + 3_000
 

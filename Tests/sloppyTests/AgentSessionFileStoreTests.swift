@@ -40,6 +40,11 @@ func agentSessionStoreCachesListsAndInvalidatesSummarySidecar() throws {
         .appendingPathComponent(session.id, isDirectory: true)
         .appendingPathComponent("summary.json")
     #expect(FileManager.default.fileExists(atPath: sessionFileURL.path))
+    let attachmentDirectory = sessionDirectoryURL.appendingPathComponent("assets/fixture", isDirectory: true)
+    try FileManager.default.createDirectory(at: attachmentDirectory, withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: sessionFileURL, to: attachmentDirectory.appendingPathComponent("session.jsonl"))
+    let resolver = AgentSessionPathResolver(agentDirectoryURL: rootURL.appendingPathComponent(agentID, isDirectory: true))
+    #expect(resolver.canonicalSessionFiles().map { $0.resolvingSymlinksInPath() } == [sessionFileURL.resolvingSymlinksInPath()])
     try? FileManager.default.removeItem(at: summaryURL)
     #expect(!FileManager.default.fileExists(atPath: summaryURL.path))
 
@@ -66,6 +71,11 @@ func agentSessionStoreCachesListsAndInvalidatesSummarySidecar() throws {
     _ = try store.incrementUserTurnCount(agentID: agentID, sessionID: session.id)
     let afterTurnCount = try store.listSessions(agentID: agentID)
     #expect(afterTurnCount.first?.userTurnCount == 1)
+
+    try FileManager.default.removeItem(at: summaryURL)
+    try FileManager.default.createDirectory(at: summaryURL, withIntermediateDirectories: false)
+    #expect(try store.loadSessionSummary(agentID: agentID, sessionID: session.id).messageCount == 1)
+    #expect(try store.listSessions(agentID: agentID).map(\.id) == [session.id])
 
     try store.deleteSession(agentID: agentID, sessionID: session.id)
     #expect(!FileManager.default.fileExists(atPath: summaryURL.path))
@@ -161,9 +171,18 @@ func agentSessionStoreDeletesExpiredSessionsAndCompanionFiles() throws {
     let oldSidecarURL = oldSessionDirectoryURL.appendingPathComponent("sidecar.json")
     let oldAssetsURL = oldSessionDirectoryURL.appendingPathComponent("assets", isDirectory: true)
 
+    let cutoff = oldDate.addingTimeInterval(2 * 24 * 60 * 60)
+    #expect(try !store.deleteSessionIfExpired(agentID: agentID, sessionID: freshSession.id, olderThan: cutoff))
+    let owner = try store.createSession(agentID: agentID, request: .init(title: "Owner", kind: .longChat), createdAt: oldDate)
+    let child = try store.createSession(agentID: agentID, request: .init(title: "Child", parentSessionId: owner.id), createdAt: oldDate)
+    #expect(try !store.deleteSessionIfExpired(agentID: agentID, sessionID: owner.id, olderThan: cutoff))
+    #expect(try !store.deleteSessionIfExpired(agentID: agentID, sessionID: child.id, olderThan: cutoff))
+    try store.deleteSession(agentID: agentID, sessionID: child.id)
+    try store.deleteSession(agentID: agentID, sessionID: owner.id)
+
     let deleted = try store.deleteExpiredSessions(
         agentIDs: [agentID],
-        olderThan: oldDate.addingTimeInterval(2 * 24 * 60 * 60)
+        olderThan: cutoff
     )
 
     #expect(deleted.map(\.id) == [oldSession.id])

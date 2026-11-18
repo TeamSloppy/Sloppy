@@ -36,10 +36,16 @@ async function main() {
   await ensureOutputDir();
   const seed = await readSeedState();
   const consoleLines = [];
-  const browser = await chromium.launch({ headless: process.env.PLAYWRIGHT_HEADLESS !== "0" });
+  const browser = await chromium.launch({
+    headless: process.env.PLAYWRIGHT_HEADLESS !== "0",
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+  });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1024 }
   });
+  await page.addInitScript((apiBase) => {
+    localStorage.setItem("sloppy_api_base_override", apiBase);
+  }, seed.coreApiBase);
 
   page.on("console", (message) => {
     consoleLines.push(`[console:${message.type()}] ${message.text()}`);
@@ -49,7 +55,9 @@ async function main() {
   });
 
   try {
-    await page.goto(DASHBOARD_BASE_URL, { waitUntil: "domcontentloaded" });
+    const dashboardURL = new URL(DASHBOARD_BASE_URL);
+    dashboardURL.searchParams.set("apiBase", seed.coreApiBase);
+    await page.goto(dashboardURL.href, { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[data-testid="sidebar-nav-overview"]', {
       state: "visible",
       timeout: 30_000
@@ -133,7 +141,7 @@ async function main() {
     const workspaceLayers = page.locator('[data-testid="workspace-layer"]');
     await workspaceLayers.first().click();
     await page.waitForSelector('[data-testid="workspace-selection-bar"]', { state: "visible" });
-    await page.keyboard.press("Meta+d");
+    await page.keyboard.press("ControlOrMeta+d");
     await page.waitForFunction(
       (count) => document.querySelectorAll(".react-flow__node-workspace").length === count + 2,
       initialNodeCount

@@ -301,6 +301,10 @@ public actor CoreService {
     var activePeerSessionOrigins: [String: AgentSessionPeerOrigin] = [:]
     var peerConversationSessions: Set<String> = []
     var longChatStorage: LongChatFileStore?
+    var sessionCatalogScans: [URL: [String: Task<[AgentSessionSummary], Error>]] = [:]
+    let sessionCatalogQueue = DispatchQueue(label: "sloppy.session-catalog", qos: .userInitiated)
+    var lastAgentSessionRetention: (root: URL, days: Int, checkedAt: ContinuousClock.Instant)?
+    var agentSessionRetentionTask: Task<Int, Never>?
     var longChatRecoveryCompleted = false
     var longChatTurnRunners: Set<String> = []
     var longChatTurnTasks: [String: Task<Void, Never>] = [:]
@@ -454,7 +458,7 @@ public actor CoreService {
         let modelProvider = CoreModelProviderFactory.buildModelProvider(
             config: config,
             resolvedModels: resolvedModels,
-            tools: ToolRegistry.makeDefault().allTools,
+            tools: ToolRegistry.makeDefault(codeModeEnabled: CodeMode.enabled(workspaceRoot: workspaceRootURL)).allTools,
             oauthTokenProvider: { oauthService.currentAccessToken() },
             oauthAccountId: oauthService.currentAccountId(),
             oauthTokenRefresh: { try await oauthService.ensureValidToken() },

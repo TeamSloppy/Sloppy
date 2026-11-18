@@ -7,24 +7,38 @@ struct RuntimeProcessTool: CoreTool {
     let title = "Manage process"
     let status = "fully_functional"
     let name = "runtime.process"
-    let description = "Manage long-lived background session processes. A successful start returns `verificationEvidence.id` for `session.complete`. Use this only when a process must stay alive across steps; for one-shot commands use `runtime.exec`. Supported actions: start, status, stop, list."
+    var advertisesWait = false
+    var description: String {
+        if advertisesWait {
+            return "Manage session processes: start, wait, status, stop, list. For a background build or test, start with captureOutput: true. When you need the final result, use wait with its processId and a suitable timeoutMs to receive exitCode and outputTail on exit. Use status for an immediate snapshot."
+        }
+        return legacyDescription
+    }
+    private let legacyDescription = "Manage long-lived background session processes. A successful start returns `verificationEvidence.id` for `session.complete`. Use this only when a process must stay alive across steps; for one-shot commands use `runtime.exec`. Supported actions: start, status, stop, list."
 
     var parameters: GenerationSchema {
-        .objectSchema([
-            .init(name: "action", description: "Background process action. Only start, status, stop, and list are supported.", schema: DynamicGenerationSchema(type: String.self)),
+        var fields: [DynamicGenerationSchema.Property] = [
+            .init(name: "action", description: advertisesWait ? "start, wait, status, stop, or list" : "start, status, stop, or list", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "command", description: "Executable name or path to start (e.g. 'bash', '/bin/ls', 'git'). Required for start. Do NOT repeat the command name in arguments.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "arguments", description: "Array of arguments passed to the command (argv). For shell one-liners use command='bash' arguments=['-lc', 'your command here']. Do NOT include the command name itself.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "cwd", description: "Working directory (absolute path or relative to current session directory). Defaults to current session directory if omitted.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "processId", description: "Process ID (required for status/stop)", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
-        ])
+            .init(name: "processId", description: "Process ID for actions targeting a process", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
+        ]
+        if advertisesWait {
+            fields.append(.init(name: "timeoutMs", description: "Maximum wait time in milliseconds, from 1 through 600000. Default 60000.", schema: DynamicGenerationSchema(type: Int.self), isOptional: true))
+            fields.append(.init(name: "captureOutput", description: "Capture a bounded output tail on start for use with wait.", schema: DynamicGenerationSchema(type: Bool.self), isOptional: true))
+        }
+        return .objectSchema(fields)
     }
 
     func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
-        let action = arguments["action"]?.asString?.lowercased() ?? "list"
+        let action = arguments["action"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "list"
         do {
             switch action {
             case "start":
                 return try await handleStart(arguments: arguments, context: context)
+            case "wait" where CodeMode.enabled(workspaceRoot: context.workspaceRootURL):
+                return try await handleWait(arguments: arguments, context: context)
             case "status":
                 return try await handleStatus(arguments: arguments, context: context)
             case "stop":
@@ -35,6 +49,10 @@ struct RuntimeProcessTool: CoreTool {
             default:
                 return toolFailure(tool: name, code: "invalid_arguments", message: "Unsupported action '\(action)'.", retryable: false)
             }
+        } catch SessionProcessRegistry.RegistryError.waitTimedOut {
+            return toolFailure(tool: name, code: "process_wait_timeout", message: "The process has not exited yet.", retryable: true)
+        } catch is CancellationError {
+            return toolFailure(tool: name, code: "tool_cancelled", message: "Process wait cancelled.", retryable: false)
         } catch SessionProcessRegistry.RegistryError.processLimitReached {
             return toolFailure(tool: name, code: "process_limit_reached", message: "Max process count per session reached.", retryable: false)
         } catch SessionProcessRegistry.RegistryError.processNotFound {
@@ -69,8 +87,25 @@ struct RuntimeProcessTool: CoreTool {
             arguments: args,
             cwd: cwdPath,
             maxProcesses: context.policy.guardrails.maxProcessesPerSession,
-            environmentOverrides: context.environmentOverrides
+            environmentOverrides: context.environmentOverrides,
+            captureOutput: arguments["captureOutput"]?.asBool == true && CodeMode.enabled(workspaceRoot: context.workspaceRootURL)
         )
+        return toolSuccess(tool: name, data: payload)
+    }
+
+    static func waitTimeoutMs(_ value: JSONValue?) -> Int? {
+        guard let value else { return CodeMode.defaultTimeoutMs }
+        guard let number = value.asNumber, number >= 1, number <= Double(CodeMode.maximumTimeoutMs),
+              number.rounded(.towardZero) == number else { return nil }
+        return Int(number)
+    }
+
+    private func handleWait(arguments: [String: JSONValue], context: ToolContext) async throws -> ToolInvocationResult {
+        guard let processID = arguments["processId"]?.asString, !processID.isEmpty,
+              let timeoutMs = Self.waitTimeoutMs(arguments["timeoutMs"]) else {
+            return toolFailure(tool: name, code: "invalid_arguments", message: "wait requires processId and an optional timeoutMs from 1 through 600000.", retryable: false)
+        }
+        let payload = try await context.processRegistry.wait(sessionID: context.sessionID, processID: processID, timeoutMs: timeoutMs)
         return toolSuccess(tool: name, data: payload)
     }
 

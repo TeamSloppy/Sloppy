@@ -42,6 +42,7 @@ public struct ContextLedgerEntry: Codable, Sendable, Equatable {
 
 public struct ContextLedgerSnapshot: Codable, Sendable, Equatable {
     public var channelId: String
+    public var modelID: String?
     public var contextWindowTokens: Int
     public var reservedOutputTokens: Int
     public var entries: [ContextLedgerEntry]
@@ -52,9 +53,11 @@ public struct ContextLedgerSnapshot: Codable, Sendable, Equatable {
         contextWindowTokens: Int,
         reservedOutputTokens: Int,
         entries: [ContextLedgerEntry],
-        lastTurnUsage: TokenUsage? = nil
+        lastTurnUsage: TokenUsage? = nil,
+        modelID: String? = nil
     ) {
         self.channelId = channelId
+        self.modelID = modelID
         self.contextWindowTokens = max(1, contextWindowTokens)
         self.reservedOutputTokens = max(0, reservedOutputTokens)
         self.entries = entries
@@ -134,14 +137,16 @@ public struct ContextLedgerBuilder: Sendable {
         contextWindowTokens: Int,
         reservedOutputTokens: Int,
         entries: [ContextLedgerEntry],
-        lastTurnUsage: TokenUsage? = nil
+        lastTurnUsage: TokenUsage? = nil,
+        modelID: String? = nil
     ) -> ContextLedgerSnapshot {
         ContextLedgerSnapshot(
             channelId: channelId,
             contextWindowTokens: contextWindowTokens,
             reservedOutputTokens: reservedOutputTokens,
             entries: entries,
-            lastTurnUsage: lastTurnUsage
+            lastTurnUsage: lastTurnUsage,
+            modelID: modelID
         )
     }
 }

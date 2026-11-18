@@ -36,3 +36,20 @@ func workerExecutorAdapterPassesSpecToolsToAgentRunner() async throws {
     #expect(captured.channelID == spec.channelId)
     #expect(captured.toolIDs == ["files.read", "mcp.github.create_issue"])
 }
+
+@Test func workerExecutorFailurePreservesStructuredCompletionEvidence() async throws {
+    let finish: JSONValue = .object(["finished": .bool(false), "synthetic": .bool(true), "status": .string("failed")])
+    let adapter = ToolExecutionWorkerExecutorAdapter(agentRunner: { _, _, _, _, _, _, _ in
+        .init(summary: "No structured completion.", payload: ["delegateFinish": finish],
+              executionOutcome: .init(state: .failed))
+    })
+    let spec = WorkerTaskSpec(taskId: "failed", channelId: "channel", title: "Work",
+                              objective: "Inspect", agentID: "builder", tools: [], mode: .fireAndForget)
+    do {
+        _ = try await adapter.execute(workerId: "worker", spec: spec)
+        Issue.record("Expected a structured worker failure")
+    } catch let failure as AgentRunnerModelError {
+        #expect(failure.workerFailurePayload["delegateFinish"] == finish)
+        #expect(failure.workerFailurePayload["executionOutcome"]?.asObject?["state"] == .string("failed"))
+    }
+}

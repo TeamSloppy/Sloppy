@@ -29,9 +29,36 @@ private struct ProjectComputedWorktreeMetadata {
     var isWorktree: Bool
 }
 
+private actor ProjectGitWorktreeProbes {
+    private var pending: [String: Task<ProjectGitWorktreeMetadata?, Never>] = [:]
+    private var lanes: [Task<Void, Never>?] = Array(repeating: nil, count: 4)
+    private var nextLane = 0
+
+    func load(
+        root: String, probe: @escaping @Sendable (String) async -> ProjectGitWorktreeMetadata?
+    ) async -> ProjectGitWorktreeMetadata? {
+        if let existing = pending[root] { return await existing.value }
+        guard !Task.isCancelled else { return nil }
+
+        // Distinct roots can run concurrently. Overlapping list calls share each probe.
+        let previous = lanes[nextLane]
+        let task = Task {
+            await previous?.value
+            let metadata = await probe(root)
+            pending[root] = nil
+            return metadata
+        }
+        pending[root] = task
+        lanes[nextLane] = Task { _ = await task.value }
+        nextLane = (nextLane + 1) % lanes.count
+        return await task.value
+    }
+}
+
 // MARK: - Projects
 
 extension CoreService {
+    private static let projectGitWorktreeProbes = ProjectGitWorktreeProbes()
     public struct ProjectChannelLinkConflict: Error {
         public let ownerProjectId: String
         public let ownerProjectName: String
@@ -2249,14 +2276,14 @@ extension CoreService {
             }
         )
         let gitMetadata = await withTaskGroup(of: (String, ProjectGitWorktreeMetadata?).self) { group in
-            for (id, root) in projectRoots {
+            for root in Set(projectRoots.values) {
                 group.addTask {
-                    (id, await Self.gitWorktreeMetadata(at: root))
+                    (root, await Self.projectGitWorktreeProbes.load(root: root, probe: Self.gitWorktreeMetadata(at:)))
                 }
             }
             var metadata: [String: ProjectGitWorktreeMetadata] = [:]
-            for await (id, item) in group {
-                if let item { metadata[id] = item }
+            for await (root, item) in group {
+                if let item { metadata[root] = item }
             }
             return metadata
         }
@@ -2267,7 +2294,8 @@ extension CoreService {
                 continue
             }
 
-            let gitBranch = gitMetadata[child.id]?.branch
+            let childGit = gitMetadata[childRoot]
+            let gitBranch = childGit?.branch
             if let parent = fallbackWorktreeParent(for: child, childRoot: childRoot, projects: projects, projectRoots: projectRoots) {
                 result[child.id] = ProjectComputedWorktreeMetadata(
                     parentProjectId: parent.id,
@@ -2277,13 +2305,14 @@ extension CoreService {
                 continue
             }
 
-            guard let childGit = gitMetadata[child.id], childGit.isWorktree else {
+            guard let childGit, childGit.isWorktree else {
                 continue
             }
 
             let parent = projects.first { candidate in
                 guard candidate.id != child.id,
-                      let candidateGit = gitMetadata[candidate.id],
+                      let candidateRoot = projectRoots[candidate.id],
+                      let candidateGit = gitMetadata[candidateRoot],
                       candidateGit.commonDirectory == childGit.commonDirectory
                 else {
                     return false

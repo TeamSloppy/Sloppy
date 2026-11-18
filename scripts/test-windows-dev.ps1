@@ -99,6 +99,9 @@ function Initialize-SloppyPrerequisites {
     }
     Assert-DevBuild ($env:Path -eq $originalPath -and $env:CORE_DASHBOARD_PATH -eq $originalDashboard) "Tests changed the process environment."
     Assert-DevBuild ([Environment]::GetEnvironmentVariable("Path", "User") -eq $userPath) "Tests changed user PATH."
+    # The deliberate native-command failure above leaves LASTEXITCODE=1.
+    # All assertions have passed; do not return the spy's simulated failure to CI.
+    $global:LASTEXITCODE = 0
     Write-Host "Windows fast setup, configuration overrides, Dashboard reuse/fallback and build failure checks passed."
 } finally {
     $env:Path = $originalPath

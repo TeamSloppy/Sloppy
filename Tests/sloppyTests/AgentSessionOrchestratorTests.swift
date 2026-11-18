@@ -14,6 +14,8 @@ private final class MockCallStore: @unchecked Sendable {
     private var _prompts: [String] = []
     private var _transcripts: [[String]] = []
     private var _imageData: [[Data]] = []
+    private var _toolOutputs: [String] = []
+    private var _offeredTools: [[String]] = []
 
     func recordModel(_ model: String) { lock.withLock { _models.append(model) } }
     func recordEffort(_ effort: ReasoningEffort?) { lock.withLock { _reasoningEfforts.append(effort) } }
@@ -30,6 +32,14 @@ private final class MockCallStore: @unchecked Sendable {
             })
         }
     }
+    func recordToolOutput(_ segments: [Transcript.Segment]) {
+        lock.withLock { _toolOutputs.append(debugTranscriptSegments(segments)) }
+    }
+    func recordOfferedTools(_ tools: [any Tool]) {
+        lock.withLock { _offeredTools.append(tools.map(\.name)) }
+    }
+    var toolOutputs: [String] { lock.withLock { _toolOutputs } }
+    var offeredTools: [[String]] { lock.withLock { _offeredTools } }
     var models: [String] { lock.withLock { _models } }
     var reasoningEfforts: [ReasoningEffort?] { lock.withLock { _reasoningEfforts } }
     var prompts: [String] { lock.withLock { _prompts } }
@@ -308,6 +318,7 @@ private struct ToolCallingLanguageModel: LanguageModel {
     ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         guard type == String.self else { fatalError("ToolCallingLanguageModel: only String supported") }
         callStore?.recordTranscript(session.transcript)
+        callStore?.recordOfferedTools(session.tools)
 
         var entries: [Transcript.Entry] = []
         if let delegate = session.toolExecutionDelegate {
@@ -341,6 +352,7 @@ private struct ToolCallingLanguageModel: LanguageModel {
                     )
                 }
                 if case .provideOutput(let segments) = decision {
+                    callStore?.recordToolOutput(segments)
                     let output = Transcript.ToolOutput(id: toolCall.id, toolName: toolCall.toolName, segments: segments)
                     await delegate.didExecuteToolCall(toolCall, output: output, in: session)
                     entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
@@ -389,6 +401,7 @@ private actor ToolCallingModelProvider: ModelProvider {
     let supportedModels: [String]
     private let toolNames: [String]
     private let toolArguments: [String: GeneratedContent]
+    nonisolated let tools: [any Tool]
     private let finalText: String
     nonisolated let callStore = MockCallStore()
 
@@ -396,6 +409,7 @@ private actor ToolCallingModelProvider: ModelProvider {
         self.supportedModels = models
         self.toolNames = [toolName]
         self.toolArguments = [:]
+        self.tools = []
         self.finalText = finalText
     }
 
@@ -403,13 +417,15 @@ private actor ToolCallingModelProvider: ModelProvider {
         self.supportedModels = models
         self.toolNames = toolNames
         self.toolArguments = [:]
+        self.tools = []
         self.finalText = finalText
     }
 
-    init(models: [String], toolNames: [String], toolArguments: [String: GeneratedContent], finalText: String = "Tool result inspected.") {
+    init(models: [String], toolNames: [String], toolArguments: [String: GeneratedContent], finalText: String = "Tool result inspected.", tools: [any Tool] = []) {
         self.supportedModels = models
         self.toolNames = toolNames
         self.toolArguments = toolArguments
+        self.tools = tools
         self.finalText = finalText
     }
 
@@ -3609,3 +3625,63 @@ func coordinatorRecoveryStopsAfterTwoPassesAndKeepsHandoffIncomplete() async thr
     #expect(result.appendedEvents.last?.runStatus?.executionOutcome?.code == "delegation_failed")
     #expect(try store.loadSession(agentID: "bounded", sessionID: session.id).events.compactMap(\.toolResult).allSatisfy { !$0.ok })
 }
+
+#if os(macOS) || os(Linux)
+@Test("Code Mode returns one tool result to the model once the background build exits")
+func codeModeAgentReceivesOneBuildResult() async throws {
+    let config = CoreConfig.test
+    let root = config.resolvedWorkspaceRootURL()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try "SLOPPY_CODEMODE_ENABLED=1\n".write(to: root.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+    try "int main(void) { return 0; }\n".write(to: root.appendingPathComponent("main.c"), atomically: true, encoding: .utf8)
+    try """
+        build:
+        \tsleep 0.2
+        \tcc main.c -o built-program
+        \t@echo build-finished
+        """.write(to: root.appendingPathComponent("Makefile"), atomically: true, encoding: .utf8)
+    let script = """
+        // @options: {"max_output_tokens": 2000, "timeout_ms": 20000}
+        const started = await tools.runtime_process({
+            action: "start", command: "make", arguments: ["build"], captureOutput: true
+        });
+        if (!started.ok) throw new Error(JSON.stringify(started));
+        const done = await tools.call("runtime.process", {
+            action: "wait", processId: started.data.processId, timeoutMs: 15000
+        });
+        if (!done.ok) throw new Error(JSON.stringify(done));
+        return { exitCode: done.data.exitCode, outputTail: done.data.outputTail };
+        """
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let toolName = ModelToolNameSanitizer.sanitizeName(CodeMode.toolID)
+    let provider = ToolCallingModelProvider(
+        models: ["mock:test-model"], toolNames: [toolName],
+        toolArguments: [toolName: GeneratedContent(properties: ["code": script])],
+        tools: ToolRegistry.makeDefault(codeModeEnabled: CodeMode.enabled(workspaceRoot: root)).allTools
+    )
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:test-model")
+    let agentID = "codemode-build"
+    _ = try await service.createAgent(.init(id: agentID, displayName: "Build", role: "Test"))
+    let session = try await service.createAgentSession(agentID: agentID, request: .init(title: "Code Mode"))
+    _ = try await service.postAgentSessionMessage(agentID: agentID, sessionID: session.id,
+        request: .init(userId: "test", content: "Build the fixture using JavaScript.", mode: .ask))
+    let detail = try await service.getAgentSession(agentID: agentID, sessionID: session.id)
+    let outputs = provider.callStore.toolOutputs
+    #expect(provider.callStore.offeredTools.contains { $0.contains(toolName) })
+    #expect(outputs.count == 1)
+    let encoded = try #require(outputs.first)
+    let delivered = try JSONDecoder().decode(ToolInvocationResult.self, from: Data(encoded.utf8))
+    #expect(delivered.tool == CodeMode.toolID)
+    #expect(delivered.ok, Comment(rawValue: encoded))
+    let returned: String = try #require(delivered.data?.asObject?["output"]?.asString)
+    let result = try JSONDecoder().decode([String: Protocols.JSONValue].self, from: Data(returned.utf8))
+    #expect(result["exitCode"]?.asInt == 0)
+    #expect(result["outputTail"]?.asString?.contains("build-finished") == true)
+    #expect(delivered.data?.asObject?["verificationEvidence"]?.asObject?["kind"]?.asString == "build")
+    #expect(FileManager.default.isExecutableFile(atPath: root.appendingPathComponent("built-program").path))
+    #expect(detail.events.compactMap(\.toolCall).map(\.tool) == [CodeMode.toolID])
+    #expect(detail.events.compactMap(\.toolResult).map(\.tool) == [CodeMode.toolID])
+    await service.shutdownChannelPlugins()
+}
+#endif

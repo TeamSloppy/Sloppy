@@ -6,6 +6,11 @@ public enum WorkerExecutionResult: Sendable, Equatable {
     case waitingForRoute(report: String?)
 }
 
+/// Structured failure evidence supplied by an executor, preserved in worker.failed events.
+public protocol WorkerFailureDetails: Error {
+    var workerFailurePayload: [String: JSONValue] { get }
+}
+
 public enum WorkerRouteExecutionResult: Sendable, Equatable {
     case waitingForRoute(report: String?)
     case completed(summary: String)

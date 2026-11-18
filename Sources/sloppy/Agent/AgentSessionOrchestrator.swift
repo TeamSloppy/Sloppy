@@ -2468,6 +2468,18 @@ actor AgentSessionOrchestrator {
         toolDrivenSessionRunChannels.insert(channelID)
     }
 
+    func recordCodeModeVerification(
+        agentID: String, sessionID: String, request: ToolInvocationRequest, result: ToolInvocationResult
+    ) -> ToolInvocationResult {
+        let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        guard !Task.isCancelled, activeSessionRunIDsByChannel[channelID] != nil else { return result }
+        // Starting a child process within a script is insufficient evidence of a finished build.
+        if request.tool == "runtime.process", request.arguments["action"]?.asString?.lowercased() != "wait" {
+            return result
+        }
+        return recordVerificationEvidence(channelID: channelID, request: request, result: result)
+    }
+
     private func recordVerificationEvidence(
         channelID: String,
         request: ToolInvocationRequest,
@@ -2499,13 +2511,19 @@ actor AgentSessionOrchestrator {
             exitCode = 0
         case "runtime.process":
             let action = request.arguments["action"]?.asString?.lowercased() ?? ""
-            guard action == "start", data["running"]?.asBool == true else {
-                return result
+            if action == "wait", data["exitCode"]?.asInt == 0 {
+                command = data["command"]?.asString
+                arguments = data["arguments"]?.asArray?.compactMap(\.asString) ?? []
+                guard let commandKind = Self.verificationKind(command: command, arguments: arguments) else { return result }
+                kind = commandKind
+                exitCode = 0
+            } else {
+                guard action == "start", data["running"]?.asBool == true else { return result }
+                kind = .run
+                command = request.arguments["command"]?.asString
+                arguments = request.arguments["arguments"]?.asArray?.compactMap(\.asString) ?? []
+                exitCode = nil
             }
-            kind = .run
-            command = request.arguments["command"]?.asString
-            arguments = request.arguments["arguments"]?.asArray?.compactMap(\.asString) ?? []
-            exitCode = nil
         case "devices.preview":
             guard request.arguments["operation"]?.asString == "screenshot", data["path"]?.asString != nil else { return result }
             kind = .screenshot
@@ -2541,7 +2559,7 @@ actor AgentSessionOrchestrator {
             tool: result.tool,
             command: command,
             arguments: arguments,
-            cwd: request.arguments["cwd"]?.asString,
+            cwd: data["cwd"]?.asString ?? request.arguments["cwd"]?.asString,
             exitCode: exitCode,
             observedAt: Date()
         )

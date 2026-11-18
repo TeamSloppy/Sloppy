@@ -251,7 +251,8 @@ public actor WorkerRuntime {
             let prefix = state.spec.mode == .fireAndForget
                 ? "Fire-and-forget execution failed"
                 : "Worker execution failed"
-            await fail(workerId: workerId, error: "\(prefix): \(error.localizedDescription)")
+            await fail(workerId: workerId, error: "\(prefix): \(error.localizedDescription)",
+                       payload: (error as? any WorkerFailureDetails)?.workerFailurePayload ?? [:])
         }
     }
 
@@ -379,6 +380,10 @@ public actor WorkerRuntime {
 
     /// Marks worker as failed and emits failure event.
     public func fail(workerId: String, error: String) async {
+        await fail(workerId: workerId, error: error, payload: [:])
+    }
+
+    public func fail(workerId: String, error: String, payload: [String: JSONValue]) async {
         guard var state = workers[workerId] else { return }
         guard state.status != .failed, state.status != .completed else { return }
         state.status = .failed
@@ -386,12 +391,14 @@ public actor WorkerRuntime {
         state.updatedAt = Date()
         workers[workerId] = state
 
+        var failurePayload = payload
+        failurePayload["error"] = .string(error)
         await publish(
             channelId: state.spec.channelId,
             taskId: state.spec.taskId,
             workerId: workerId,
             messageType: .workerFailed,
-            payload: ["error": .string(error)]
+            payload: failurePayload
         )
     }
 

@@ -9,3 +9,5 @@ This directory tracks architecture decisions for Sloppy runtime behavior.
 - [ADR 0005: Default Free Voice Stack](0005-default-free-voice-stack.md)
 - [ADR 0006: Streaming Voice Pipeline](0006-streaming-voice-pipeline.md)
 - [ADR 0007: Realtime Speech-to-Speech Mode](0007-realtime-speech-to-speech-mode.md)
+
+- [ADR 0011: Bind worker reuse to an explicit execution target](0011-bind-worker-reuse-to-execution-target.md)

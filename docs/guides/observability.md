@@ -12,6 +12,37 @@ handler execution and response encoding, ending when an SSE stream is establishe
 not when its stream finishes. It excludes time queued before entering CoreRouter
 and time sending the response over the transport.
 
+## Diagnose a macOS client connection
+
+Run this on the machine that hosts Core. The TCP and first-byte timings show
+whether Core accepted the connection and how long it took to respond.
+
+```sh
+curl --noproxy '*' --max-time 5 -i \
+  -w '\nconnect=%{time_connect}s first_byte=%{time_starttransfer}s total=%{time_total}s\n' \
+  http://127.0.0.1:25101/health
+```
+
+An HTTP `503` with `core_health_timeout` means the HTTP listener accepted the
+request and the router did not complete the health check within two seconds.
+Core includes `X-Sloppy-Request-ID` on routed responses, including that timeout.
+Search for this value in the service log with `sloppy service logs`. The same ID
+appears in native HTTP request logs and in the `sloppy.request.id` span attribute
+when OpenTelemetry export is enabled. Core logs when a request has spent three
+seconds awaiting its router and records when slow requests finish routing.
+For direct connections, click the macOS sidebar connection status and copy
+**Last failed check ID** to look up a failure after the connection recovers.
+
+```sh
+log stream --info --style compact --predicate \
+  'subsystem == "team.sloppy.client" AND category == "Connection"'
+```
+
+The native client records DNS, connection, TLS, first-byte and download timings
+when URLSession provides them. It logs phase timings for slow requests and health
+checks, plus failed requests and health recovery. A reused connection can omit
+DNS and connection timings.
+
 ## Export metrics and traces
 
 Sloppy uses [Swift OTel](https://github.com/swift-otel/swift-otel) as the OTLP backend
@@ -33,8 +64,8 @@ Standard `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_*`, `OTEL_METRIC_EXPORT_INTERV
 default transport here is HTTP/protobuf, with metrics exported every 15 seconds.
 This build includes the HTTP exporter; do not configure the gRPC transport.
 
-Open [Prometheus](http://localhost:9090) for queries and
-[Jaeger](http://localhost:16686) for request and tool spans. The supplied stack
+Open Prometheus at `http://localhost:9090` for queries and
+Jaeger at `http://localhost:16686` for request and tool spans. The supplied stack
 binds published ports to localhost and is for local development. Docker must be
 installed separately. Docker configuration should be validated with
 `docker compose -f utils/observability/compose.yml config` on a Docker host.
