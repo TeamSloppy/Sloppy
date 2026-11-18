@@ -3091,11 +3091,6 @@ private func authenticateMeshSocket(
     try await sendMeshEnvelope(NodeMeshClient.makeHelloEnvelope(identity: identity), encoder: encoder, over: socket)
 }
 
-private func encodedMeshEnvelope(_ envelope: MeshEnvelope, encoder: JSONEncoder) throws -> String {
-    let payload = try encoder.encode(envelope)
-    return try #require(String(data: payload, encoding: .utf8))
-}
-
 private func receiveMeshWebSocketMessage(
     over socket: URLSessionWebSocketTask,
     operation: String,
@@ -3196,6 +3191,12 @@ private func collectDashboardTerminalOutput(
     return combined
 }
 #endif
+
+// Shared by the socket integrations and the platform-independent relay fixtures.
+private func encodedMeshEnvelope(_ envelope: MeshEnvelope, encoder: JSONEncoder) throws -> String {
+    let payload = try encoder.encode(envelope)
+    return try #require(String(data: payload, encoding: .utf8))
+}
 
 private actor WebSocketSentMessageRecorder {
     private var messages: [String] = []

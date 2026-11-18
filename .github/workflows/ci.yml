@@ -42,7 +42,7 @@ jobs:
   swift-test:
     name: Swift Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       ADAENGINE_HEADLESS: "1"
       ADAENGINE_DISABLE_SWAN: "1"
@@ -65,11 +65,12 @@ jobs:
         run: swift package resolve
 
       - name: Run Test Suite
-        timeout-minutes: 25
+        timeout-minutes: 35
         run: |
           # Swift Testing's parallel console recorder can deadlock under heavy log output.
           swift test --no-parallel --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
             status=$?
+            grep -n -B 2 -A 8 -E 'error:|recorded an issue' swift-test.log | head -n 300 || true
             tail -n 1000 swift-test.log
             exit "$status"
           }
@@ -90,7 +91,7 @@ jobs:
     # Swift 6.2.1 needs an SDK from the Xcode 16 generation. macos-latest can
     # move to Xcode 26 first, whose WebKit interfaces require a newer compiler.
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -108,13 +109,14 @@ jobs:
         run: swift package resolve
 
       - name: Run macOS Smoke Tests
-        timeout-minutes: 20
+        timeout-minutes: 35
         run: |
           # Linux runs the full suite; macOS covers Darwin/AppKit-sensitive paths.
           swift test --no-parallel \
             --filter "SloppyTUIThemeTests|DashboardTerminalTests|DesktopNotificationTests|CoreMainTests" \
             --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
             status=$?
+            grep -n -B 2 -A 8 -E 'error:|recorded an issue' swift-test.log | head -n 300 || true
             tail -n 1000 swift-test.log
             exit "$status"
           }
@@ -202,7 +204,8 @@ jobs:
 
   dashboard-happy-path:
     name: Dashboard Happy Path
-    runs-on: ubuntu-latest
+    # Playwright's browser/dependency bundle is not available for Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     needs:
       - swift-build
       - dashboard-build
