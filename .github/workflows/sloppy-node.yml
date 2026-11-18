@@ -20,28 +20,29 @@ jobs:
     name: Build SloppyNode (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
-      ADAENGINE_HEADLESS: ${{ matrix.os == 'windows-latest' && '1' || '' }}
-      ADAENGINE_DISABLE_SWAN: ${{ matrix.os == 'windows-latest' && '1' || '' }}
+      ADAENGINE_HEADLESS: ${{ matrix.os == 'windows-2022' && '1' || '' }}
+      ADAENGINE_DISABLE_SWAN: ${{ matrix.os == 'windows-2022' && '1' || '' }}
     strategy:
       fail-fast: false
       matrix:
         os:
           # Keep the SDK compatible with Swift 6.2.1 installed below.
           - macos-15
-          - windows-latest
+          # Swift 6.2 ships Clang 19; the VS 2026 STL on windows-latest requires Clang 20.
+          - windows-2022
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Swift
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-2022'
         uses: swift-actions/setup-swift@v2
         with:
           swift-version: ${{ env.SWIFT_ACTIONS_VERSION }}
 
       - name: Setup Swift (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2022'
         uses: SwiftyLab/setup-swift@v1
         with:
           swift-version: ${{ env.SWIFT_ACTIONS_VERSION }}

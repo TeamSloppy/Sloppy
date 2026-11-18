@@ -13,7 +13,8 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    # Cold release and debug test builds each compile SwiftSyntax on this runner.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: SwiftyLab/setup-swift@v1
