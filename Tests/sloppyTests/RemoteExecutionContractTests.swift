@@ -125,7 +125,10 @@ struct RemoteExecutionContractTests {
     }
 
     @Test func realToolBoundaryRejectsConfiguredUnsupportedTargetAndMeshStart() async throws {
-        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let config = CoreConfig.test
+        let nodeStore = NodeConfigStore(configURL: config.resolvedWorkspaceRootURL().appendingPathComponent("node.json"))
+        _ = try nodeStore.initialize(name: "Coordinator", roles: ["coordinator"], capabilities: [])
+        let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder(), nodeConfigStore: nodeStore)
         _ = try await service.createAgent(.init(id: "remote-configured", displayName: "Contract", role: "Test"))
         let chat = try await service.openLongChat(agentID: "remote-configured", userID: "user")
         _ = try await service.createProject(.init(id: "remote-fixture", name: "Remote fixture"))

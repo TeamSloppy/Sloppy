@@ -25,9 +25,13 @@ extension CoreService {
     }
 
     func resolveRemoteSelection(_ selection: RemoteExecutionSelection, projectID: String?) throws -> RemoteExecutionSelection {
-        try RemoteExecutionRegistry.resolve(selection, projectID: projectID,
+        let targets = try remoteExecutionTargets()
+        guard targets.contains(where: { $0.id == selection.targetId || $0.alias == selection.targetId }) else {
+            throw RemoteExecutionError.invalidTarget
+        }
+        return try RemoteExecutionRegistry.resolve(selection, projectID: projectID,
             peerID: nodeConfigStore.load().identity.nodeId,
-            targets: remoteExecutionTargets(), nodes: nodeMeshStore.listNodes())
+            targets: targets, nodes: nodeMeshStore.listNodes())
     }
 
     func validateRemoteDelegation(_ task: LongChatTaskRequest, parentID: String) throws {

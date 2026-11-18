@@ -42,7 +42,7 @@ public enum UsageObservedURLSession {
         return lock.withLock { scopes[id]?.value }
     }
 
-    private final class ScopeAnchor: NSObject, URLSessionDelegate, @unchecked Sendable {
+    fileprivate final class ScopeAnchor: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         let scope: Scope
         init(scope: Scope) { self.scope = scope }
         func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
@@ -69,7 +69,14 @@ private final class UsageObservationURLProtocol: URLProtocol {
     private var stopped = false
     private var finished = false
     override class func canInit(with request: URLRequest) -> Bool {
+        #if canImport(FoundationNetworking)
+        // Corelibs selects URLProtocol before applying configuration headers. This
+        // protocol is installed only in observed sessions; their task delegate
+        // retains the exact session scope even when the header is absent.
+        return request.httpMethod == "POST"
+        #else
         request.httpMethod == "POST" && UsageObservedURLSession.scope(request) != nil
+        #endif
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -78,7 +85,13 @@ private final class UsageObservationURLProtocol: URLProtocol {
     }
     private func startForwarding() {
         guard !stopped else { return }
-        guard let scope = UsageObservedURLSession.scope(request) else {
+        #if canImport(FoundationNetworking)
+        let observationScope = (task?.delegate as? UsageObservedURLSession.ScopeAnchor)?.scope
+            ?? UsageObservedURLSession.scope(request)
+        #else
+        let observationScope = UsageObservedURLSession.scope(request)
+        #endif
+        guard let scope = observationScope else {
             client?.urlProtocol(self, didFailWithError: URLError(.unknown)); return
         }
         var outgoing = request

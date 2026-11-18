@@ -3,6 +3,8 @@ import Protocols
 
 #if canImport(CryptoKit)
 import CryptoKit
+#elseif canImport(Crypto)
+import Crypto
 #endif
 
 public enum NodeMeshPayloadCryptoError: LocalizedError, Sendable {
@@ -34,7 +36,7 @@ enum NodeMeshPayloadCrypto {
         sender: NodeIdentity,
         recipient: MeshNodeRecord
     ) throws -> JSONValue {
-        #if canImport(CryptoKit)
+        #if canImport(CryptoKit) || canImport(Crypto)
         guard let senderPrivateKey = sender.encryptionPrivateKey,
               let senderPublicKey = sender.encryptionPublicKey,
               let senderKeySignature = sender.encryptionKeySignature
@@ -79,7 +81,7 @@ enum NodeMeshPayloadCrypto {
         recipient: NodeIdentity,
         senderSigningPublicKey: String
     ) throws -> JSONValue {
-        #if canImport(CryptoKit)
+        #if canImport(CryptoKit) || canImport(Crypto)
         guard let object = payload.asObject,
               let combinedValue = object[sealedKey]?.asString,
               let combined = Data(base64Encoded: combinedValue),
@@ -126,7 +128,7 @@ enum NodeMeshPayloadCrypto {
         }
     }
 
-    #if canImport(CryptoKit)
+    #if canImport(CryptoKit) || canImport(Crypto)
     private static func deriveKey(
         privateKey: Curve25519.KeyAgreement.PrivateKey,
         publicKey: Curve25519.KeyAgreement.PublicKey,

@@ -101,6 +101,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1"),
         .package(url: "https://github.com/apple/swift-system.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-metrics.git", from: "2.4.1"),
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "4.0.0"),
         .package(path: "Vendor/AnyLanguageModel"),
         .package(path: "Packages/SwiftTiktoken"),
         .package(path: "Packages/TauTUI"),
@@ -233,6 +234,7 @@ let package = Package(
             name: "SloppyNodeCore",
             dependencies: [
                 "Protocols",
+                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
             ],
             path: "Sources/NodeCore"

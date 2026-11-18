@@ -56,7 +56,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y libsqlite3-dev
+          apt-get install -y libsqlite3-dev zip unzip make clang
 
       - name: Swift Version
         run: swift --version
@@ -88,19 +88,16 @@ jobs:
 
   swift-test-macos:
     name: Swift Tests (macOS)
-    # Swift 6.2.1 needs an SDK from the Xcode 16 generation. macos-latest can
-    # move to Xcode 26 first, whose WebKit interfaces require a newer compiler.
-    runs-on: macos-15
+    # Keep the compiler, SDK, and concurrency runtime from one Xcode installation.
+    runs-on: macos-26
     timeout-minutes: 45
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: ${{ env.SWIFT_ACTIONS_VERSION }}
 
       - name: Swift Version
         run: swift --version
@@ -113,7 +110,7 @@ jobs:
         run: |
           # Linux runs the full suite; macOS covers Darwin/AppKit-sensitive paths.
           swift test --no-parallel \
-            --filter "SloppyTUIThemeTests|DashboardTerminalTests|DesktopNotificationTests|CoreMainTests" \
+            --filter "SloppyTUIThemeTests|DashboardTerminalTests|DesktopNotificationTests|CoreMainTests|ModelProxyTests|MeshRelayDisconnectTests" \
             --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
             status=$?
             grep -n -B 2 -A 8 -E 'error:|recorded an issue' swift-test.log | head -n 300 || true
@@ -158,17 +155,15 @@ jobs:
 
   swift-build-macos:
     name: Swift Build (macOS)
-    # Keep the runner SDK compatible with SWIFT_ACTIONS_VERSION.
-    runs-on: macos-15
+    # Match the tested Xcode toolchain and SDK.
+    runs-on: macos-26
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: ${{ env.SWIFT_ACTIONS_VERSION }}
 
       - name: Swift Version
         run: swift --version

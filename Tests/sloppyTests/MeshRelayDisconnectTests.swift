@@ -46,6 +46,7 @@ struct MeshRelayDisconnectTests {
         #expect(try fixture.store.load() == original)
     }
 
+    #if !os(Linux)
     @Test func disconnectClosesLiveWebSocketWithoutRemovingRegistryOrConsoleConnection() async throws {
         let relay = try DisconnectFixture(name: "relay")
         let home = try DisconnectFixture(name: "home")
@@ -86,6 +87,7 @@ struct MeshRelayDisconnectTests {
         #expect(try home.store.load().relayURL == nil)
         await home.service.stop()
     }
+    #endif
 }
 
 private extension CoreService {

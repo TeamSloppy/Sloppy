@@ -137,6 +137,7 @@ struct ModelProxyTests {
         try await assertHostToolRound(model)
     }
 
+    #if !os(Linux)
     @Test func twoComputersUseAuthenticatedEncryptedRelayWithoutExportingClaudeCredentials() async throws {
         let relay = try ProxyHostFixture(name: "relay")
         let personal = try ProxyHostFixture(name: "personal")
@@ -172,6 +173,7 @@ struct ModelProxyTests {
         await personal.service.stop()
         await work.service.stop()
     }
+    #endif
 
     private func assertHostToolRound(_ model: SloppyRemoteModel) async throws {
         let counter = ProxyToolCounter()

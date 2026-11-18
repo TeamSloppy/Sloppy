@@ -4,6 +4,8 @@ import SloppyComputerControl
 
 #if canImport(CryptoKit)
 import CryptoKit
+#elseif canImport(Crypto)
+import Crypto
 #endif
 
 #if canImport(Security)
@@ -188,7 +190,7 @@ public enum NodeIdentityGenerator {
     }
 
     public static func addEncryptionIdentity(to identity: NodeIdentity) throws -> NodeIdentity {
-        #if canImport(CryptoKit)
+        #if canImport(CryptoKit) || canImport(Crypto)
         var updated = identity
         let privateKey = Curve25519.KeyAgreement.PrivateKey()
         let publicKey = "x25519:" + base64URL(privateKey.publicKey.rawRepresentation)
@@ -222,7 +224,7 @@ public enum NodeIdentityGenerator {
     }
 
     public static func makeKeyPair() -> (publicKey: String, privateKey: String) {
-        #if canImport(CryptoKit)
+        #if canImport(CryptoKit) || canImport(Crypto)
         let privateKey = Curve25519.Signing.PrivateKey()
         let publicKey = privateKey.publicKey
         return (
@@ -238,7 +240,7 @@ public enum NodeIdentityGenerator {
     }
 
     public static func sign(challenge: Data, privateKey: String) throws -> String {
-        #if canImport(CryptoKit)
+        #if canImport(CryptoKit) || canImport(Crypto)
         let key = try Curve25519.Signing.PrivateKey(rawRepresentation: decodeKeyMaterial(privateKey))
         let signature = try key.signature(for: challenge)
         return "ed25519:" + base64URL(signature)
@@ -248,7 +250,7 @@ public enum NodeIdentityGenerator {
     }
 
     public static func verify(signature: String, challenge: Data, publicKey: String) -> Bool {
-        #if canImport(CryptoKit)
+        #if canImport(CryptoKit) || canImport(Crypto)
         do {
             let key = try Curve25519.Signing.PublicKey(rawRepresentation: decodeKeyMaterial(publicKey))
             return key.isValidSignature(try decodeKeyMaterial(signature), for: challenge)
