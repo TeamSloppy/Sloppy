@@ -13,7 +13,7 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
-    # Cold release and debug test builds each compile SwiftSyntax on this runner.
+    # The release compiler can spend over 30 minutes in SwiftSyntax and Core.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -45,9 +45,6 @@ jobs:
           path: ${{ runner.temp }}/sloppy-release/Sloppy-windows-x86_64.zip
           retention-days: 7
           if-no-files-found: ignore
-      - name: Windows runtime regression tests
-        shell: pwsh
-        run: swift test --parallel --filter 'WindowsServiceTests|WindowsSupportTests|SloppyCLIParsingTests|LocalOwnerAuthTests|ProtocolsTests|AgentRuntimeTests|FoundationModelTransportTests|dashboardRuntimeConfig|dashboardHTTPServerKeepsLocalConsoleRequestsOnLoopback|consoleDashboardEndpointsRequireLocalOwnerAndRejectExternalOrigins'
       - name: Smoke server, dashboard and TUI
         shell: pwsh
         run: ./scripts/test-windows.ps1 -SkipBuild
@@ -61,3 +58,41 @@ jobs:
           path: |
             .build/windows-smoke-*/**/*.log
             .build/windows-install-smoke-*/**/*.log
+
+  runtime-tests:
+    name: Windows runtime regression tests
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: "6.3.1"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Build Dashboard fixtures
+        shell: pwsh
+        working-directory: Dashboard
+        run: |
+          npm.cmd ci
+          if ($LASTEXITCODE -ne 0) { throw "Dashboard dependency installation failed." }
+          npm.cmd run build
+          if ($LASTEXITCODE -ne 0) { throw "Dashboard build failed." }
+      # A fresh debug graph compiles SwiftSyntax again. Run it independently of
+      # release packaging so both configurations are still checked on every push.
+      - name: Windows runtime regression tests
+        shell: pwsh
+        run: |
+          swift test --parallel --filter 'WindowsServiceTests|WindowsSupportTests|SloppyCLIParsingTests|LocalOwnerAuthTests|ProtocolsTests|AgentRuntimeTests|FoundationModelTransportTests|dashboardRuntimeConfig|dashboardHTTPServerKeepsLocalConsoleRequestsOnLoopback|consoleDashboardEndpointsRequireLocalOwnerAndRejectExternalOrigins' > windows-runtime-tests.log 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content windows-runtime-tests.log -Tail 400
+            throw "Windows runtime regression tests failed."
+          }
+          Get-Content windows-runtime-tests.log -Tail 120
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-runtime-test-logs
+          path: windows-runtime-tests.log
+          if-no-files-found: ignore
