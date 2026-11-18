@@ -272,17 +272,6 @@ func readyTaskClaimsAssignedActorAndPersistsProjectArtifactsAndLogs() async thro
     )
     #expect(updateResponse.status == 200)
 
-    let terminalProject = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 3) { project in
-        guard let status = project.tasks.first(where: { $0.id == taskID })?.status else {
-            return false
-        }
-        return status == "done" || status == "blocked"
-    }
-    let terminalTask = terminalProject?.tasks.first(where: { $0.id == taskID })
-    #expect(terminalTask?.status == "done" || terminalTask?.status == "blocked")
-    #expect(terminalTask?.claimedActorId == "agent:builder")
-    #expect(terminalTask?.claimedAgentId == "builder")
-
     let projectWorkspace = config
         .resolvedWorkspaceRootURL()
         .appendingPathComponent("projects", isDirectory: true)
@@ -290,6 +279,21 @@ func readyTaskClaimsAssignedActorAndPersistsProjectArtifactsAndLogs() async thro
     let metaDirectory = projectWorkspace.appendingPathComponent(".meta", isDirectory: true)
 
     let logPath = metaDirectory.appendingPathComponent("task-\(taskID).log").path
+
+    let terminalProject = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 3) { project in
+        guard let status = project.tasks.first(where: { $0.id == taskID })?.status else {
+            return false
+        }
+        // The task store and execution log are separate asynchronous projections.
+        // A terminal task can become visible before its worker event is journaled.
+        let log = try? String(contentsOfFile: logPath, encoding: .utf8)
+        return (status == "done" || status == "blocked") && log?.contains("stage=status_synced") == true
+    }
+    let terminalTask = terminalProject?.tasks.first(where: { $0.id == taskID })
+    #expect(terminalTask?.status == "done" || terminalTask?.status == "blocked")
+    #expect(terminalTask?.claimedActorId == "agent:builder")
+    #expect(terminalTask?.claimedAgentId == "builder")
+
     #expect(FileManager.default.fileExists(atPath: logPath))
     let logContent = try String(contentsOfFile: logPath, encoding: .utf8)
     #expect(logContent.contains("stage=worker_spawned"))
