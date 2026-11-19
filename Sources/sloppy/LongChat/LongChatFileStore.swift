@@ -13,6 +13,8 @@ final class LongChatFileStore {
         var isNotification: Bool
         var peerOrigin: AgentSessionPeerOrigin?
         var goalId: String?
+        var allowsMachineBuild: Bool?
+        var machineBuild: MachineBuild?
         var deliveryError: String?
         /// The validated executor for an explicit model choice, before the turn delegates work.
         var resolvedModel: String?
@@ -20,6 +22,13 @@ final class LongChatFileStore {
         var inboxMessageID: String?
         var processing = false
         var delivered = false
+    }
+
+    struct MachineBuild: Codable, Sendable {
+        var alias: String
+        var nodeId: String
+        var commit: String
+        var result: String?
     }
 
     struct State: Codable, Sendable {

@@ -298,6 +298,8 @@ public actor CoreService {
     var sessionMessageIsStopping = false
     var sessionMessageRunners: [String: Task<Void, Never>] = [:]
     var activeSessionMessageRuns: Set<String> = []
+    var activeVerificationNodes: Set<String> = []
+    var studioMachineBuildTasks: [String: Task<Void, Never>] = [:]
     var activePeerSessionOrigins: [String: AgentSessionPeerOrigin] = [:]
     var peerConversationSessions: Set<String> = []
     var longChatStorage: LongChatFileStore?

@@ -10,6 +10,18 @@ struct ChatComposerSuggestionsTests {
         #expect(ChatComposerQuery.parse("hello @read")?.term == "read")
         #expect(ChatComposerQuery.parse("check #task")?.trigger == "#")
         #expect(ChatComposerQuery.parse("email@example.com") == nil)
+        #expect(ChatComposerQuery.parse("Run on $")?.trigger == "$")
+        #expect(ChatComposerQuery.parse("Run on \\$") == nil)
+    }
+
+    @Test("machine completion replaces the full alias when the cursor is inside it")
+    func replacesMachineAlias() throws {
+        let text = "Verify on $hom_old next"
+        let query = try #require(ChatComposerQuery.parse(text, cursorOffset: 14))
+        let machine = ChatComposerSuggestion(id: "$home_machine", kind: .machine, title: "$home_machine",
+            subtitle: "Home · Relay", insertion: "$home_machine")
+        #expect(query.term == "hom")
+        #expect(query.applying(machine, to: text).text == "Verify on $home_machine next")
     }
 
     @Test("parses every supported trigger at the cursor when text follows it")

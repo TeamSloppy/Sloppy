@@ -14,6 +14,7 @@ struct LongChatTool: CoreTool {
             return
                 "Delegate tasks asynchronously; independent tasks run in parallel, up to three per conversation. For follow-up work prefer an existing worker: explicitly set task.reuseSessionId from status or sessions.list. Its history and original tool scope are preserved; each task has separate status/results and queues behind earlier work for that session. Use the original projectId/resourceKeys and do not widen readOnly. Missing sessions/scopes fail without creating replacements. Omit reuseSessionId for a fresh independent worker. Use disjoint path: file/directory scopes for parallel changes in one checkout. Supply a typed assignment object. acceptanceCriteria is one string describing all criteria. Stable requestKey deduplicates within the originating user turn. Include context, attachment paths and exact scope in objectives. Validation failures include correction guidance: fix the specified fields and call again with the same requestKey. Never wait for completion."
         case "status": return "Read persisted assignments, tasks and attempts in this long chat."
+        case "build_studio": return "Queue an operator-configured build of AdaEngine Studio after the current user explicitly requests it on a named $machine. Use the exact alias from the user message. Returns once queued. Core publishes status and logs in the chat."
         case "message":
             return "Send a clarification to an existing task. Do not use this to expand the user's authorization."
         case "cancel": return "Cancel a task, or all active tasks when taskId is omitted."
@@ -27,6 +28,11 @@ struct LongChatTool: CoreTool {
         case "delegate":
             return .objectSchema([
                 .init(name: "assignment", description: description, schema: Self.assignmentSchema)
+            ])
+        case "build_studio":
+            return .objectSchema([
+                .init(name: "machine", description: "Exact $machine alias in the current user message.",
+                      schema: DynamicGenerationSchema(type: String.self))
             ])
         case "status":
             return .objectSchema([

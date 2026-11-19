@@ -364,6 +364,7 @@ extension CoreService {
         stopPlanInputAutoApprovals()
         longChatIsStopping = true
         for task in longChatTurnTasks.values { task.cancel() }
+        for task in studioMachineBuildTasks.values { task.cancel() }
         for task in longChatWorkerRuns.values { task.cancel() }
         let conversations = (try? longChats().state.conversations) ?? []
         for conversation in conversations {

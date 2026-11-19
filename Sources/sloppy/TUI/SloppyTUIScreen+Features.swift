@@ -758,6 +758,8 @@ extension SloppyTUIScreen {
             applyProjectFileSearchItem(item)
         case .projectTask:
             applyProjectTaskSearchItem(item)
+        case .machineMention:
+            applyMachineMention(item)
         case .planInput:
             await answerPlanInput(with: item)
         case .theme:

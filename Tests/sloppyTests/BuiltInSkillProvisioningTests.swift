@@ -33,6 +33,7 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
         BuiltInSkillCatalog.sitePublishingID,
         "bundled/caveman",
         "bundled/grill-me",
+        "bundled/ssh-machine-onboarding",
         "bundled/tdd",
         "bundled/ui-ux-pro-max"
     ])

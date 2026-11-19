@@ -3492,6 +3492,15 @@ export async function migrationRequest<T>(path: string, body?: unknown, apiBase?
   return response.data;
 }
 
+export async function fetchMachineMentions(projectId: string | null | undefined): Promise<Array<{ alias: string; name: string; transport: "relay" | "ssh" }>> {
+  const query = projectId ? `?${new URLSearchParams({ projectId })}` : "";
+  const response = await requestJson<Array<{ alias: string; name: string; transport: "relay" | "ssh" }>>({
+    path: `/v1/node/mesh/machine-mentions${query}`
+  });
+  if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
+  return Array.isArray(response.data) ? response.data : [];
+}
+
 export async function fetchAgentUISurfaces(agentId: string, sessionId: string, apiBase?: string): Promise<any[]> {
   const response = await requestJson<any[]>({ apiBase, path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/ui-surfaces` });
   if (!response.ok) throw new Error(formatHttpError(response.status, response.data));

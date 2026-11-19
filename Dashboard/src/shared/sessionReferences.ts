@@ -5,7 +5,7 @@ export interface SessionReference {
 
 export interface MentionSuggestion {
   id: string;
-  group: "Sessions" | "Files" | "Skills";
+  group: "Sessions" | "Files" | "Skills" | "Machines";
   title: string;
   subtitle: string;
   insertion: string;
@@ -47,4 +47,13 @@ export function mentionQueryAtCursor(text: string, caret: number) {
   let end = cursor;
   while (end < text.length && !/\s/.test(text[end])) end += 1;
   return { start, end, query };
+}
+
+export function machineQueryAtCursor(text: string, caret: number) {
+  const cursor = Math.max(0, Math.min(caret, text.length));
+  const match = /(?:^|\s)\$([\w-]*)$/.exec(text.slice(0, cursor));
+  if (!match) return null;
+  const query = match[1];
+  const end = cursor + (/^[\w-]*/.exec(text.slice(cursor))?.[0].length ?? 0);
+  return { start: cursor - query.length - 1, end, query };
 }

@@ -28,6 +28,13 @@ test("ordinary mentions and unrelated URL schemes are not session references", (
   assert.equal(mentions.sessionReferenceFromUrl("sloppy://session?agent=one"), null);
 });
 
+test("machine autocomplete replaces the full alias and ignores escaped or embedded dollars", () => {
+  assert.deepEqual(mentions.machineQueryAtCursor("$", 1), { start: 0, end: 1, query: "" });
+  assert.deepEqual(mentions.machineQueryAtCursor("Verify on $hom_old next", 14), { start: 10, end: 18, query: "hom" });
+  assert.equal(mentions.machineQueryAtCursor("prefix$home", 11), null);
+  assert.equal(mentions.machineQueryAtCursor("\\$home", 6), null);
+});
+
 async function loadTypeScript(relative) {
   const source = await readFile(new URL(relative, import.meta.url), "utf8");
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;

@@ -765,6 +765,19 @@ public actor SloppyAPIClient {
         try await mesh.listNodes()
     }
 
+    public struct MachineMention: Decodable, Sendable {
+        public let alias: String
+        public let name: String
+        public let transport: String
+    }
+
+    public func fetchMachineMentions(projectId: String?) async throws -> [MachineMention] {
+        var path = URLComponents()
+        path.path = "/v1/node/mesh/machine-mentions"
+        if let projectId { path.queryItems = [URLQueryItem(name: "projectId", value: projectId)] }
+        return try await http.get(path.string ?? path.path)
+    }
+
     public func fetchMeshTopology() async throws -> ClientMeshTopology {
         try await http.get("/v1/node/mesh")
     }

@@ -98,7 +98,7 @@ extension CoreService {
     }
 
     /// Receipts are immediate; model turns are serialized in a durable inbox.
-    func enqueueLongChatMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest, peerOrigin: AgentSessionPeerOrigin? = nil, goalID: String? = nil) throws
+    func enqueueLongChatMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest, peerOrigin: AgentSessionPeerOrigin? = nil, goalID: String? = nil, allowsMachineBuild: Bool = false) throws
         -> AgentSessionMessageResponse
     {
         let conversation = try getLongChat(agentID: agentID, sessionID: sessionID)
@@ -118,7 +118,8 @@ extension CoreService {
         } else {
             try storage.transaction {
                 $0.turns.append(
-                    .init(id: id, agentId: agentID, sessionId: sessionID, request: request, isNotification: false, peerOrigin: peerOrigin, goalId: goalID))
+                    .init(id: id, agentId: agentID, sessionId: sessionID, request: request, isNotification: false, peerOrigin: peerOrigin, goalId: goalID,
+                          allowsMachineBuild: allowsMachineBuild ? true : nil))
             }
         }
         let event = try persistLongChatTurnIfNeeded(
@@ -331,7 +332,7 @@ extension CoreService {
         -> ToolInvocationResult
     {
         do {
-            if ["long_chat.delegate", "long_chat.retry", "long_chat.message"].contains(request.tool),
+            if ["long_chat.delegate", "long_chat.retry", "long_chat.message", "long_chat.build_studio"].contains(request.tool),
                 let source = longChatCurrentTurns[sessionID],
                 try longChats().state.cancelledSourceMessageIds?.contains(source) == true
             {
@@ -339,6 +340,10 @@ extension CoreService {
             }
             let result: JSONValue
             switch request.tool {
+            case "long_chat.build_studio":
+                guard let alias = request.arguments["machine"]?.asString,
+                      let sourceID = longChatCurrentTurns[sessionID] else { throw AgentSessionError.invalidPayload }
+                result = try queueStudioMachineBuild(agentID: agentID, sessionID: sessionID, sourceID: sourceID, alias: alias)
             case "long_chat.delegate":
                 guard let sourceID = longChatCurrentTurns[sessionID]
                 else { throw AgentSessionError.invalidPayload }
@@ -556,6 +561,7 @@ extension CoreService {
         longChatRecoveryCompleted = true
         do {
             let storage = try longChats()
+            recoverStudioMachineBuilds(storage)
             // A crash may have persisted migration ownership before the journal metadata write.
             for conversation in storage.state.conversations {
                 if storage.state.workerOnlySessionIds?.contains(conversation.sessionId) == true { continue }

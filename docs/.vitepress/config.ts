@@ -112,6 +112,7 @@ export default defineConfig({
         text: "Specifications",
         items: [
           { text: "Channel Plugin Protocol v1", link: "/specs/channel-plugin-protocol" },
+          { text: "Distributed Task Execution", link: "/specs/distributed-task-execution" },
           { text: "PRD Runtime v1", link: "/specs/prd-runtime-v1" }
         ]
       }

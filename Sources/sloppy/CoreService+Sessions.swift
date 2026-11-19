@@ -685,7 +685,8 @@ extension CoreService {
         peerOrigin: AgentSessionPeerOrigin? = nil,
         inboxDelivery: Bool = false,
         peerConversation: Bool = false,
-        systemDelivery: Bool = false
+        systemDelivery: Bool = false,
+        allowOperatorVerification: Bool = false
     ) async throws -> AgentSessionMessageResponse {
         var effectiveRequest = AgentSessionOrchestrator.requestByApplyingOneShotModeCommand(request)
         if peerConversation { effectiveRequest.mode = .ask }
@@ -706,6 +707,11 @@ extension CoreService {
         var goalTurnID: String?
         if !longChatWorkerDelivery, !inboxDelivery, !peerConversation, peerOrigin == nil,
            !systemDelivery, !workerSummary.isWorker, workerSummary.parentSessionId == nil {
+            if Self.isSessionVerificationCommand(effectiveRequest.content) {
+                guard allowOperatorVerification else { throw AgentSessionError.invalidPayload }
+                return try await runSessionVerificationCommand(agentID: normalizedAgentID,
+                    sessionID: normalizedSessionID, request: effectiveRequest)
+            }
             let command = try await handleSessionGoalCommand(
                 agentID: normalizedAgentID, sessionID: normalizedSessionID, request: effectiveRequest)
             if let response = command.response { return response }
@@ -713,7 +719,8 @@ extension CoreService {
         }
         if workerSummary.kind == .longChat {
             return try enqueueLongChatMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID,
-                request: effectiveRequest, goalID: goalTurnID)
+                request: effectiveRequest, goalID: goalTurnID,
+                allowsMachineBuild: allowOperatorVerification && !systemDelivery && peerOrigin == nil && !inboxDelivery)
         }
         let hasLongChatParent = workerSummary.parentSessionId.map {
             (try? getAgentSession(agentID: normalizedAgentID, sessionID: $0).summary.kind) == .longChat

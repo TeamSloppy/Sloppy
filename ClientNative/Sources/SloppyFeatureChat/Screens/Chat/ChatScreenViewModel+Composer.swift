@@ -142,6 +142,15 @@ extension ChatScreenViewModel {
 
     private func loadComposerSuggestions(query: ChatComposerQuery, agentId: String, projectId: String?, scope: String) async throws -> [ChatComposerSuggestion] {
         switch query.trigger {
+        case "$":
+            return try await apiClient.fetchMachineMentions(projectId: projectId)
+                .filter { matches(query.term, in: $0.alias) || matches(query.term, in: $0.name) }
+                .prefix(12)
+                .map { machine in
+                    let transport = machine.transport == "ssh" ? "SSH" : "Relay"
+                    return ChatComposerSuggestion(id: machine.alias, kind: .machine, title: machine.alias,
+                        subtitle: "\(machine.name) · \(transport)", insertion: machine.alias)
+                }
         case "/":
             let commands = try await cachedComposerCommands(agentId: agentId, scope: scope)
             return filterCommands(commands, query: query.term, skillsOnly: false, agentId: agentId)

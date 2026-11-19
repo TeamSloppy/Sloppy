@@ -7,6 +7,7 @@ enum ChatComposerSuggestionKind: Equatable, Sendable {
     case file
     case task
     case session
+    case machine
 }
 
 struct ChatComposerSuggestion: Identifiable, Equatable, Sendable {
@@ -84,7 +85,16 @@ struct ChatComposerQuery: Equatable, Sendable {
         let termStart = text.index(after: tokenStart)
         let term = String(text[termStart..<cursor])
         guard !term.contains(where: { $0.isWhitespace }) else { return nil }
+        if trigger == "$" {
+            guard term.allSatisfy(isMachineAliasCharacter) else { return nil }
+            let end = text[cursor...].firstIndex(where: { !isMachineAliasCharacter($0) }) ?? text.endIndex
+            return ChatComposerQuery(trigger: trigger, term: term, range: tokenStart..<end)
+        }
         return ChatComposerQuery(trigger: trigger, term: term, range: tokenStart..<cursor)
+    }
+
+    private static func isMachineAliasCharacter(_ character: Character) -> Bool {
+        character == "_" || character == "-" || (character.isASCII && (character.isLetter || character.isNumber))
     }
 
     func applying(_ suggestion: ChatComposerSuggestion, to text: String) -> (text: String, cursorOffset: Int) {
@@ -103,6 +113,7 @@ enum ChatComposerTokenKind: Character, Equatable, Sendable {
     case command = "/"
     case mention = "@"
     case tag = "#"
+    case machine = "$"
 }
 
 struct ChatComposerToken: Equatable, Sendable {

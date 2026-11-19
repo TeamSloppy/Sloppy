@@ -616,8 +616,8 @@ struct AgentsAPIRouter: APIRouter {
             }
 
             let identityEnabled = await service.identityAuthEnabled()
-            if identityEnabled,
-               let actor = await CoreRouter.identityActor(for: request, service: service) {
+            let actor = identityEnabled ? await CoreRouter.identityActor(for: request, service: service) : nil
+            if let actor {
                 payload.userId = actor.user.id
             } else if !identityEnabled {
                 payload.userId = "local"
@@ -627,7 +627,8 @@ struct AgentsAPIRouter: APIRouter {
                 let response = try await service.postAgentSessionMessage(
                     agentID: agentId,
                     sessionID: sessionId,
-                    request: payload
+                    request: payload,
+                    allowOperatorVerification: request.consoleContext == nil && actor?.user.role == .admin
                 )
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
             } catch let error as CoreService.AgentSessionError {

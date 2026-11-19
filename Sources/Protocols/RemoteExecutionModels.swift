@@ -1,5 +1,22 @@
 import Foundation
 
+public struct MachineMention: Codable, Sendable, Equatable {
+    public enum Transport: String, Codable, Sendable {
+        case relay
+        case ssh
+    }
+
+    public var alias: String
+    public var name: String
+    public var transport: Transport
+
+    public init(alias: String, name: String, transport: Transport) {
+        self.alias = alias
+        self.name = name
+        self.transport = transport
+    }
+}
+
 /// Explicit location; agent and model remain independent selections.
 public struct RemoteExecutionSelection: Codable, Sendable, Equatable {
     public var targetId: String

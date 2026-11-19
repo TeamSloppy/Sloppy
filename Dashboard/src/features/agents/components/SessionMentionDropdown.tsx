@@ -2,17 +2,18 @@ import React from "react";
 import type { MentionSuggestion } from "../sessionMentions";
 import "../sessionMentions.css";
 
-export function SessionMentionDropdown({ suggestions, activeIndex, loading, failed, onSelect }: {
+export function SessionMentionDropdown({ suggestions, activeIndex, loading, failed, onSelect, machines = false }: {
   suggestions: MentionSuggestion[];
   activeIndex: number;
   loading: boolean;
   failed: boolean;
+  machines?: boolean;
   onSelect: (suggestion: MentionSuggestion) => void;
 }) {
   return (
-    <div className="actor-team-search session-mention-dropdown" role="listbox" aria-label="Session, file and skill suggestions">
+    <div className="actor-team-search session-mention-dropdown" role="listbox" aria-label={machines ? "Machine suggestions" : "Session, file and skill suggestions"}>
       {loading ? <p role="status">Searching…</p> : null}
-      {failed ? <p role="status">Session search unavailable. Type @ to retry.</p> : null}
+      {failed ? <p role="status">{machines ? "Machine search unavailable" : "Session search unavailable. Type @ to retry."}</p> : null}
       {!loading && !failed && suggestions.length === 0 ? <p>No matches</p> : null}
       {suggestions.map((suggestion, index) => (
         <React.Fragment key={suggestion.id}>

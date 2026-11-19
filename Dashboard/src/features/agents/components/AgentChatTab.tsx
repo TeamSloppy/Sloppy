@@ -4,7 +4,7 @@ import { WorkerTaskCard } from "./WorkerTaskCard";
 import { LongChatPanel } from "./LongChatPanel";
 import { ChatApprovalModePicker } from "./ChatApprovalModePicker";
 import { useChatApprovalPolicy } from "../model/useChatApprovalPolicy";
-import type { SessionApprovalMode } from "../../../shared/api/coreApi";
+import { fetchMachineMentions, type SessionApprovalMode } from "../../../shared/api/coreApi";
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   createAgentSession,
@@ -46,7 +46,7 @@ import { PlanInputPanel } from "../../../components/PlanInputPanel/PlanInputPane
 import { AggregatedModelPicker } from "../../config/components/AggregatedModelPicker";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import { SessionMentionDropdown } from "./SessionMentionDropdown";
-import { mentionQueryAtCursor, sessionMentionMarkdown, sessionReferenceFromUrl, type MentionSuggestion } from "../sessionMentions";
+import { machineQueryAtCursor, mentionQueryAtCursor, sessionMentionMarkdown, sessionReferenceFromUrl, type MentionSuggestion } from "../sessionMentions";
 import { navigateToSessionScreen } from "../../../app/routing/navigateToSessionScreen";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -3213,7 +3213,8 @@ function AgentChatComposer({
     [slashCommands, slashQuery?.query]
   );
 
-  const mentionQuery = useMemo(() => mentionQueryAtCursor(inputText, caretIndex), [inputText, caretIndex]);
+  const machineQuery = useMemo(() => machineQueryAtCursor(inputText, caretIndex), [inputText, caretIndex]);
+  const mentionQuery = useMemo(() => machineQuery ?? mentionQueryAtCursor(inputText, caretIndex), [inputText, caretIndex, machineQuery]);
   const isMentionDropdownOpen = isInputFocused && Boolean(mentionQuery) && !isTaskDropdownOpen;
   const isPathDropdownOpen = isInputFocused && Boolean(pathQuery) && !isTaskDropdownOpen && !isMentionDropdownOpen;
   const isSkillDropdownOpen =
@@ -3230,6 +3231,23 @@ function AgentChatComposer({
     setMentionLoading(true);
     setMentionFailed(false);
     const timer = window.setTimeout(async () => {
+      if (machineQuery) {
+        try {
+          const machines = await fetchMachineMentions(scopedProjectId);
+          if (cancelled) return;
+          const term = machineQuery.query.toLowerCase();
+          setMentionSuggestions(machines.filter(({ alias, name }) =>
+            alias.toLowerCase().includes(term) || name.toLowerCase().includes(term)
+          ).slice(0, 12).map(({ alias, name, transport }) => ({
+            id: alias, group: "Machines", title: alias, subtitle: `${name} · ${transport === "ssh" ? "SSH" : "Relay"}`, insertion: alias
+          })));
+        } catch {
+          if (!cancelled) setMentionFailed(true);
+        } finally {
+          if (!cancelled) setMentionLoading(false);
+        }
+        return;
+      }
       const [sessionResult, fileResult] = await Promise.allSettled([
         fetchAllAgentSessions({ query: mentionQuery.query, includeWorkers: true, limit: 50 }),
         searchProjectFiles(pathSearchProjectId, mentionQuery.query, 20)
@@ -3253,7 +3271,7 @@ function AgentChatComposer({
       setMentionLoading(false);
     }, 200);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [isMentionDropdownOpen, mentionQuery?.start, mentionQuery?.query, pathSearchProjectId, scopedProjectId, skillCommands]);
+  }, [isMentionDropdownOpen, mentionQuery?.start, mentionQuery?.query, machineQuery?.start, pathSearchProjectId, scopedProjectId, skillCommands]);
 
   useEffect(() => {
     setActiveSuggestionIndex(0);
@@ -3587,7 +3605,7 @@ function AgentChatComposer({
       ) : null}
 
       <div className="agent-chat-compose-shell">
-        {isMentionDropdownOpen ? <SessionMentionDropdown suggestions={mentionSuggestions}
+        {isMentionDropdownOpen ? <SessionMentionDropdown suggestions={mentionSuggestions} machines={Boolean(machineQuery)}
           activeIndex={activeMentionIndex} loading={mentionLoading} failed={mentionFailed} onSelect={applyMentionSuggestion} /> : null}
         {renderTaskDropdown()}
         {renderPathDropdown()}

@@ -472,7 +472,7 @@ final class ComposerUITextView: UITextView {
         for token in ChatComposerToken.parseAll(in: text) {
             let color: UIColor = switch token.kind {
             case .command: style.commandColor
-            case .mention: style.mentionColor
+            case .mention, .machine: style.mentionColor
             case .tag: style.tagColor
             }
             result.addAttribute(

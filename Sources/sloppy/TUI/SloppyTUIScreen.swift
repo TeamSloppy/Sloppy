@@ -372,6 +372,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var projectFileSearchCache: (generation: Int, token: String, items: [SloppyTUIPickerItem])?
     var restoredDirectorySessionKeys: Set<String> = []
     var projectTaskSearchSelection = 0
+    var machineMentionSelection = 0
+    var suppressedMachineMention: String?
+    var machineMentionRequest: (scope: String, started: Date)?
+    var machineMentionCatalog: (scope: String, items: [MachineMention])?
     var projectTaskAutocompleteLoading = false
     var projectTaskAutocompleteTask: Task<Void, Never>?
     var suppressedProjectTaskSearch: SloppyTUITaskReferenceSearchSuppression?
@@ -510,6 +514,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             self?.projectFileSearchSelection = 0
             self?.projectFileSearchCache = nil
             self?.projectTaskSearchSelection = 0
+            self?.machineMentionSelection = 0
+            self?.suppressedMachineMention = nil
             self?.projectTaskSearchCache = nil
             if let suppressed = self?.suppressedProjectFileSearch,
                !suppressed.matches(self?.currentProjectFileToken()) {
@@ -632,6 +638,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         if handleCommandPalette(input: input) {
+            return
+        }
+        if handleMachineMentionInput(input) {
             return
         }
         if shouldPrioritizeComposerSubmit(over: input) {

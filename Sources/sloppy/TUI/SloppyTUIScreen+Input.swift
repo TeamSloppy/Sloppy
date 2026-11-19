@@ -114,6 +114,11 @@ extension SloppyTUIScreen {
             projectTaskSearchSelection = clampedListSelection(projectTaskSearchSelection + delta, count: picker.items.count)
             requestRender()
             return true
+        case .machineMention:
+            guard let picker = machineMentionPicker(), !picker.items.isEmpty else { return true }
+            machineMentionSelection = clampedListSelection(machineMentionSelection + delta, count: picker.items.count)
+            requestRender()
+            return true
         case .sessionList:
             guard !sessionListEntries.isEmpty else { return true }
             sessionListSelectedIndex = clampedListSelection(sessionListSelectedIndex + delta, count: sessionListEntries.count)
@@ -132,6 +137,8 @@ extension SloppyTUIScreen {
             return .projectFile
         case .projectTask:
             return .projectTask
+        case .machineMention:
+            return .machineMention
         case .sessionList:
             return .sessionList
         case .reasoningEffort, .scrollbackMode, .toggleTranscript, .openSubSession:
@@ -197,6 +204,9 @@ extension SloppyTUIScreen {
             guard let picker = projectTaskSearchPicker(), picker.items.indices.contains(index) else { return }
             projectTaskSearchSelection = index
             applyProjectTaskSearchItem(picker.items[index])
+        case .machineMention(let index):
+            guard let picker = machineMentionPicker(), picker.items.indices.contains(index) else { return }
+            applyMachineMention(picker.items[index])
         case .reasoningEffort(let index):
             effortSliderSelectionIndex = index
             applyReasoningEffortSelection()
@@ -334,6 +344,8 @@ extension SloppyTUIScreen {
             ), at: 0)
         } else if let palette = commandPaletteLines(width: width) {
             composer.insert(contentsOf: palette, at: 0)
+        } else if let picker = machineMentionPicker() {
+            composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
         } else if let picker = projectTaskSearchPicker() {
             composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
         } else if let picker = projectFileSearchPicker() {
@@ -401,6 +413,9 @@ extension SloppyTUIScreen {
         } else if commandPaletteVisible {
             registerCommandPaletteScrollRegion(startRow: startRow, width: width)
             registerCommandPaletteHitRegions(startRow: startRow, width: width)
+        } else if let picker = machineMentionPicker() {
+            registerPickerScrollRegion(picker: picker, startRow: startRow, width: width, target: .machineMention)
+            registerPickerHitRegions(picker: picker, startRow: startRow, width: width, action: { .machineMention(index: $0) })
         } else if let picker = projectTaskSearchPicker() {
             registerPickerScrollRegion(
                 picker: picker,

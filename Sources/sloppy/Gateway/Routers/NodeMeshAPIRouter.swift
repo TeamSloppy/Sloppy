@@ -150,6 +150,14 @@ struct NodeMeshAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/node/mesh/machine-mentions", metadata: RouteMetadata(summary: "List machine mentions", description: "Lists online relay machines and operator-configured SSH aliases for chat suggestions", tags: ["Node Mesh"])) { request in
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.listMachineMentions(projectId: request.queryParam("projectId")))
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
         router.get("/v1/node/mesh/nodes", metadata: RouteMetadata(summary: "List mesh nodes", description: "Returns known SloppyNode mesh nodes and statuses", tags: ["Node Mesh"])) { _ in
             do {
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.listMeshNodes())

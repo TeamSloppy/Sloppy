@@ -3,6 +3,8 @@
 - Status: accepted for the bounded contract implementation; remote execution remains unsupported
 - Date: 2026-11-17
 
+The [distributed task execution design](../../specs/distributed-task-execution.md) extends this contract to chat mentions, Kanban assignment, shared code snapshots, model routing and verification on multiple machines. The design is proposed.
+
 ## Context
 
 Delegation must distinguish machine, agent and model. Existing Long Chat assignments and worker contexts survive restart; adding a remote schema without binding that context could silently run a continuation locally or move it after an alias remap. Earlier unverified implementation attempts left a Mesh dispatcher in the working tree. Compilation alone did not establish its workspace isolation, receiving-policy intersection, cancellation or restart safety.

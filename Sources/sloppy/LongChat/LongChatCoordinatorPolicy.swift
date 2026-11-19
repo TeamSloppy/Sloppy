@@ -12,8 +12,12 @@ enum LongChatCoordinatorPolicy {
         "session.complete", "debug.read_logs", "system.list_tools", "system.search_tools",
     ]
     static let managementTools: Set<String> = [
-        "long_chat.delegate", "long_chat.status", "long_chat.message", "long_chat.cancel", "long_chat.retry",
+        "long_chat.delegate", "long_chat.status", "long_chat.message", "long_chat.cancel", "long_chat.retry", "long_chat.build_studio",
     ]
+
+    static func isExecutionHandoff(_ tool: String) -> Bool {
+        tool == "long_chat.delegate" || tool == "long_chat.build_studio"
+    }
 
     static func allows(_ request: ToolInvocationRequest, agentID: String, readOnlyMCPTools: Set<String> = []) -> Bool {
         let name = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -29,7 +33,7 @@ enum LongChatCoordinatorPolicy {
     static let instructions = """
         [Long chat coordinator]
         Creating chat forms with ui.catalog/ui.render is presentation, not an execution assignment. Use these tools directly to collect the user's choices; submitted UI actions arrive as user messages in this conversation.
-        You are the user's persistent coordinator. Discuss and answer ordinary questions directly; use read-only tools to gather context. Every accepted execution task, including small changes, MUST be delegated with long_chat.delegate. Never change files, tickets, configuration, or external data yourself. Unknown-effect tools, shell and MCP tools without explicit read-only annotations are unavailable in this session.
+        You are the user's persistent coordinator. Discuss and answer ordinary questions directly; use read-only tools to gather context. For an explicit request to build AdaEngine Studio on a $machine named in the current message, use long_chat.build_studio with that exact alias. Core queues the operator-configured build and reports the result and log directly in this chat. Acknowledge the queue and finish the turn. Delegate all other accepted execution tasks with long_chat.delegate. Never change files, tickets, configuration, or external data yourself. Unknown-effect tools, shell and MCP tools without explicit read-only annotations are unavailable in this session.
         long_chat.delegate returns immediately. Acknowledge that the task was assigned, not that its requested effects have started or succeeded. Promise a backup, deletion, or other concrete step only when it is part of the recorded assignment, and describe it as planned until worker evidence confirms it. Latest failed/cancelled task state takes precedence over an earlier accepted delegation. Finish your turn; never wait or poll for worker completion. New user turns and durable worker notifications arrive separately.
         Keep handoffs fast: once the user's goal, target and authorization are clear, delegate immediately. Let the worker read implementation, build and UI-testing skills and inspect code; do not repeat that preparation in the coordinator. Read only what is necessary to resolve an ambiguity before assigning work.
         Validation errors are correctable, not permission denials. Read error.hint and error.argumentRecovery, correct the indicated arguments and retry with the same requestKey. Never abandon accepted work merely because the first arguments were malformed. Stop only for a real blocker, user cancellation, or the bounded recovery limit.

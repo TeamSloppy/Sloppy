@@ -107,6 +107,7 @@ struct ComposerSuggestionsView: View {
         case .file: "Files"
         case .task: "Tasks"
         case .session: "Sessions"
+        case .machine: "Machines"
         }
     }
 
@@ -117,6 +118,7 @@ struct ComposerSuggestionsView: View {
         case .file: "doc"
         case .task: "checkmark.circle"
         case .session: "bubble.left.and.bubble.right"
+        case .machine: "desktopcomputer"
         }
     }
 }

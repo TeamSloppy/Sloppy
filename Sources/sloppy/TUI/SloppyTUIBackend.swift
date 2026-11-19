@@ -20,6 +20,7 @@ protocol SloppyTUIBackend: Sendable {
     func updateConfig(_ config: CoreConfig) async throws -> CoreConfig
     func listProjects() async throws -> [ProjectRecord]
     func getProject(id: String) async throws -> ProjectRecord
+    func listMachineMentions(projectId: String) async throws -> [MachineMention]
     func createProjectTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord
     func getActorBoard() async throws -> ActorBoardSnapshot
     func resolveOrCreateProjectForCurrentDirectory(_ cwd: String) async throws -> ProjectRecord
@@ -84,6 +85,7 @@ enum SloppyTUIBackendError: Error, LocalizedError {
 
 extension SloppyTUIBackend {
     var uiDraftNamespace: String { displayName }
+    func listMachineMentions(projectId: String) async throws -> [MachineMention] { [] }
     func listAgentSessions(agentID: String) async throws -> [AgentSessionSummary] {
         try await listAgentSessions(agentID: agentID, projectID: nil, limit: nil, offset: nil)
     }
@@ -119,6 +121,9 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     func getConfig() async -> CoreConfig { await service.getConfig() }
     func updateConfig(_ config: CoreConfig) async throws -> CoreConfig { try await service.updateConfig(config) }
     func listProjects() async throws -> [ProjectRecord] { await service.listProjects() }
+    func listMachineMentions(projectId: String) async throws -> [MachineMention] {
+        try await service.listMachineMentions(projectId: projectId)
+    }
     func getProject(id: String) async throws -> ProjectRecord { try await service.getProject(id: id) }
     func createProjectTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord {
         try await service.createProjectTask(projectID: projectID, request: request)
@@ -174,7 +179,8 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse {
         var request = request
         request.supportsA2UI = true
-        return try await service.postAgentSessionMessage(agentID: agentID, sessionID: sessionID, request: request)
+        return try await service.postAgentSessionMessage(agentID: agentID, sessionID: sessionID, request: request,
+            allowOperatorVerification: true)
     }
     func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord {
         try await service.startAgentSessionGoal(agentID: agentID, sessionID: sessionID, request: request)
@@ -332,6 +338,9 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
         try await put("/v1/config", body: config, as: CoreConfig.self)
     }
     func listProjects() async throws -> [ProjectRecord] { try await get("/v1/projects", as: [ProjectRecord].self) }
+    func listMachineMentions(projectId: String) async throws -> [MachineMention] {
+        try await get("/v1/node/mesh/machine-mentions", query: ["projectId": projectId], as: [MachineMention].self)
+    }
     func getProject(id: String) async throws -> ProjectRecord { try await get("/v1/projects/\(Self.escape(id))", as: ProjectRecord.self) }
     func createProjectTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord {
         try await post("/v1/projects/\(Self.escape(projectID))/tasks", body: request, as: ProjectRecord.self)
@@ -568,6 +577,9 @@ struct MeshSloppyTUIBackend: SloppyTUIBackend {
     func getConfig() async -> CoreConfig { (try? await get("/v1/config", as: CoreConfig.self)) ?? .default }
     func updateConfig(_ config: CoreConfig) async throws -> CoreConfig { try await put("/v1/config", body: config, as: CoreConfig.self) }
     func listProjects() async throws -> [ProjectRecord] { try await get("/v1/projects", as: [ProjectRecord].self) }
+    func listMachineMentions(projectId: String) async throws -> [MachineMention] {
+        try await get("/v1/node/mesh/machine-mentions", query: ["projectId": projectId], as: [MachineMention].self)
+    }
     func getProject(id: String) async throws -> ProjectRecord { try await get("/v1/projects/\(Self.escape(id))", as: ProjectRecord.self) }
     func createProjectTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord {
         try await post("/v1/projects/\(Self.escape(projectID))/tasks", body: request, as: ProjectRecord.self)

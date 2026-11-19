@@ -16,6 +16,7 @@ enum SloppyTUIPickerKind: Equatable {
     case remoteProject
     case projectFile
     case projectTask
+    case machineMention
     case planInput
     case theme
     case forkPoint

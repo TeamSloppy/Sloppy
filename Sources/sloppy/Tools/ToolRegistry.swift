@@ -141,6 +141,7 @@ struct ToolRegistry: Sendable {
             AgentsDelegateTaskTool(),
             LongChatTool(action: "delegate"),
             LongChatTool(action: "status"),
+            LongChatTool(action: "build_studio"),
             LongChatTool(action: "message"),
             LongChatTool(action: "cancel"),
             LongChatTool(action: "retry"),

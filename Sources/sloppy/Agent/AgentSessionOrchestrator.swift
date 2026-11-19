@@ -767,7 +767,7 @@ actor AgentSessionOrchestrator {
                           let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else { break }
                     let ledger = SessionActionLedger(events: Array(detail.events.dropFirst(coordinatorEventStart)))
                     let handoffRequired = (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .build || (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .debug
-                    guard !ledger.actions.contains(where: { $0.tool == "long_chat.delegate" && $0.ok == true }) else { break }
+                    guard !ledger.actions.contains(where: { LongChatCoordinatorPolicy.isExecutionHandoff($0.tool) && $0.ok == true }) else { break }
                     let failure = ledger.repairableFailure
                     guard failure != nil || (handoffRequired && !ledger.actions.contains(where: { $0.ok == false })) else { break }
                     let recovered = await postNativeMessage(
@@ -789,7 +789,7 @@ actor AgentSessionOrchestrator {
                    let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) {
                     let currentLedger = SessionActionLedger(events: Array(detail.events.dropFirst(coordinatorEventStart)))
                     let handoffRequired = (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .build || (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .debug
-                    coordinatorHandoffFailed = handoffRequired && !currentLedger.actions.contains { $0.tool == "long_chat.delegate" && $0.ok == true }
+                    coordinatorHandoffFailed = handoffRequired && !currentLedger.actions.contains { LongChatCoordinatorPolicy.isExecutionHandoff($0.tool) && $0.ok == true }
                     let ledger = SessionActionLedger(
                         events: Array(detail.events.dropFirst(coordinatorEventStart)), detailsLimit: 6,
                         taskEvents: detail.events.compactMap(\.longChatTask))

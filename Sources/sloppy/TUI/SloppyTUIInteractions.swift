@@ -65,6 +65,7 @@ enum SloppyTUIHitAction: Equatable {
     case commandPalette(index: Int)
     case projectFile(index: Int)
     case projectTask(index: Int)
+    case machineMention(index: Int)
     case reasoningEffort(index: Int)
     case scrollbackMode(index: Int)
     case sessionList(index: Int)
@@ -90,6 +91,7 @@ enum SloppyTUIScrollTarget: Equatable {
     case commandPalette
     case projectFile
     case projectTask
+    case machineMention
     case sessionList
 }
 
