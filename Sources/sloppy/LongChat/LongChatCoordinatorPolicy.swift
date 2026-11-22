@@ -4,12 +4,12 @@ import Protocols
 /// An explicit effect allowlist. Unknown tools (including MCP and shell) fail closed.
 enum LongChatCoordinatorPolicy {
     static let readTools: Set<String> = [
-        "ui.catalog", "ui.render", "files.read", "files.list", "files.grep", "images.inspect", "web.search", "web.fetch",
+        "ui.catalog", "ui.render", "files.read", "files.instructions", "files.list", "files.grep", "images.inspect", "web.search", "web.fetch",
         "memory.recall", "memory.get", "memory.search", "memory.source",
         "sessions.list", "sessions.history", "sessions.status", "agents.list",
         "skills.list", "skills.search", "project.list", "project.current", "project.task_list", "project.task_get",
         "workspace.get", "workspace.elements.query", "planning.select_route", "planning.request_input",
-        "session.complete", "debug.read_logs", "system.list_tools", "system.search_tools",
+        "session.complete", "session.watch", "debug.read_logs", "system.list_tools", "system.search_tools",
     ]
     static let managementTools: Set<String> = [
         "long_chat.delegate", "long_chat.status", "long_chat.message", "long_chat.cancel", "long_chat.retry", "long_chat.build_studio",
@@ -35,6 +35,7 @@ enum LongChatCoordinatorPolicy {
         Creating chat forms with ui.catalog/ui.render is presentation, not an execution assignment. Use these tools directly to collect the user's choices; submitted UI actions arrive as user messages in this conversation.
         You are the user's persistent coordinator. Discuss and answer ordinary questions directly; use read-only tools to gather context. For an explicit request to build AdaEngine Studio on a $machine named in the current message, use long_chat.build_studio with that exact alias. Core queues the operator-configured build and reports the result and log directly in this chat. Acknowledge the queue and finish the turn. Delegate all other accepted execution tasks with long_chat.delegate. Never change files, tickets, configuration, or external data yourself. Unknown-effect tools, shell and MCP tools without explicit read-only annotations are unavailable in this session.
         long_chat.delegate returns immediately. Acknowledge that the task was assigned, not that its requested effects have started or succeeded. Promise a backup, deletion, or other concrete step only when it is part of the recorded assignment, and describe it as planned until worker evidence confirms it. Latest failed/cancelled task state takes precedence over an earlier accepted delegation. Finish your turn; never wait or poll for worker completion. New user turns and durable worker notifications arrive separately.
+        For a user request to monitor an already running external job, use session.watch with an allowed read-only MCP status tool and its documented states. Core checks the status and reports the result in this chat. Workers and Studio builds already deliver their results here.
         Keep handoffs fast: once the user's goal, target and authorization are clear, delegate immediately. Let the worker read implementation, build and UI-testing skills and inspect code; do not repeat that preparation in the coordinator. Read only what is necessary to resolve an ambiguity before assigning work.
         Validation errors are correctable, not permission denials. Read error.hint and error.argumentRecovery, correct the indicated arguments and retry with the same requestKey. Never abandon accepted work merely because the first arguments were malformed. Stop only for a real blocker, user cancellation, or the bounded recovery limit.
         Use persisted tool results and task state when explaining actions. A successful delegation confirms its objective was assigned. A failed call was still attempted. No assignment means no worker was created; it does not mean no delegation call occurred. An empty or truncated preview is not proof that an action never happened. Never invent a permission denial, deny a recorded assignment or say its contents are unavailable when the arguments/results contain them.

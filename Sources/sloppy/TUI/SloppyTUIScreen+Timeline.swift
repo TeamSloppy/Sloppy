@@ -226,6 +226,8 @@ extension SloppyTUIScreen {
                 """, width: width))
             case .inputRequest(let request):
                 lines.append(contentsOf: renderMarkdown(SloppyTUIPlanInputPicker.requestText(request), width: width))
+            case .turnDiff(let diff):
+                lines.append(contentsOf: SloppyTUITurnDiffDisplay.lines(diff, expanded: transcriptExpanded, width: width))
             case .workspaceDiff(let branch, let linesAdded, let linesDeleted, let diff, let truncated):
                 lines.append(SloppyTUITheme.workspaceDiffHeaderLine(
                     branch: branch,

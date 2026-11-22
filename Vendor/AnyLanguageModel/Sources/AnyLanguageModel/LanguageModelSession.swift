@@ -125,6 +125,27 @@ public final class LanguageModelSession: @unchecked Sendable {
         }
     }
 
+    nonisolated private func appendModelInput(_ prompt: Transcript.Entry, continuation: String?) {
+        withMutation(keyPath: \.transcript) {
+            state.withLock { state in
+                guard let continuation else {
+                    state.transcript.append(prompt)
+                    return
+                }
+                let segment = Transcript.Segment.text(.init(content: continuation))
+                var entries = Array(state.transcript)
+                if let first = entries.first, case .instructions(var instructions) = first {
+                    guard !instructions.segments.contains(segment) else { return }
+                    instructions.segments.append(segment)
+                    entries[0] = .instructions(instructions)
+                } else {
+                    entries.insert(.instructions(.init(segments: [segment], toolDefinitions: [])), at: 0)
+                }
+                state.transcript = Transcript(entries: entries)
+            }
+        }
+    }
+
     nonisolated private func wrapStream<Content>(
         _ upstream: sending ResponseStream<Content>,
         promptEntry: Transcript.Entry
@@ -539,6 +560,7 @@ extension LanguageModelSession {
         images: [Transcript.ImageSegment],
         generating type: Content.Type = Content.self,
         includeSchemaInPrompt: Bool = true,
+        continuingFromTranscript: Bool = false,
         options: GenerationOptions = GenerationOptions()
     ) async throws -> Response<Content> where Content: Generable {
         try await wrapRespond {
@@ -557,9 +579,7 @@ extension LanguageModelSession {
                     responseFormat: nil
                 )
             )
-            withMutation(keyPath: \.transcript) {
-                state.withLock { $0.transcript.append(promptEntry) }
-            }
+            appendModelInput(promptEntry, continuation: continuingFromTranscript ? prompt : nil)
 
             // Extract text content for the Prompt parameter
             let textPrompt = Prompt(prompt)
@@ -646,6 +666,7 @@ extension LanguageModelSession {
         images: [Transcript.ImageSegment],
         generating type: Content.Type = Content.self,
         includeSchemaInPrompt: Bool = true,
+        continuingFromTranscript: Bool = false,
         options: GenerationOptions = GenerationOptions()
     ) -> sending ResponseStream<Content> where Content: Generable {
         // Build segments from text and images
@@ -663,9 +684,7 @@ extension LanguageModelSession {
                 responseFormat: nil
             )
         )
-        withMutation(keyPath: \.transcript) {
-            state.withLock { $0.transcript.append(promptEntry) }
-        }
+        appendModelInput(promptEntry, continuation: continuingFromTranscript ? prompt : nil)
 
         // Extract text content for the Prompt parameter
         let textPrompt = Prompt(prompt)

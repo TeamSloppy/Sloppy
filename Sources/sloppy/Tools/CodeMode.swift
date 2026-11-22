@@ -8,7 +8,7 @@ import CSloppyQuickJS
 enum CodeMode {
     static let toolID = "tools.execute_js"
     // Turn-control tools depend on being called directly from the model loop.
-    static let excludedToolIDs: Set<String> = [toolID, "session.complete",
+    static let excludedToolIDs: Set<String> = [toolID, "session.complete", "session.watch",
         "planning.select_route", "planning.request_input", "agent_delegate.finish", "agents.delegate_finish"]
     static let maximumTimeoutMs = 600_000
     static let defaultTimeoutMs = 60_000

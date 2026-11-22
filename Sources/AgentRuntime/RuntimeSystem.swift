@@ -101,6 +101,9 @@ public enum NativeAgentLoopTurnExitReason: String, Sendable, Equatable {
     case emptyResponseRepaired
     case emptyAfterToolTimeout
     case modelProviderError
+    case missingRuntimeOutcome
+    case workerContextTooLarge = "worker_context_budget_exceeded"
+    case workerLaunchFailed = "worker_launch_failed"
     case modelCancelled
     case consumerCancelled
     case steered

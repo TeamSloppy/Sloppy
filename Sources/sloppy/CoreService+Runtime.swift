@@ -21,6 +21,7 @@ extension CoreService {
         await restoreWorkflowExecutionsIfNeeded()
         await recoverLongChatsIfNeeded()
         await recoverSessionMessagesIfNeeded()
+        recoverSessionWatchesIfNeeded()
         await restorePlanInputAutoApprovalsIfNeeded()
         await memoryOutboxIndexer?.start()
         await startNodeMeshClientIfConfigured()

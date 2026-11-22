@@ -288,6 +288,11 @@ extension SloppyTUIScreen {
         let editorLines = editor.render(width: width)
         if sessionListMode != .hidden, editor.getText().isEmpty {
             inputLines = SloppyTUITheme.sessionListComposerPlaceholderLines(editorLines, width: width)
+        } else if let suggestion = visiblePromptSuggestion, editorLines.count >= 3 {
+            var lines = editorLines
+            lines[1] = "\u{001B}[7m \u{001B}[0m"
+                + SloppyTUITheme.muted(SloppyTUITheme.fittedLine(suggestion + "  · Tab", width: max(0, width - 1)))
+            inputLines = lines
         } else {
             inputLines = SloppyTUITheme.highlightedComposerLines(editorLines, shellMode: shellModeEnabled)
         }
@@ -1325,6 +1330,12 @@ extension SloppyTUIScreen {
     func handleModeCycle(_ input: TerminalInput) -> Bool {
         guard case .key(.tab, let modifiers) = input, modifiers.isEmpty else {
             return false
+        }
+        if let suggestion = visiblePromptSuggestion {
+            dismissPromptSuggestion()
+            editor.setText(suggestion)
+            requestRender()
+            return true
         }
         chatMode = chatMode.next
         startAutoModeAnimationIfNeeded()

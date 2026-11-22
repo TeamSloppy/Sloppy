@@ -281,6 +281,10 @@ struct ChatTranscriptPane: View {
         ):
             switch entry.presentation {
             case .message(let message):
+                if let diff = message.turnDiff {
+                    rendered = AnyView(ChatTurnDiffView(diff: diff).padding(.bottom, bottomSpacing))
+                    break
+                }
                 rendered = AnyView(
                     HStack(alignment: .top, spacing: 8) {
                         if message.role == .assistant, let agentAvatarID {

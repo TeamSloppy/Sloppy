@@ -38,6 +38,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
     var registerReferences: @MainActor ([ChatComposerReference]) -> Void = { _ in }
     var onSuggestionContextChanged: (@MainActor (String, Int?) -> Void)? = nil
     var onCommittedText: (@MainActor (String) -> Void)? = nil
+    var acceptPromptSuggestion: (@MainActor () -> Bool)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -66,6 +67,9 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
         }
         textView.onApplySelectedSuggestion = { [weak coordinator = context.coordinator] in
             coordinator?.parent.applySelectedSuggestion() ?? false
+        }
+        textView.onAcceptPromptSuggestion = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.acceptPromptSuggestion?() ?? false
         }
         textView.onSubmit = { [weak coordinator = context.coordinator] in
             coordinator?.parent.submit()
@@ -145,6 +149,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
         coordinator.textView?.onFocusChanged = nil
         coordinator.textView?.onMoveSuggestionSelection = nil
         coordinator.textView?.onApplySelectedSuggestion = nil
+        coordinator.textView?.onAcceptPromptSuggestion = nil
         coordinator.textView?.onSubmit = nil
         coordinator.textView?.onPasteAttachment = nil
         coordinator.textView?.onOpenReference = nil
@@ -424,6 +429,7 @@ final class ComposerNSTextView: NSTextView {
     var onLayout: (@MainActor () -> Void)?
     var onMoveSuggestionSelection: (@MainActor (ChatComposerSuggestionSelectionDirection) -> Bool)?
     var onApplySelectedSuggestion: (@MainActor () -> Bool)?
+    var onAcceptPromptSuggestion: (@MainActor () -> Bool)?
     var onSubmit: (@MainActor () -> Void)?
     var onPasteAttachment: (@MainActor () -> Bool)?
     var onOpenReference: (@MainActor (ChatComposerReference) -> Void)?
@@ -520,6 +526,9 @@ final class ComposerNSTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
+        case 48 where string.isEmpty && !hasMarkedText()
+            && event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty:
+            if onAcceptPromptSuggestion?() == true { return }
         case 126:
             if onMoveSuggestionSelection?(.previous) == true { return }
         case 125:

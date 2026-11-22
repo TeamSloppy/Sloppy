@@ -107,6 +107,9 @@ public final class ChatScreenViewModel {
     public var sessionEndpoint: SloppyInstanceEndpoint { apiClient.endpoint }
     @ObservationIgnored public var onOpenWorkerSession: (@MainActor (ChatSessionSummary, ChatScreenViewModel) -> Void)?
     public let composerDraft = ChatComposerDraft()
+    var promptSuggestion: ChatPromptSuggestion?
+    @ObservationIgnored var promptSuggestionTask: Task<Void, Never>?
+    @ObservationIgnored var promptSuggestionRunID: String?
     public internal(set) var composerAttachments: [ChatComposerAttachment] = []
     public internal(set) var composerQuotes: [ChatComposerQuote] = []
     var editingComposerQuoteID: UUID?

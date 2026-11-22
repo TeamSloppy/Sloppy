@@ -159,48 +159,59 @@ extension SloppyTUIScreen {
 
     func restoreCurrentSession(extraInstruction: String) async {
         guard !isPosting else {
-            appendLocalCard("A message is already in flight. Use `/stop` if you need to interrupt it before restoring.")
+            appendLocalCard("A run is already in flight. Use `/stop` to interrupt it before restoring.")
             return
         }
-        if let request = pendingPlanInputRequest {
-            updatePendingPlanInputRequest(request)
-            appendLocalCard("This session is waiting for input. Answer the pending question before restoring the run.", autoDismissAfter: 8)
-            return
-        }
-        if hasPersistedSession,
-           let detail = try? await service.getAgentSession(agentID: agent.id, sessionID: session.id),
-           let request = SloppyTUIPlanInputState.latestUnansweredRequest(in: detail.events) {
-            updatePendingPlanInputRequest(request)
-            appendLocalCard("This session is waiting for input. Answer the pending question before restoring the run.", autoDismissAfter: 8)
+        guard hasPersistedSession else {
+            appendLocalCard("There is no interrupted turn to restore.")
             return
         }
 
-        let trimmedExtra = extraInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasLiveRuntimeSession = await service.hasLiveAgentRuntimeSession(
-            agentID: agent.id,
-            sessionID: session.id
-        )
-        await sendMessage(Self.restorePrompt(
-            hasLiveRuntimeSession: hasLiveRuntimeSession,
-            extraInstruction: trimmedExtra
-        ))
-    }
+        let agentID = agent.id
+        let sessionID = session.id
+        isPosting = true
+        postingSessionIDs.insert(sessionID)
+        sessionStreamTurnCompleted = false
+        taskStartedAt = Date()
+        startThinkingAnimation()
+        renderTimeline()
 
-    static func restorePrompt(hasLiveRuntimeSession: Bool, extraInstruction: String) -> String {
-        let extra = extraInstruction.isEmpty ? "" : "\n\nAdditional recovery instruction:\n\(extraInstruction)"
-        if hasLiveRuntimeSession {
-            return """
-            Continue executing the current task from the live session state.
-
-            Do not start a new task and do not repeat completed work. Continue from the last reliable point, using the latest live context and tool results. If the task is already complete, report the final status clearly.\(extra)
-            """
+        do {
+            let detail = try await service.getAgentSession(agentID: agentID, sessionID: sessionID)
+            if let pending = SloppyTUIPlanInputState.latestUnansweredRequest(in: detail.events) {
+                updatePendingPlanInputRequest(pending)
+                throw CoreService.SessionRestoreError.pendingInput
+            }
+            guard let recovery = SessionTurnRecovery.latest(in: detail.events) else {
+                throw CoreService.SessionRestoreError.checkpointUnavailable
+            }
+            await waitForCurrentSessionStreamReady()
+            _ = try await service.restoreAgentSession(
+                agentID: agentID, sessionID: sessionID,
+                request: .init(turnId: recovery.checkpoint.turnId, checkpointId: recovery.checkpointID, instruction: extraInstruction)
+            )
+        } catch {
+            appendLocalCard("Restore failed: \(error.localizedDescription)", autoDismissAfter: 10)
         }
-
-        return """
-        Restore this session after the previous run failed, lost network access, or was interrupted. Continue the last unfinished user task from the current session transcript.
-
-        Do not start a new task and do not repeat completed work. Inspect the latest session context and tool results if needed, then continue from the last reliable point. If the failure was transient, retry the failed operation and proceed normally.\(extra)
-        """
+        if session.id == sessionID {
+            await reloadSession()
+            await refreshTokenUsage(includeCost: true)
+        }
+        postingSessionIDs.remove(sessionID)
+        if let taskStartedAt {
+            lastTaskElapsed = Date().timeIntervalSince(taskStartedAt)
+            cumulativeAgentActiveTime += lastTaskElapsed ?? 0
+        }
+        taskStartedAt = nil
+        isPosting = false
+        queuedMessageInterruptRequested = false
+        stopThinkingAnimation()
+        clearLiveAssistantDraft()
+        liveRunStatusLine = nil
+        restoreSessionRunStatusAfterSend()
+        refreshStaticChrome()
+        renderTimeline()
+        await sendNextQueuedMessageIfIdle()
     }
 
     func makeUndoBaseline(turnKey: String? = nil) async -> SloppyTUISessionUndoManagers.Baseline? {

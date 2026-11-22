@@ -1,9 +1,11 @@
 import { SessionUISurfaces } from "../ui/SessionUISurfaces";
 import { WorkComposerControls } from "../../work/WorkComposerControls";
 import { WorkerTaskCard } from "./WorkerTaskCard";
+import { AgentTurnDiffRow } from "./AgentTurnDiffRow";
 import { LongChatPanel } from "./LongChatPanel";
 import { ChatApprovalModePicker } from "./ChatApprovalModePicker";
 import { useChatApprovalPolicy } from "../model/useChatApprovalPolicy";
+import { usePromptSuggestion } from "../model/usePromptSuggestion";
 import { fetchMachineMentions, type SessionApprovalMode } from "../../../shared/api/coreApi";
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1897,6 +1899,7 @@ function normalizeEditorText(value) {
 }
 
 function readEditorTextFromElement(root) {
+  if (root?.childNodes.length === 1 && root.firstChild?.nodeName === "BR") return "";
   return normalizeEditorText(readEditorNodeText(root));
 }
 
@@ -2280,6 +2283,10 @@ function buildTimelineItems({
       continue;
     }
 
+    if (Array.isArray(eventItem.runStatus?.turnDiff?.files)) {
+      timelineItems.push({ id: `${extractEventKey(eventItem, index)}-turn-diff`, kind: "turn_diff",
+        diff: eventItem.runStatus.turnDiff });
+    }
     const technicalRecord = buildTechnicalRecord(eventItem, index, {
       activeToolCallRecordIds,
       events: safeEvents
@@ -2694,6 +2701,9 @@ function AgentChatEvents({
       ) : (
         <>
           {displayGroups.map((timelineItem, index) => {
+            if (timelineItem.kind === "turn_diff") {
+              return <AgentTurnDiffRow key={timelineItem.id} diff={timelineItem.diff} />;
+            }
             if (timelineItem.kind === "tech-group") {
               const groupId = timelineItem.id;
               const isGroupOpen = Boolean(expandedRecordIds[groupId]);
@@ -3093,6 +3103,8 @@ function AgentChatComposer({
   projectId = null,
   inputText,
   onInputTextChange,
+  promptSuggestion = null as string | null,
+  onAcceptPromptSuggestion = () => {},
   isBusy,
   inputLocked = false,
   inputLockReason = "",
@@ -3150,6 +3162,7 @@ function AgentChatComposer({
   const canSend = !inputLocked && !isStopPending && !approvalPolicy.busy && hasComposeContent
     && (!workLayout || (!isRecording && voiceInput.state !== "transcribing"));
   const isInputDisabled = isStopPending || inputLocked;
+  const visiblePrompt = !isInputDisabled && !isBusy && !hasComposeContent && inputText === "" ? promptSuggestion : null;
   const [caretIndex, setCaretIndex] = useState(0);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
@@ -3770,14 +3783,18 @@ function AgentChatComposer({
               data-placeholder={
                 inputLocked
                   ? (inputLockReason || "Answer the pending question to continue.")
-                  : (agentId
+                  : visiblePrompt ? `${visiblePrompt}  · Tab` : (agentId
                     ? `Message ${agentId}… Type @ to reference sessions, files or skills`
                     : "Message...")
               }
               role="textbox"
               aria-multiline="true"
+              aria-description={visiblePrompt ? "Press Tab to insert the suggestion as a draft." : undefined}
               onInput={(event) => {
                 const nextText = readEditorTextFromElement(event.currentTarget);
+                if (nextText === "" && event.currentTarget.firstChild?.nodeName === "BR") {
+                  event.currentTarget.replaceChildren();
+                }
                 onInputTextChange(nextText);
                 updateCaretFromEditor(event.currentTarget);
               }}
@@ -3829,6 +3846,13 @@ function AgentChatComposer({
               }}
               onKeyDown={(event) => {
                 const target = event.currentTarget;
+                if (visiblePrompt && event.key === "Tab" && !event.shiftKey && !event.altKey && !event.ctrlKey &&
+                    !event.metaKey && !event.nativeEvent.isComposing && readEditorTextFromElement(target) === "") {
+                  event.preventDefault();
+                  applyInputValue(visiblePrompt, visiblePrompt.length);
+                  onAcceptPromptSuggestion();
+                  return;
+                }
                 const hasSuggestions = taskSuggestions.length > 0;
                 const hasPathSuggestions = pathSuggestions.length > 0;
                 const commandSuggestions = isSkillDropdownOpen ? skillSuggestions : slashSuggestions;
@@ -4376,6 +4400,7 @@ export function AgentChatTab({
   const [isStopping, setIsStopping] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [inputText, setInputText] = useState("");
+  const [promptRun, setPromptRun] = useState<{ sessionId: string; runId: string } | null>(null);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [sourceControlDiffComposeTags, setSourceControlDiffComposeTags] = useState([]);
   const consumedReviewTagRef = useRef<string | null>(null);
@@ -5767,6 +5792,10 @@ export function AgentChatTab({
       applyStreamEvent(summary, streamEvent);
 
       if (streamEvent.type === "run_status" && streamEvent.runStatus) {
+        if (streamEvent.sessionId === activeSessionIdRef.current) {
+          const run = streamEvent.runStatus;
+          setPromptRun(run.stage === "done" && run.id ? { sessionId: streamEvent.sessionId, runId: run.id } : null);
+        }
         const detailsText = streamEvent.runStatus.details ? ` - ${streamEvent.runStatus.details}` : "";
         setStatusText(`Status: ${formatRunStatusLabel(streamEvent.runStatus)}${detailsText}`);
 
@@ -6888,6 +6917,12 @@ export function AgentChatTab({
   const hasActiveSessionWork =
     isSending || isActiveRunStage(latestRunStatus?.stage) || activeToolCallRecordIds.size > 0;
   const isActiveSessionBusy = isStopping || hasActiveSessionWork;
+  const promptSuggestion = usePromptSuggestion(
+    agentId, activeSessionId ?? "",
+    promptRun?.sessionId === activeSessionId ? promptRun?.runId ?? null : null,
+    !isActiveSessionBusy && !isWorkerSession && !activePendingInputRequest && inputText === "" &&
+      pendingFiles.length === 0 && sourceControlDiffComposeTags.length === 0 && !replyTarget
+  );
   const voicePlayback = useVoicePlayback();
   useEffect(() => {
     if (!activeSessionId) return;
@@ -7694,7 +7729,12 @@ export function AgentChatTab({
                   agentId={agentId}
                   projectId={projectId}
                   inputText={inputText}
-                  onInputTextChange={setInputText}
+                  onInputTextChange={(value) => {
+                    setInputText(value);
+                    if (value) setPromptRun(null);
+                  }}
+                  promptSuggestion={promptSuggestion}
+                  onAcceptPromptSuggestion={() => setPromptRun(null)}
                   isBusy={activeSession?.summary?.kind === "long_chat" ? isSending : isActiveSessionBusy}
                   inputLocked={isWorkerSession || Boolean(activePendingInputRequest)}
                   inputLockReason={isWorkerSession ? "Worker session · Read only" : "Answer the pending plan question to continue."}

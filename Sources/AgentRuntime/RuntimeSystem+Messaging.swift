@@ -6,6 +6,7 @@ import Protocols
 
 extension RuntimeSystem {
     @TaskLocal static var shouldYieldAtToolBoundary: (@Sendable () async -> Bool)?
+    @TaskLocal static var isResumingTurn = false
 }
 
 public extension RuntimeSystem {
@@ -63,7 +64,9 @@ public extension RuntimeSystem {
         forceInlineResponse: Bool = false,
         nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig(),
         nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)? = nil,
-        shouldYieldAtToolBoundary: (@Sendable () async -> Bool)? = nil
+        shouldYieldAtToolBoundary: (@Sendable () async -> Bool)? = nil,
+        resumingTurn: Bool = false,
+        workerStart: WorkerStart? = nil
     ) async -> ChannelRouteDecision {
         // One model turn per channel: a second concurrent turn would share the cached session and orphan
         // the first task from abort. Wait for the running turn (which yields at tool boundaries) to finish.
@@ -73,28 +76,40 @@ public extension RuntimeSystem {
                 activeResponseTasks.removeValue(forKey: channelId)
             }
         }
-        let ingest = await channels.ingest(channelId: channelId, request: request)
-        let decision = forceInlineResponse
-            ? ChannelRouteDecision(action: .respond, reason: "inline_response_required", confidence: 1, tokenBudget: ingest.decision.tokenBudget)
-            : ingest.decision
+        let decision: ChannelRouteDecision
+        let ingestedUtilization: Double
+        if resumingTurn {
+            decision = ChannelRouteDecision(action: .respond, reason: "restore_interrupted_turn", confidence: 1, tokenBudget: 3_500)
+            ingestedUtilization = 0
+        } else {
+            let ingest = await channels.ingest(channelId: channelId, request: request)
+            decision = forceInlineResponse
+                ? ChannelRouteDecision(action: .respond, reason: "inline_response_required", confidence: 1, tokenBudget: ingest.decision.tokenBudget)
+                : ingest.decision
+            ingestedUtilization = ingest.contextUtilization
+        }
 
         switch decision.action {
         case .respond:
             let taskID = UUID()
             let responseTask = Task { [weak self] in
                 guard let self else { return }
-                await Self.$shouldYieldAtToolBoundary.withValue(shouldYieldAtToolBoundary) {
-                    await self.respondInline(
-                        channelId: channelId,
-                        userMessage: Self.contentForModel(content: request.content, attachments: request.attachments),
-                        model: request.model,
-                        reasoningEffort: request.reasoningEffort,
-                        onResponseChunk: onResponseChunk,
-                        toolInvoker: toolInvoker,
-                        observationHandler: observationHandler,
-                        nativeLoopConfig: nativeLoopConfig,
-                        nativeLoopOutcomeHandler: nativeLoopOutcomeHandler
-                    )
+                await Self.$isResumingTurn.withValue(resumingTurn) {
+                    await Self.$shouldYieldAtToolBoundary.withValue(shouldYieldAtToolBoundary) {
+                        await Self.$beforeWorkerSampling.withValue(workerStart) {
+                            await self.respondInline(
+                                channelId: channelId,
+                                userMessage: Self.contentForModel(content: request.content, attachments: request.attachments),
+                                model: request.model,
+                                reasoningEffort: request.reasoningEffort,
+                                onResponseChunk: onResponseChunk,
+                                toolInvoker: toolInvoker,
+                                observationHandler: observationHandler,
+                                nativeLoopConfig: nativeLoopConfig,
+                                nativeLoopOutcomeHandler: nativeLoopOutcomeHandler
+                            )
+                        }
+                    }
                 }
             }
             activeResponseTasks[channelId] = ActiveResponseTask(id: taskID, task: responseTask)
@@ -132,7 +147,7 @@ public extension RuntimeSystem {
         } else if let ledgerUtilization = contextLedgerByChannel[channelId]?.utilization {
             effectiveUtilization = ledgerUtilization
         } else {
-            effectiveUtilization = ingest.contextUtilization
+            effectiveUtilization = ingestedUtilization
         }
         if let job = await compactor.evaluate(channelId: channelId, utilization: effectiveUtilization) {
             await compactor.apply(job: job, workers: workers)

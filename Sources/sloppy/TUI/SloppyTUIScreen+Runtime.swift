@@ -130,6 +130,7 @@ extension SloppyTUIScreen {
             if let status = event.runStatus {
                 sessionStreamStatusRevision += 1
                 applySessionRunStatus(status)
+                updatePromptSuggestion(for: status)
                 if status.stage == .done || status.stage == .interrupted {
                     markSendTiming("final_status")
                     shouldRefreshTokenUsageAfterRun = true
@@ -563,6 +564,8 @@ extension SloppyTUIScreen {
                 blocks.append(.subSession(childSessionId: card.childSessionId, title: card.title, status: card.status))
             } else if event.type == .memoryCheckpoint, let checkpoint = event.memoryCheckpoint {
                 blocks.append(.memoryCheckpoint(checkpoint))
+            } else if let diff = event.runStatus?.turnDiff {
+                blocks.append(.turnDiff(diff))
             } else if let toolCall = event.toolCall {
                 let display = SloppyTUITimelineDisplay.toolCallDisplay(tool: toolCall.tool, arguments: toolCall.arguments)
                 blocks.append(.toolCall(

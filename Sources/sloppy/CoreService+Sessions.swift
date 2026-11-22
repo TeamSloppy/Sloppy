@@ -656,6 +656,7 @@ extension CoreService {
         do {
             try await launches.deleteSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
             try sessionStore.deleteSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            cancelSessionWatches(sessionID: normalizedSessionID)
             publishLiveSessionClosed(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
@@ -686,7 +687,8 @@ extension CoreService {
         inboxDelivery: Bool = false,
         peerConversation: Bool = false,
         systemDelivery: Bool = false,
-        allowOperatorVerification: Bool = false
+        allowOperatorVerification: Bool = false,
+        workerStart: RuntimeSystem.WorkerStart? = nil
     ) async throws -> AgentSessionMessageResponse {
         var effectiveRequest = AgentSessionOrchestrator.requestByApplyingOneShotModeCommand(request)
         if peerConversation { effectiveRequest.mode = .ask }
@@ -816,6 +818,7 @@ extension CoreService {
                     ? "\n[Communication turn] The delegated task is closed. Discuss evidence only; do not change resources or call agent_delegate.finish."
                     : ""),
                 peerOrigin: peerOrigin,
+                workerStart: workerStart,
                 shouldSteer: { [weak self] in
                     guard !systemDelivery, !peerConversation, peerOrigin == nil else { return false }
                     return await self?.hasQueuedSteeringMessage(agentID: normalizedAgentID, sessionID: normalizedSessionID) == true
@@ -968,17 +971,21 @@ extension CoreService {
         return await sessionGoalController.goal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
     }
 
-    public func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
-        guard let normalizedAgentID = normalizedAgentID(agentID) else {
-            throw AgentSessionError.invalidAgentID
+    public func clearAgentSessionGoal(agentID: String, sessionID: String, userID: String? = nil) async throws -> AgentSessionGoalRecord? {
+        await waitForStartup()
+        let session = try getAgentSession(agentID: agentID, sessionID: sessionID, eventLimit: 1).summary
+        guard !session.isWorker else { throw AgentSessionError.workerSessionReadOnly }
+        if let userID, session.kind == .longChat {
+            guard try getLongChat(agentID: session.agentId, sessionID: session.id).userId == userID else {
+                throw AgentSessionError.invalidPayload
+            }
         }
-        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
-            throw AgentSessionError.invalidSessionID
-        }
-        _ = try await getAgentSessionGoal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
-        let goal = await sessionGoalController.clear(agentID: normalizedAgentID, sessionID: normalizedSessionID)
-        try persistSessionGoal(nil, sessionID: normalizedSessionID)
-        return goal
+        var saved = try longChats().state.sessionGoals?[session.id]
+        try persistSessionGoal(nil, sessionID: session.id)
+        let goal = await sessionGoalController.clear(agentID: session.agentId, sessionID: session.id)
+        saved?.status = .cleared
+        saved?.updatedAt = Date()
+        return goal ?? saved
     }
 
     func scheduleGoalContinuationIfNeeded(
@@ -991,6 +998,7 @@ extension CoreService {
         guard let goal = try? await getAgentSessionGoal(agentID: agentID, sessionID: sessionID), goal.status == .active
         else { return }
         guard expectedGoalID == nil || goal.id == expectedGoalID else { return }
+        guard !hasPendingSessionWatch(sessionID: sessionID) else { return }
         let conversation = try? getLongChat(agentID: agentID, sessionID: sessionID)
         let hasPendingWork = conversation?.assignments.contains { assignment in
             assignment.tasks.contains { !$0.status.isTerminal || $0.attempts.last?.executionStopped == false }
@@ -1069,6 +1077,7 @@ extension CoreService {
             if request.action == .interrupt || request.action == .interruptTree {
                 let interruptedSessionIDs = Set(response.appendedEvents.map(\.sessionId))
                 for interruptedSessionID in interruptedSessionIDs {
+                    cancelSessionWatches(sessionID: interruptedSessionID)
                     sessionMessageRunners[interruptedSessionID]?.cancel()
                     if let storage = try? sessionMessageInbox() {
                         try storage.transaction { entries in

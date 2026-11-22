@@ -633,6 +633,10 @@ extension SloppyTUIScreen {
                 appendLocalCard("Goal resume failed: \(String(describing: error))")
             }
         case .clear:
+            guard hasPersistedSession else {
+                appendLocalCard("No goal to clear.", autoDismissAfter: 8)
+                return
+            }
             do {
                 if let goal = try await service.clearAgentSessionGoal(agentID: agent.id, sessionID: session.id) {
                     appendLocalCard(goalStatusMarkdown(goal, title: "Goal cleared"), autoDismissAfter: 8)

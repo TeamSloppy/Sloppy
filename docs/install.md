@@ -134,6 +134,21 @@ brew uninstall --cask teamsloppy/sloppy/sloppy   # macOS
 brew uninstall teamsloppy/sloppy/sloppy         # Linux
 ```
 
+## Developer helper (`sloppy_tool.py`)
+
+From a Sloppy checkout, Python 3.9+ provides a small cross-platform entry point for environment checks and the existing installers:
+
+```bash
+python3 sloppy_tool.py doctor
+python3 sloppy_tool.py doctor --from-source
+python3 sloppy_tool.py doctor --json
+python3 sloppy_tool.py install --dry-run
+python3 sloppy_tool.py install --release
+python3 sloppy_tool.py install --from-source
+```
+
+On Windows, run `python sloppy_tool.py doctor` and `python sloppy_tool.py install --from-source` from PowerShell. The helper delegates to the platform installer rather than replacing it. Release mode is currently supported on macOS and Linux; Windows continues to use its documented release installer or the source installer.
+
 ## Build from source
 
 ### Windows from a checkout

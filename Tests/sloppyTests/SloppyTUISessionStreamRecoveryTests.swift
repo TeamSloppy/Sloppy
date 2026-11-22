@@ -7,6 +7,46 @@ import Testing
 @Suite("TUI session stream recovery")
 @MainActor
 struct SloppyTUISessionStreamRecoveryTests {
+    @Test("/restore calls Core and keeps the draft and original user message")
+    func restoreUsesCoreOperation() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let store = await fixture.service.sessionStore
+        let user = AgentSessionMessage(role: .user, segments: [.init(kind: .text, text: "Original task")], userId: "tui")
+        let checkpoint = AgentSessionEvent(agentId: fixture.agentID, sessionId: fixture.sessionID, type: .runStatus,
+            runStatus: .init(stage: .responding, label: "Responding", turnCheckpoint: .init(turnId: user.id, mode: .ask)))
+        _ = try store.appendEvents(agentID: fixture.agentID, sessionID: fixture.sessionID, events: [
+            .init(agentId: fixture.agentID, sessionId: fixture.sessionID, type: .message, message: user), checkpoint,
+        ])
+        fixture.screen.editor.setText("Unsent draft")
+        await fixture.screen.handleCommand("/restore Preserve the draft")
+
+        let detail = try store.loadSession(agentID: fixture.agentID, sessionID: fixture.sessionID)
+        #expect(detail.events.compactMap(\.message).filter { $0.role == .user }.map(\.id) == [user.id])
+        let receipt = detail.events.compactMap(\.runStatus).compactMap(\.turnCheckpoint).first {
+            $0.resumesCheckpointId == checkpoint.id
+        }
+        #expect(receipt?.instruction == "Preserve the draft")
+        #expect(fixture.screen.editor.getText() == "Unsent draft")
+        #expect(!fixture.screen.isPosting)
+    }
+
+    @Test("Tab accepts the visible prediction without a session submission")
+    func tabAcceptsPromptPredictionAsDraft() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        screen.applySessionRunStatus(.init(id: "current-run", stage: .done, label: "Done"))
+        screen.promptSuggestion = .init(sourceRunId: "old-run", text: "Stale suggestion")
+        #expect(screen.visiblePromptSuggestion == nil)
+        screen.promptSuggestion = .init(sourceRunId: "current-run", text: "Shorten the draft")
+        #expect(screen.visiblePromptSuggestion == "Shorten the draft")
+        screen.handle(input: .key(.tab))
+        #expect(screen.editor.getText() == "Shorten the draft")
+        #expect(screen.visiblePromptSuggestion == nil)
+        #expect(!screen.isPosting)
+    }
+
     @Test("build goals stay in a scrollable side pane, never in messages")
     func buildGoalsInSidePane() async throws {
         let fixture = try await SessionStreamFixture.make()

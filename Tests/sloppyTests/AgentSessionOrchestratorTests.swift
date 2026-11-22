@@ -51,6 +51,7 @@ private struct FixedTextLanguageModel: LanguageModel {
     typealias UnavailableReason = Never
     let text: String
     var callStore: MockCallStore? = nil
+    var streamError: (any Error)? = nil
 
     func respond<Content>(
         within session: LanguageModelSession,
@@ -77,6 +78,10 @@ private struct FixedTextLanguageModel: LanguageModel {
         options: GenerationOptions
     ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
         let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            if let streamError {
+                continuation.finish(throwing: streamError)
+                return
+            }
             Task {
                 guard let response = try? await respond(
                     within: session, to: prompt, generating: type,
@@ -199,14 +204,16 @@ private actor FixedOutputModelProvider: ModelProvider {
     let id: String = "fixed-output"
     let supportedModels: [String]
     private let output: String
+    private let streamError: (any Error)?
 
-    init(models: [String], output: String) {
+    init(models: [String], output: String, streamError: (any Error)? = nil) {
         self.supportedModels = models
         self.output = output
+        self.streamError = streamError
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
-        FixedTextLanguageModel(text: output)
+        FixedTextLanguageModel(text: output, streamError: streamError)
     }
 }
 
@@ -517,6 +524,87 @@ private func makeAgentSessionFixture(
     )
 
     return (catalogStore, sessionStore, agentsRootURL)
+}
+
+@Test
+func restoredNativeTurnUsesDurableTranscript() async throws {
+    let models = [ProviderModelOption(id: "mock:restore", title: "Restore", capabilities: ["tools"])]
+    let agentID = "captured-restore-agent"
+    let (catalog, sessions, root) = try makeAgentSessionFixture(
+        agentID: agentID, selectedModel: "mock:restore", availableModels: models
+    )
+    defer { try? FileManager.default.removeItem(at: root) }
+    let provider = SessionCapturingModelProvider(models: ["mock:restore"])
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:restore")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime, sessionStore: sessions, agentCatalogStore: catalog, availableModels: models
+    )
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    let user = AgentSessionMessage(role: .user, segments: [.init(kind: .text, text: "Original task")], userId: "tui")
+    let start = AgentSessionEvent(agentId: agentID, sessionId: session.id, type: .runStatus,
+        runStatus: .init(stage: .responding, label: "Responding", selectedModel: "mock:restore",
+            turnCheckpoint: .init(turnId: user.id, mode: .ask)))
+    let call = AgentSessionEvent(agentId: agentID, sessionId: session.id, type: .toolCall,
+        toolCall: .init(tool: "files.write", arguments: ["path": .string("result.txt")]))
+    let result = AgentSessionEvent(agentId: agentID, sessionId: session.id, type: .toolResult,
+        toolResult: .init(tool: "files.write", ok: true, data: .string("already saved"), callEventId: call.id))
+    _ = try sessions.appendEvents(agentID: agentID, sessionID: session.id, events: [
+        .init(agentId: agentID, sessionId: session.id, type: .message, message: user), start, call, result,
+    ])
+    let detail = try sessions.loadSession(agentID: agentID, sessionID: session.id)
+    let checkpoint = try #require(SessionTurnRecovery.latest(in: detail.events))
+    _ = try await orchestrator.restoreMessage(agentID: agentID, sessionID: session.id,
+        recovery: checkpoint, instruction: "Keep the saved file", additionalContext: "", shouldSteer: nil)
+
+    let requests = await provider.requestedTranscriptsSnapshot()
+    let transcript = try #require(requests.last)
+    #expect(requests.count == 1)
+    #expect(transcript.filter { $0.hasPrefix("prompt:") } == ["prompt:Original task"])
+    #expect(transcript.contains { $0.hasPrefix("instructions:") && $0.contains("Keep the saved file") })
+    #expect(transcript.contains { $0.hasPrefix("toolOutput:") && $0.contains("already saved") })
+    let persisted = try sessions.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(persisted.events.compactMap(\.message).filter { $0.role == .user }.map(\.id) == [user.id])
+}
+
+@Test
+func nativeTurnAfterProviderFailureCannotReuseAnEarlierAnswer() async throws {
+    let agentID = "current-turn-final"
+    let model = "mock:current-turn"
+    let models = [ProviderModelOption(id: model, title: model, capabilities: ["tools"])]
+    let (catalog, sessions, root) = try makeAgentSessionFixture(agentID: agentID, selectedModel: model, availableModels: models)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let runtime = RuntimeSystem(
+        modelProvider: FixedOutputModelProvider(models: [model], output: "Previous answer."),
+        defaultModel: model
+    )
+    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: sessions, agentCatalogStore: catalog, availableModels: models)
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    let first = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id,
+        request: .init(userId: "test", content: "First question", mode: .ask))
+    #expect(first.appendedEvents.last?.runStatus?.executionOutcome?.state == .completed)
+
+    let error = LanguageModelSession.GenerationError.exceededContextWindowSize(.init(debugDescription: "test context overflow"))
+    await runtime.updateModelProvider(
+        modelProvider: FixedOutputModelProvider(models: [model], output: "", streamError: error), defaultModel: model
+    )
+    let failed = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id,
+        request: .init(userId: "test", content: "Second question", mode: .ask))
+    let failedStatus = try #require(failed.appendedEvents.last?.runStatus)
+    #expect(failedStatus.executionOutcome?.code == "contextWindowRecoveryFailed")
+    #expect(failedStatus.stage == .interrupted)
+    #expect(!failed.appendedEvents.contains { $0.message?.role == .assistant })
+
+    await runtime.updateModelProvider(
+        modelProvider: FixedOutputModelProvider(models: [model], output: "Current answer.", streamError: StreamIdleTimeoutError()),
+        defaultModel: model
+    )
+    let recovered = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id,
+        request: .init(userId: "test", content: "Third question", mode: .ask))
+    let status = try #require(recovered.appendedEvents.last?.runStatus)
+    #expect(status.diagnostics?.turnExitReason == "streamIdleTimeoutFallback")
+    #expect(status.executionOutcome?.state == .completed)
+    #expect(status.stage == .done)
+    #expect(recovered.appendedEvents.contains { $0.message?.segments.first?.text == "Current answer." })
 }
 
 @Test
@@ -1455,6 +1543,39 @@ func agentSessionRetriesAndMarksToolDrivenDebugTurnIncompleteWithoutExplicitComp
 }
 
 @Test
+func agentSessionPersistsCurrentTurnDiffWithTheFinalStatus() async throws {
+    let model = "openai-api:gpt-5.4-mini"
+    let models = [ProviderModelOption(id: model, title: model, capabilities: ["tools"])]
+    let agentID = "turn-diff-agent"
+    let (catalog, store, agentsRoot) = try makeAgentSessionFixture(agentID: agentID, selectedModel: model, availableModels: models)
+    let file = agentsRoot.appendingPathComponent("turn-diff.txt")
+    let provider = ToolCallingModelProvider(models: [model], toolNames: ["files.write"],
+        toolArguments: ["files.write": GeneratedContent(properties: ["path": "turn-diff.txt", "content": "new content\n"])],
+        finalText: "Wrote the file.")
+    let mutations = FileMutationCoordinator()
+    let orchestrator = AgentSessionOrchestrator(runtime: RuntimeSystem(modelProvider: provider, defaultModel: model),
+        sessionStore: store, agentCatalogStore: catalog, availableModels: models,
+        toolInvoker: { _, _, request, _ in
+            guard request.tool == "files.write" else { return .init(tool: request.tool, ok: false) }
+            do {
+                let outcome = try await mutations.apply(at: file, operation: .write("new content\n"),
+                    expectedContentHash: nil, maxBytes: 1_024)
+                return .init(tool: request.tool, ok: true, data: .object(outcome.data))
+            } catch {
+                return .init(tool: request.tool, ok: false)
+            }
+        })
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    let result = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id,
+        request: .init(userId: "dashboard", content: "Write turn-diff.txt."))
+    let status = try #require(result.appendedEvents.compactMap(\.runStatus).last)
+    let diff = try #require(status.turnDiff)
+    #expect(diff.files.first?.patch?.contains("+new content") == true)
+    let persisted = try store.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(persisted.events.compactMap(\.runStatus).last?.turnDiff == diff)
+}
+
+@Test
 func agentSessionTreatsToolDrivenTurnWithExplicitCompletionAsDone() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
@@ -1544,6 +1665,44 @@ func agentSessionTreatsToolDrivenTurnWithExplicitCompletionAsDone() async throws
     #expect(evidence["kind"]?.asString == "test")
     #expect(evidence["command"]?.asString == "swift")
     #expect(evidence["exitCode"]?.asInt == 0)
+}
+
+@Test
+func agentSessionPausesForAcceptedJobWatchWithoutVerificationEvidence() async throws {
+    let model = "openai-api:gpt-5.4-mini"
+    let models = [ProviderModelOption(id: model, title: model, capabilities: ["tools"])]
+    let agentID = "watch-agent"
+    let (catalog, store, _) = try makeAgentSessionFixture(agentID: agentID, selectedModel: model, availableModels: models)
+    let watchID = UUID().uuidString
+    let provider = ToolCallingModelProvider(
+        models: [model],
+        toolNames: ["session.watch"],
+        toolArguments: ["session.watch": GeneratedContent(properties: [
+            "action": "start", "title": "Build", "processId": "existing-process"
+        ])],
+        finalText: "I'll report the result here."
+    )
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: RuntimeSystem(modelProvider: provider, defaultModel: model),
+        sessionStore: store, agentCatalogStore: catalog, availableModels: models,
+        toolInvoker: { _, _, request, _ in
+            .init(tool: request.tool, ok: true, data: .object([
+                "watchScheduled": .bool(true), "watchId": .string(watchID), "title": .string("Build")
+            ]))
+        }
+    )
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID, sessionID: session.id,
+        request: .init(userId: "dashboard", content: "Wait for the existing build.", mode: .build)
+    )
+
+    let status = try #require(response.appendedEvents.compactMap(\.runStatus).last)
+    #expect(status.stage == .paused)
+    #expect(status.id == watchID)
+    #expect(status.executionOutcome == nil)
+    let detail = try store.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(!detail.events.contains { $0.toolCall?.tool == "session.complete" })
 }
 
 @Test
@@ -3605,6 +3764,56 @@ func imagesInspectLoadsPixelsAndEnforcesReadableRoots() async throws {
 
 
 @Test
+func longChatChecksSelectedWorkerInputBeforeStarting() async throws {
+    let config = CoreConfig.test
+    let root = config.resolvedWorkspaceRootURL()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let agentID = "preflight-coordinator"
+    _ = try await service.createAgent(.init(id: agentID, displayName: "Coordinator", role: "Test"))
+    let chat = try await service.openLongChat(agentID: agentID, userID: "local")
+    let model = "mock:test-model"
+    let capture = SessionCapturingModelProvider(models: [model])
+    await service.overrideModelProviderForTests(ContextLimitedModelProvider(
+        wrapping: capture, limits: [model: .init(contextWindowTokens: 24_000, maxOutputTokens: 512)]
+    ), defaultModel: model)
+
+    let assignment = try await service.delegateLongChat(agentID: agentID, sessionID: chat.id, sourceID: "source",
+        request: .init(requestKey: "preflight", title: "Check worker input", acceptanceCriteria: "Report the observed size.", tasks: [
+            .init(key: "large", title: "Large", objective: String(repeating: "Large worker objective. ", count: 10_000)),
+            .init(key: "small", title: "Small", objective: "Inspect the small fixture."),
+        ]))
+    let large = assignment.tasks[0]
+    let small = assignment.tasks[1]
+    var parent = try await service.getAgentSession(agentID: agentID, sessionID: chat.id)
+    for _ in 0..<300 {
+        if parent.events.contains(where: { $0.longChatTask?.task.id == large.id && $0.longChatTask?.reason == "failed" }),
+           parent.events.contains(where: { $0.longChatTask?.task.id == small.id && $0.longChatTask?.reason == "failed" }) { break }
+        try await Task.sleep(for: .milliseconds(10))
+        parent = try await service.getAgentSession(agentID: agentID, sessionID: chat.id)
+    }
+    let saved = try LongChatFileStore(root: root).conversation(sessionId: chat.id)
+    let largeAttempt = try #require(saved.assignments.first?.tasks[0].attempts.last)
+    let smallAttempt = try #require(saved.assignments.first?.tasks[1].attempts.last)
+    #expect(largeAttempt.status == .failed)
+    #expect(largeAttempt.workerId == nil)
+    #expect(largeAttempt.failure?.phase == .contextPreflight)
+    #expect(largeAttempt.failure?.code == "worker_context_budget_exceeded")
+    #expect(largeAttempt.failure?.message.contains(model) == true)
+    #expect(largeAttempt.failure?.message.contains("23360 tokens") == true)
+    #expect(largeAttempt.automaticRetryAllowed == false)
+    #expect(smallAttempt.workerId != nil)
+    #expect(smallAttempt.selectedModel == model)
+    #expect(smallAttempt.failure?.phase == .execution)
+    let starts = parent.events.compactMap(\.longChatTask).filter { $0.reason == "started" }
+    #expect(starts.map(\.task.id) == [small.id])
+    let workerPrompts = await capture.requestedPromptsSnapshot().filter { $0.contains("[Delegated task protocol]") }
+    #expect(workerPrompts.count == 1)
+    #expect(workerPrompts.first?.contains("Report the observed size.") == true)
+    await service.stop()
+}
+
+@Test
 func coordinatorRecoveryStopsAfterTwoPassesAndKeepsHandoffIncomplete() async throws {
     let models = [ProviderModelOption(id: "mock:coordinator", title: "Coordinator", capabilities: ["tools"])]
     let (catalog, store, root) = try makeAgentSessionFixture(agentID: "bounded", selectedModel: "mock:coordinator", availableModels: models)
@@ -3623,6 +3832,8 @@ func coordinatorRecoveryStopsAfterTwoPassesAndKeepsHandoffIncomplete() async thr
     #expect(result.appendedEvents.last?.runStatus?.label == "Handoff failed")
     #expect(result.appendedEvents.last?.runStatus?.executionOutcome?.state == .failed)
     #expect(result.appendedEvents.last?.runStatus?.executionOutcome?.code == "delegation_failed")
+    #expect(result.appendedEvents.last?.runStatus?.longChatFailure == .init(
+        phase: .handoff, code: "invalid_arguments", message: "acceptanceCriteria must be a string"))
     #expect(try store.loadSession(agentID: "bounded", sessionID: session.id).events.compactMap(\.toolResult).allSatisfy { !$0.ok })
 }
 

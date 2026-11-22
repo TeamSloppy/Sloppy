@@ -125,6 +125,14 @@ interface AgentMemoryQuery {
   offset?: number;
 }
 
+export async function fetchSessionPromptSuggestion(agentId: string, sessionId: string, sourceRunId: string, signal: AbortSignal) {
+  const response = await requestJson<{ sourceRunId: string; text: string | null }, { sourceRunId: string }>({
+    path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/prompt-suggestion`,
+    method: "POST", body: { sourceRunId }, signal
+  });
+  return response.ok ? response.data : null;
+}
+
 interface AgentSessionStreamHandlers {
   onUpdate?: (update: AnyRecord) => void;
   onOpen?: () => void;

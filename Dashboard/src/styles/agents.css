@@ -2565,6 +2565,21 @@ body.agent-chat-no-page-scroll .page {
   min-width: 0;
 }
 
+.agent-chat-turn-diff {
+  min-width: 0;
+  padding: 0.65rem 0;
+  border-block-start: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.agent-chat-turn-diff summary {
+  cursor: pointer;
+}
+
+.agent-chat-turn-diff-file {
+  margin-block-start: 0.75rem;
+}
+
 .agent-chat-tech-trigger-label {
   position: relative;
   min-width: 0;

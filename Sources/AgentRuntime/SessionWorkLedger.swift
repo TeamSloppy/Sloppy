@@ -117,8 +117,8 @@ public struct SessionWorkLedger: Sendable, Equatable {
     public func render(maxCharacters: Int = 6000) -> String {
         guard !isEmpty else { return "" }
         var lines = ["[Session work ledger — facts gathered before compaction; do not repeat this work]"]
-        if let goal { lines.append("Goal: \(goal)") }
-        if let plan { lines.append("Current plan/checklist: \(plan)") }
+        if let goal { lines.append("Initial request (historical): \(goal)") }
+        if let plan { lines.append("Last recorded plan/checklist: \(plan)") }
         if !changedFiles.isEmpty { lines.append("Changed files: " + changedFiles.joined(separator: ", ")) }
         if !checks.isEmpty { lines.append("Builds/checks:\n" + checks.map { "- \($0)" }.joined(separator: "\n")) }
         if !reads.isEmpty {

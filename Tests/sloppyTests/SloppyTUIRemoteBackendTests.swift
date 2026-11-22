@@ -56,6 +56,10 @@ func remoteSloppyTUIBackendReadsProjectsSessionsAndSSE() async throws {
         request: AgentSessionCreateRequest(title: "Remote Session", projectId: project.id)
     )
     #expect(session.projectId == project.id)
+    let goal = await service.sessionGoalController.start(agentID: session.agentId, sessionID: session.id, objective: "Check remote clear")
+    try await service.persistSessionGoal(goal, sessionID: session.id)
+    let clearedGoal = try await backend.clearAgentSessionGoal(agentID: session.agentId, sessionID: session.id)
+    #expect(clearedGoal?.status == .cleared)
     let policy = try await backend.setSessionApprovalPolicy(
         agentID: "remote-agent", sessionID: session.id, policy: .init(mode: .approveForMe)
     )
@@ -131,6 +135,10 @@ func meshSloppyTUIBackendReadsProjectsAndAgentsThroughCoreProxy() async throws {
     let agents = try await backend.listAgents(includeSystem: false)
     #expect(agents.contains(where: { $0.id == "mesh-agent" }))
     let session = try await backend.createAgentSession(agentID: "mesh-agent", request: .init(projectId: project.id))
+    let goal = await service.sessionGoalController.start(agentID: session.agentId, sessionID: session.id, objective: "Check Mesh clear")
+    try await service.persistSessionGoal(goal, sessionID: session.id)
+    let clearedGoal = try await backend.clearAgentSessionGoal(agentID: session.agentId, sessionID: session.id)
+    #expect(clearedGoal?.status == .cleared)
     let policy = try await backend.setSessionApprovalPolicy(
         agentID: "mesh-agent", sessionID: session.id, policy: .init(mode: .approveForMe)
     )

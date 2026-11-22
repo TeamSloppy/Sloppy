@@ -315,6 +315,7 @@ extension CoreService {
                             "executionTarget": (try? JSONValueCoder.encode(task.executionTarget)) ?? .null,
                             "remoteExecution": (try? JSONValueCoder.encode(task.attempts.last?.remoteExecution)) ?? .null,
                             "summary": .string(String((task.attempts.last?.summary ?? "").prefix(1000))),
+                            "failure": (try? JSONValueCoder.encode(task.attempts.last?.failure)) ?? .null,
                             "automaticRetryAllowed": .bool(task.attempts.last?.automaticRetryAllowed != false),
                         ])
                     }),
@@ -441,7 +442,13 @@ extension CoreService {
         try recordLongChatModel(agentID: agentID, sessionID: sessionID, turnID: sourceID)
         let assignment = try longChats().delegate(sessionId: sessionID, sourceMessageId: sourceID, request: request)
         for task in assignment.tasks {
-            try await publishLongChatTask(sessionID: sessionID, taskID: task.id, reason: "accepted")
+            do {
+                try await publishLongChatTask(sessionID: sessionID, taskID: task.id, reason: "accepted")
+            } catch {
+                logger.error("long_chat.accepted_event_failed", metadata: [
+                    "task_id": .string(task.id), "error": .string(error.localizedDescription),
+                ])
+            }
         }
         Task { [weak self] in await self?.dispatchLongChatWorkers() }
         return assignment

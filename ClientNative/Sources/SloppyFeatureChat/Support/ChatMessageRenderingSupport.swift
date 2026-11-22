@@ -159,7 +159,7 @@ enum ChatTranscriptGrouping {
     }
 
     private static func isGroupableSystemMessage(_ message: ChatMessage) -> Bool {
-        message.role == .system
+        message.role == .system && message.turnDiff == nil
             && message.segments.allSatisfy { $0.buildProgress == nil }
     }
 

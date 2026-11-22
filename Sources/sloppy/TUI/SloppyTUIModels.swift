@@ -775,6 +775,7 @@ enum SloppyTUITimelineBlock {
     case inputRequest(PlanInputRequest)
     case workspaceDiff(
         branch: String, linesAdded: Int, linesDeleted: Int, diff: String, truncated: Bool)
+    case turnDiff(AgentTurnDiff)
     case toolCall(tool: String, reason: String?, summary: String?, details: String?)
     case toolResult(
         tool: String, rawTool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
@@ -805,6 +806,8 @@ enum SloppyTUITimelineBlock {
         case .workspaceDiff(let branch, let linesAdded, let linesDeleted, let diff, let truncated):
             return
                 "Patched \(branch) +\(linesAdded) -\(linesDeleted) \(truncated ? "truncated" : "") \(diff)"
+        case .turnDiff(let diff):
+            return "Changes this turn\n" + diff.files.map { $0.path + "\n" + ($0.patch ?? "") }.joined(separator: "\n")
         case .toolCall(let tool, let reason, let summary, let details):
             return ([tool] + [summary, reason, details].compactMap { $0 }).joined(separator: " ")
         case .toolResult(let tool, _, _, let error, _, let details):

@@ -33,5 +33,5 @@ Improve the existing debug session in a hypothesis-driven loop.
 ## Completion
 
 - Successful verification tools return a `verificationEvidence.id`. Preserve IDs from build, test, run, or screenshot tools (including MCP tools the server marks as verification) and pass them to `session.complete` as `verificationEvidenceIds`; lint/typecheck evidence is supplemental.
-- Do not end the turn with only a final text response. Call `session.complete` with `status`, `summary`, `verificationEvidenceIds`, optional user-facing `verification`, and any `limitations`.
+- Call `session.complete` with `status`, `summary`, `verificationEvidenceIds`, optional user-facing `verification`, and any `limitations` to finish a debug turn. An accepted `session.watch` pauses the turn for the result of an existing job.
 - Use `status=completed` only after the diagnosis or fix is verified. Use `status=blocked` with limitations when investigation cannot continue, or `status=waiting_input` when reproduction or a user decision is required.

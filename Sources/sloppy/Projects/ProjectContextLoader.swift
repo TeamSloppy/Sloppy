@@ -103,7 +103,6 @@ struct ProjectContextLoader {
         }
 
         let docPaths: [String] = [
-            "AGENTS.md",
             "USER.md",
             "SOUL.md",
             "CLAUDE.md",
@@ -111,6 +110,11 @@ struct ProjectContextLoader {
             "SLOPPY.md"
         ]
         for rootURL in rootURLs {
+            for name in ["AGENTS.override.md", "AGENTS.md"] {
+                guard let text = readTextFileIfExists(rootURL: rootURL, relativePath: name) else { continue }
+                addFile(relativePath: rootURL.appendingPathComponent(name).path, content: text, to: &loadedDocs)
+                break
+            }
             for relativePath in docPaths {
                 guard let text = readTextFileIfExists(rootURL: rootURL, relativePath: relativePath) else { continue }
                 addFile(relativePath: rootURL.appendingPathComponent(relativePath).path, content: text, to: &loadedDocs)

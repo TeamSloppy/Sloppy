@@ -20,3 +20,7 @@ only by enabling the trait and adapting the caller deliberately.
 The SwiftSyntax requirement also accepts the 601 and 602 release lines. This lets
 the portable runtime share Studio and AdaScript's SwiftSyntax 602 dependency while
 keeping the existing 600 release line available to standalone consumers.
+
+The image-capable session methods accept a transcript continuation input for
+Sloppy run recovery. It adds instructions to the existing transcript without
+appending a new user prompt.

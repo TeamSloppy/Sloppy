@@ -38,6 +38,39 @@ struct FilesReadToolTests {
         )
     }
 
+    @Test("repository instructions include the root override and applicable nested rules only")
+    func scopedRepositoryInstructions() async throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sloppy-file-instructions-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let files = [
+            "AGENTS.md": "Workspace rules",
+            "repo/.git": "gitdir: placeholder",
+            "repo/AGENTS.md": "Superseded rules",
+            "repo/AGENTS.override.md": "Repository rules",
+            "repo/Dashboard/AGENTS.md": "Dashboard rules",
+            "repo/Apps/AGENTS.md": "Apple rules",
+            "other/.git": "",
+            "other/AGENTS.md": "Second repository rules",
+        ]
+        for (path, content) in files {
+            let url = workspace.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+
+        let tool = FilesInstructionsTool()
+        let context = makeContext(workspaceRootURL: workspace)
+        let dashboard = await tool.invoke(arguments: ["path": .string("repo/Dashboard/src/New.ts")], context: context)
+        let other = await tool.invoke(arguments: ["path": .string("other")], context: context)
+        #expect(dashboard.ok)
+        #expect(other.ok)
+        #expect(dashboard.data?.asObject?["instructions"]?.asArray?.compactMap { $0.asObject?["content"]?.asString }
+            == ["Repository rules", "Dashboard rules"])
+        #expect(other.data?.asObject?["instructions"]?.asArray?.compactMap { $0.asObject?["content"]?.asString }
+            == ["Second repository rules"])
+    }
+
     @Test("files.read returns not_found for missing file")
     func readMissingFile() async throws {
         let tmp = FileManager.default.temporaryDirectory

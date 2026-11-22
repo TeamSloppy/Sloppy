@@ -18,9 +18,9 @@ public struct ToolSchemaBudget: Sendable {
 
     /// Tools every coding turn needs; kept even when they alone exceed the budget.
     public static let essentialToolIDs: Set<String> = [
-        "files.read", "files.list", "files.grep", "files.edit", "files.write",
+        "files.read", "files.instructions", "files.list", "files.grep", "files.edit", "files.write",
         "runtime.exec", "runtime.process", "tools.execute_js", "lsp.query",
-        "session.complete", "agent_delegate.finish", "agents.delegate_finish",
+        "session.complete", "session.watch", "agent_delegate.finish", "agents.delegate_finish",
         "planning.select_route", "planning.request_input", "system.list_tools",
     ]
 

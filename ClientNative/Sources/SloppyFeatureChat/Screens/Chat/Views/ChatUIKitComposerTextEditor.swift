@@ -32,6 +32,7 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
     let submit: @MainActor () -> Void
     let pasteItemProviders: @MainActor ([NSItemProvider]) -> Bool
     var onCommittedText: (@MainActor (String) -> Void)? = nil
+    var acceptPromptSuggestion: (@MainActor () -> Bool)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -50,6 +51,9 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
         }
         textView.onApplySelectedSuggestion = { [weak coordinator = context.coordinator] in
             coordinator?.parent.applySelectedSuggestion() ?? false
+        }
+        textView.onAcceptPromptSuggestion = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.acceptPromptSuggestion?() ?? false
         }
         textView.onPasteItemProviders = { [weak coordinator = context.coordinator] providers in
             coordinator?.parent.pasteItemProviders(providers) ?? false
@@ -106,6 +110,7 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
         textView.onLayout = nil
         textView.onMoveSuggestionSelection = nil
         textView.onApplySelectedSuggestion = nil
+        textView.onAcceptPromptSuggestion = nil
         textView.onPasteItemProviders = nil
     }
 
@@ -312,6 +317,7 @@ final class ComposerUITextView: UITextView {
     var onLayout: (@MainActor () -> Void)?
     var onMoveSuggestionSelection: (@MainActor (ChatComposerSuggestionSelectionDirection) -> Bool)?
     var onApplySelectedSuggestion: (@MainActor () -> Bool)?
+    var onAcceptPromptSuggestion: (@MainActor () -> Bool)?
     var onPasteItemProviders: (@MainActor ([NSItemProvider]) -> Bool)?
 
     private var appliedStyle: UIKitComposerTextStyle?
@@ -355,6 +361,9 @@ final class ComposerUITextView: UITextView {
         }
 
         switch key.charactersIgnoringModifiers {
+        case "\t" where text.isEmpty && markedTextRange == nil
+            && key.modifierFlags.intersection([.shift, .control, .alternate, .command]).isEmpty:
+            if onAcceptPromptSuggestion?() == true { return }
         case UIKeyCommand.inputUpArrow:
             if onMoveSuggestionSelection?(.previous) == true { return }
         case UIKeyCommand.inputDownArrow:

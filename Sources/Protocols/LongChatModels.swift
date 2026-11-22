@@ -48,6 +48,23 @@ public struct LongChatDelegationRequest: Codable, Sendable {
     }
 }
 
+public struct LongChatAttemptFailure: Codable, Sendable, Equatable {
+    public enum Phase: String, Codable, Sendable {
+        case contextPreflight = "context_preflight"
+        case handoff, launch, execution
+    }
+
+    public var phase: Phase
+    public var code: String
+    public var message: String
+
+    public init(phase: Phase, code: String, message: String) {
+        self.phase = phase
+        self.code = code
+        self.message = message
+    }
+}
+
 public struct LongChatAttempt: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var number: Int
@@ -58,6 +75,7 @@ public struct LongChatAttempt: Codable, Sendable, Equatable, Identifiable {
     public var eventOffset: Int?
     public var status: LongChatTaskStatus
     public var summary: String?
+    public var failure: LongChatAttemptFailure?
     public var evidence: [String]
     public var artifacts: [String]
     public var selectedModel: String?

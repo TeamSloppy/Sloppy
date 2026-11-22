@@ -436,6 +436,26 @@ public struct AgentRunDiagnostics: Codable, Sendable, Equatable {
     }
 }
 
+/// Durable input for resuming a native turn. The enclosing event ID identifies the attempt.
+public struct AgentTurnCheckpoint: Codable, Sendable, Equatable {
+    public var turnId: String
+    public var mode: AgentChatMode
+    public var reasoningEffort: ReasoningEffort?
+    public var resumesCheckpointId: String?
+    public var instruction: String?
+
+    public init(
+        turnId: String, mode: AgentChatMode, reasoningEffort: ReasoningEffort? = nil,
+        resumesCheckpointId: String? = nil, instruction: String? = nil
+    ) {
+        self.turnId = turnId
+        self.mode = mode
+        self.reasoningEffort = reasoningEffort
+        self.resumesCheckpointId = resumesCheckpointId
+        self.instruction = instruction
+    }
+}
+
 public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
     public var id: String
     public var stage: AgentRunStage
@@ -446,6 +466,9 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
     public var selectedModel: String?
     public var diagnostics: AgentRunDiagnostics?
     public var executionOutcome: ExecutionOutcome?
+    public var turnDiff: AgentTurnDiff?
+    public var turnCheckpoint: AgentTurnCheckpoint?
+    public var longChatFailure: LongChatAttemptFailure?
     public var createdAt: Date
 
     public init(
@@ -458,7 +481,9 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
         selectedModel: String? = nil,
         diagnostics: AgentRunDiagnostics? = nil,
         executionOutcome: ExecutionOutcome? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        turnDiff: AgentTurnDiff? = nil,
+        turnCheckpoint: AgentTurnCheckpoint? = nil
     ) {
         self.id = id
         self.stage = stage
@@ -469,6 +494,8 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
         self.selectedModel = selectedModel
         self.diagnostics = diagnostics
         self.executionOutcome = executionOutcome
+        self.turnDiff = turnDiff
+        self.turnCheckpoint = turnCheckpoint
         self.createdAt = createdAt
     }
 }
@@ -1026,6 +1053,18 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
         self.clientMessageId = clientMessageId
         self.sessionReferences = sessionReferences
         self.supportsA2UI = supportsA2UI
+    }
+}
+
+public struct AgentSessionRestoreRequest: Codable, Sendable {
+    public var turnId: String
+    public var checkpointId: String
+    public var instruction: String?
+
+    public init(turnId: String, checkpointId: String, instruction: String? = nil) {
+        self.turnId = turnId
+        self.checkpointId = checkpointId
+        self.instruction = instruction
     }
 }
 

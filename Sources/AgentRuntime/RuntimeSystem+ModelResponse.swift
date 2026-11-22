@@ -4,6 +4,11 @@ import Logging
 import PluginSDK
 import Protocols
 
+private struct WorkerLaunchError: LocalizedError {
+    let underlying: any Error
+    var errorDescription: String? { underlying.localizedDescription }
+}
+
 extension RuntimeSystem {
     func respondInline(
         channelId: String,
@@ -24,7 +29,7 @@ extension RuntimeSystem {
             ?? inheritedModel(for: channelId) ?? defaultModel
 
         guard let modelProvider, let activeModel else {
-            let fallback = "Responded inline"
+            let fallback = Self.beforeWorkerSampling == nil ? "Responded inline" : "No language model is available to start this worker."
             if let observationHandler {
                 await observationHandler(.thinking("Using fallback inline response because no model provider is configured."))
             }
@@ -35,7 +40,7 @@ extension RuntimeSystem {
             await nativeLoopOutcomeHandler?(
                 NativeAgentLoopOutcome(
                     maxToolRounds: nativeLoopConfig.maxToolRounds,
-                    finishedNaturally: true,
+                    finishedNaturally: false,
                     lastAssistantText: fallback,
                     turnExitReason: .fallbackNoModel
                 )
@@ -62,7 +67,9 @@ extension RuntimeSystem {
             let (initialSession, modelUserMessage) = try await (preparedSession, recalledUserMessage)
             lastActiveModelByChannel[channelId] = activeModel
             toolContinuationUsageByChannel.removeValue(forKey: channelId)
-            workLedgerByChannel[channelId, default: SessionWorkLedger()].recordGoal(userMessage)
+            if !Self.isResumingTurn {
+                workLedgerByChannel[channelId, default: SessionWorkLedger()].recordGoal(userMessage)
+            }
             await channels.setContextWindow(
                 channelId: channelId,
                 tokens: resolvedContextLimits(for: activeModel, provider: modelProvider)?.contextWindowTokens
@@ -139,12 +146,21 @@ extension RuntimeSystem {
             streamStartMetadata["session_and_memory_ms"] = .stringConvertible(sessionAndMemoryMs)
             streamStartMetadata["context_prepare_ms"] = .stringConvertible(contextPrepareMs)
             streamStartMetadata["pre_stream_total_ms"] = .stringConvertible(elapsedMilliseconds(since: responseStartedAt))
+            if let beforeWorkerSampling = Self.beforeWorkerSampling {
+                do {
+                    try await beforeWorkerSampling(activeModel)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw WorkerLaunchError(underlying: error)
+                }
+            }
+            try Task.checkCancellation()
             logger.info("Model stream started", metadata: streamStartMetadata)
-
             let streamStartedAt = Date()
             let streamIdleTimeoutSeconds = 120
-
-            let responseStream = session.streamResponse(to: modelUserMessage, images: imagesByChannel[channelId] ?? [], options: options)
+            let responseStream = session.streamResponse(to: modelUserMessage, images: imagesByChannel[channelId] ?? [],
+                        generating: String.self, continuingFromTranscript: Self.isResumingTurn, options: options)
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     group.addTask {
@@ -254,9 +270,11 @@ extension RuntimeSystem {
                             nativeLoopConfig: nativeLoopConfig
                         )
                     }
-                    let fallbackResponse = try await freshSession.respond(to: modelUserMessage, images: imagesByChannel[channelId] ?? [], options: options)
+                    let fallbackResponse = try await freshSession.respond(to: modelUserMessage, images: imagesByChannel[channelId] ?? [],
+                        generating: String.self, continuingFromTranscript: Self.isResumingTurn, options: options)
                     if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                     var fallbackContent = fallbackResponse.content
+                    var exitReason: NativeAgentLoopTurnExitReason = .streamIdleTimeoutFallback
                     await consumeProviderUsageIfAvailable(
                         channelId: channelId,
                         activeModel: activeModel,
@@ -277,6 +295,7 @@ extension RuntimeSystem {
                     )
                     if fallbackContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         if await tracker.sawToolTimeout {
+                            exitReason = .emptyAfterToolTimeout
                             fallbackContent = "Tool execution timed out before the model produced a final response. Please review the timed-out tool result and retry when ready."
                             logger.warning(
                                 "Non-streaming fallback returned empty response after tool timeout",
@@ -299,7 +318,9 @@ extension RuntimeSystem {
                             onResponseChunk: nil
                         ) {
                             fallbackContent = repaired
+                            exitReason = .emptyResponseRepaired
                         } else {
+                            exitReason = .emptyResponse
                             fallbackContent = "Model returned an empty response. Please try rephrasing or try again."
                             logger.warning(
                                 "Non-streaming fallback returned empty response after repair",
@@ -316,6 +337,7 @@ extension RuntimeSystem {
                     if await tracker.hitToolRoundLimit {
                         sessionsByChannel.removeValue(forKey: channelId)
                         fallbackContent = Self.toolRoundLimitMessage
+                        exitReason = .toolRoundLimit
                     }
                     if let onResponseChunk {
                         _ = await onResponseChunk(fallbackContent)
@@ -323,9 +345,9 @@ extension RuntimeSystem {
                     await channels.appendSystemMessage(channelId: channelId, content: fallbackContent)
                     await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                         maxToolRounds: nativeLoopConfig.maxToolRounds,
-                        finishedNaturally: !(await tracker.hitToolRoundLimit),
+                        finishedNaturally: exitReason == .streamIdleTimeoutFallback || exitReason == .emptyResponseRepaired,
                         lastAssistantText: fallbackContent,
-                        turnExitReason: await tracker.hitToolRoundLimit ? .toolRoundLimit : .streamIdleTimeoutFallback
+                        turnExitReason: exitReason
                     ))
                     return
                 } catch {
@@ -585,7 +607,8 @@ extension RuntimeSystem {
                     )
                 )
                 do {
-                    let response = try await session.respond(to: modelUserMessage, images: imagesByChannel[channelId] ?? [], options: options)
+                    let response = try await session.respond(to: modelUserMessage, images: imagesByChannel[channelId] ?? [],
+                        generating: String.self, continuingFromTranscript: Self.isResumingTurn, options: options)
                     if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                     latest = response.content
                     await consumeProviderUsageIfAvailable(
@@ -723,7 +746,7 @@ extension RuntimeSystem {
             )
             await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                 maxToolRounds: nativeLoopConfig.maxToolRounds,
-                finishedNaturally: true,
+                finishedNaturally: turnExitReason != .emptyResponse && turnExitReason != .emptyAfterToolTimeout,
                 lastAssistantText: latest,
                 turnExitReason: turnExitReason
             ))
@@ -781,13 +804,23 @@ extension RuntimeSystem {
 
             sessionsByChannel.removeValue(forKey: channelId)
             let text: String
+            let exitReason: NativeAgentLoopTurnExitReason
             switch error {
+            case let budget as WorkerContextBudgetError:
+                text = budget.localizedDescription
+                exitReason = .workerContextTooLarge
+            case let launch as WorkerLaunchError:
+                text = launch.localizedDescription
+                exitReason = .workerLaunchFailed
             case TranscriptContextError.protectedContextExceedsBudget:
                 text = "The current request and retained context exceed the model's input budget."
+                exitReason = .contextWindowRecoveryFailed
             case TranscriptContextError.summaryFailed:
                 text = "Could not compact the conversation to fit the model's input budget. The conversation was saved."
+                exitReason = .contextWindowRecoveryFailed
             default:
                 text = "Model provider error: \(error)"
+                exitReason = .modelProviderError
             }
             if let onResponseChunk {
                 _ = await onResponseChunk(text)
@@ -800,7 +833,7 @@ extension RuntimeSystem {
                 maxToolRounds: nativeLoopConfig.maxToolRounds,
                 finishedNaturally: false,
                 lastAssistantText: text,
-                turnExitReason: error is TranscriptContextError ? .contextWindowRecoveryFailed : .modelProviderError
+                turnExitReason: exitReason
             ))
         }
     }

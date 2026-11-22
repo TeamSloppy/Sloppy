@@ -8,7 +8,7 @@ import Testing
         for path in ["/v1/auth/me", "/v1/agents", "/v1/agents/a/sessions", "/v1/agents/a/sessions/s", "/v1/agents/a/sessions/s/ws", "/v1/agents/a/sessions/s/stream", "/v1/agents/a/sessions/s/status"] {
             #expect(ConsoleOwnerChatPolicy.permissions(method: .get, segments: path.split(separator: "/").map(String.init), body: nil) == [.read, .runAgents])
         }
-        for path in ["/v1/agents/a/sessions", "/v1/agents/a/sessions/s/messages", "/v1/voice/transcriptions", "/v1/agents/a/sessions/s/control"] {
+        for path in ["/v1/agents/a/sessions", "/v1/agents/a/sessions/s/messages", "/v1/voice/transcriptions", "/v1/agents/a/sessions/s/control", "/v1/agents/a/sessions/s/goal/clear"] {
             #expect(ConsoleOwnerChatPolicy.permissions(method: .post, segments: path.split(separator: "/").map(String.init), body: Data("{\"action\":\"interrupt\"}".utf8)) == [.read, .write, .runAgents])
         }
         for (method, path) in [(HTTPRouteMethod.post, "/v1/agents"), (.delete, "/v1/agents/a"), (.get, "/v1/config"), (.put, "/v1/agents/a/config"), (.get, "/v1/dashboard/terminal/ws"), (.post, "/v1/agents/a/sessions/s/input-requests/r/answer")] {

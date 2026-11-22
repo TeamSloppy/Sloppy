@@ -51,6 +51,11 @@ struct ChatTextField: View {
         return viewModel.selectedAgent?.displayName ?? "Sloppy"
     }
 
+    private var promptPlaceholder: String? {
+        guard draft === viewModel.composerDraft else { return nil }
+        return viewModel.visiblePromptSuggestion.map { "\($0)  · Tab" }
+    }
+
     var body: some View {
         let c = theme.colors
         let sp = theme.spacing
@@ -95,6 +100,9 @@ struct ChatTextField: View {
             .onChange(of: isTextFieldFocused) { _, isFocused in
                 onFocusChanged(isFocused)
             }
+            .onChange(of: draft.text) { _, value in
+                if draft === viewModel.composerDraft && !value.isEmpty { viewModel.dismissPromptSuggestion() }
+            }
 #if !os(macOS)
             .onChange(of: draft.text) { oldValue, newValue in
                 let cursorOffset = composerCursorOffset
@@ -126,7 +134,7 @@ struct ChatTextField: View {
             selection: $draft.selection,
             isFocused: $isTextFieldFocused,
             measuredHeight: $editorHeight,
-            placeholder: "Ask \(agentDisplayName) or type / for commands",
+            placeholder: promptPlaceholder ?? "Ask \(agentDisplayName) or type / for commands",
             fontSize: fontSize,
             primaryColor: primaryColor,
             placeholderColor: placeholderColor,
@@ -150,7 +158,8 @@ struct ChatTextField: View {
             registerReferences: viewModel.registerComposerReferences,
             onSuggestionContextChanged: { text, offset in
                 viewModel.updateComposerSuggestions(for: offset == nil ? "" : text, cursorOffset: offset)
-            }
+            },
+            acceptPromptSuggestion: { draft === viewModel.composerDraft && viewModel.acceptPromptSuggestion() }
         )
         #else
         UIKitChatComposerTextEditor(
@@ -158,7 +167,7 @@ struct ChatTextField: View {
             selection: $draft.selection,
             isFocused: $isTextFieldFocused,
             measuredHeight: $editorHeight,
-            placeholder: idiom == .phone ? "Plan, ask, build…" : "Ask \(agentDisplayName)",
+            placeholder: promptPlaceholder ?? (idiom == .phone ? "Plan, ask, build…" : "Ask \(agentDisplayName)"),
             fontSize: fontSize,
             primaryColor: primaryColor,
             placeholderColor: placeholderColor,
@@ -177,7 +186,8 @@ struct ChatTextField: View {
             moveSuggestionSelection: viewModel.moveComposerSuggestionSelection,
             applySelectedSuggestion: viewModel.applySelectedComposerSuggestion,
             submit: submit,
-            pasteItemProviders: viewModel.attachItemProviders
+            pasteItemProviders: viewModel.attachItemProviders,
+            acceptPromptSuggestion: { draft === viewModel.composerDraft && viewModel.acceptPromptSuggestion() }
         )
         #endif
     }

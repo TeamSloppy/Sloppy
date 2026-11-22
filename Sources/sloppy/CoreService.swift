@@ -293,11 +293,15 @@ public actor CoreService {
     var rejectedOAuthModelIDs: Set<String> = []
     var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
     var liveSessionStreamCursor: [String: Int] = [:]
+    var promptSuggestionRequests: [String: (runID: String, task: Task<String?, Never>)] = [:]
     var sessionMessageStorage: SessionMessageInboxFileStore?
     var sessionMessageRecoveryCompleted = false
     var sessionMessageIsStopping = false
     var sessionMessageRunners: [String: Task<Void, Never>] = [:]
+    var sessionWatchRecoveryCompleted = false
+    var sessionWatchRunners: [String: Task<Void, Never>] = [:]
     var activeSessionMessageRuns: Set<String> = []
+    var activeSessionToolCallIDs: Set<String> = []
     var activeVerificationNodes: Set<String> = []
     var studioMachineBuildTasks: [String: Task<Void, Never>] = [:]
     var activePeerSessionOrigins: [String: AgentSessionPeerOrigin] = [:]
@@ -838,6 +842,7 @@ public actor CoreService {
             await self.resumePendingMemoryImports()
             await self.resumePendingMigrations()
             await self.restoreWorkflowExecutionsIfNeeded()
+            await self.recoverSessionWatchesIfNeeded()
         }
     }
 
@@ -850,6 +855,7 @@ public actor CoreService {
     }
 
     deinit {
+        for task in sessionWatchRunners.values { task.cancel() }
         eventTask?.cancel()
         proactiveTaskEventTask?.cancel()
     }

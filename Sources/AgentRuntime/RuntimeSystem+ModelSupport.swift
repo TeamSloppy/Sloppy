@@ -578,7 +578,8 @@ extension RuntimeSystem {
 
         let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
         var latest = ""
-        let responseStream = freshSession.streamResponse(to: userMessage, images: imagesByChannel[channelId] ?? [], options: options)
+        let responseStream = freshSession.streamResponse(to: userMessage, images: imagesByChannel[channelId] ?? [],
+                        generating: String.self, continuingFromTranscript: Self.isResumingTurn, options: options)
         do {
             for try await snapshot in responseStream {
                 latest = snapshot.content
@@ -597,7 +598,8 @@ extension RuntimeSystem {
             return message
         }
         if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let response = try? await freshSession.respond(to: userMessage, images: imagesByChannel[channelId] ?? [], options: options)
+            let response = try? await freshSession.respond(to: userMessage, images: imagesByChannel[channelId] ?? [],
+                        generating: String.self, continuingFromTranscript: Self.isResumingTurn, options: options)
             latest = response?.content ?? ""
             if let onResponseChunk, !latest.isEmpty {
                 _ = await onResponseChunk(latest)

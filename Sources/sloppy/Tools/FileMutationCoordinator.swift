@@ -123,10 +123,13 @@ private actor FileMutationTransaction {
         try Task.checkCancellation()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try updatedData.write(to: url, options: .atomic)
+        let updatedHash = TaskSyncCrypto.sha256Hex(updatedData)
+        AgentTurnFileChanges.current?.record(path: url.path, before: exists ? originalData : nil,
+            beforeHash: exists ? originalHash : nil, after: updatedData, afterHash: updatedHash)
         var data = FileMutationDiff.make(original: original, updated: updated)
         data["path"] = .string(url.path)
         data["sizeBytes"] = .number(Double(updatedData.count))
-        data["contentHash"] = .string(TaskSyncCrypto.sha256Hex(updatedData))
+        data["contentHash"] = .string(updatedHash)
         if let replacements { data["replacements"] = .number(Double(replacements)) }
         return FileMutationOutcome(data: data, content: updated)
     }

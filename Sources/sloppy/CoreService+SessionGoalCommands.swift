@@ -50,13 +50,12 @@ extension CoreService {
             }
             reply = goal.map { "Goal: \($0.status.rawValue)\n\($0.objective)" } ?? "No goal to resume."
         case .clear:
-            goal = await sessionGoalController.clear(agentID: agentID, sessionID: sessionID)
-            reply = goal == nil ? "No goal to clear." : "Goal cleared."
+            let cleared = try await clearAgentSessionGoal(agentID: agentID, sessionID: sessionID, userID: request.userId)
+            reply = cleared == nil ? "No goal to clear." : "Goal cleared."
         case .task, .failure:
             reply = "Usage: `/goal <objective>` or `/goal [status|pause|resume|clear]`. Use `/task` to create a project task."
         }
-        if case .clear = command { try persistSessionGoal(nil, sessionID: sessionID) }
-        else if goal != nil { try persistSessionGoal(goal, sessionID: sessionID) }
+        if goal != nil { try persistSessionGoal(goal, sessionID: sessionID) }
         let id = request.clientMessageId ?? UUID().uuidString
         let attachments = try sessionStore.persistAttachments(agentID: agentID, sessionID: sessionID, uploads: request.attachments)
         let events: [AgentSessionEvent] = [

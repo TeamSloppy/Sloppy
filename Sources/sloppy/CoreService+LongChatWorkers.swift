@@ -59,32 +59,15 @@ extension CoreService {
                             $0.attempts[$0.attempts.count - 1].sessionId = session.id
                             $0.attempts[$0.attempts.count - 1].eventOffset = offset
                         }
-                        let spec = WorkerTaskSpec(
-                            taskId: task.id,
-                            channelId: sessionChannelID(agentID: conversation.agentId, sessionID: session.id),
-                            title: task.title, objective: task.objective, agentID: conversation.agentId, tools: [],
-                            mode: .fireAndForget)
-                        let workerID = await runtime.createWorker(spec: spec, autoStart: false)
-                        guard
-                            let current = try storage.conversation(sessionId: conversation.sessionId).assignments
-                                .flatMap(\.tasks).first(where: { $0.id == task.id }), current.status == .running
-                        else {
-                            _ = await runtime.cancelWorker(workerId: workerID)
-                            continue
-                        }
-                        try storage.updateTask(sessionId: conversation.sessionId, taskId: task.id) {
-                            $0.attempts[$0.attempts.count - 1].workerId = workerID
-                        }
-                        try await publishLongChatTask(
-                            sessionID: conversation.sessionId, taskID: task.id, reason: "started")
-                        await runtime.reportManagedWorker(workerId: workerID)
                         longChatWorkerRuns[session.id] = Task { [weak self] in
                             await self?.runLongChatWorker(conversation: conversation, task: task, childID: session.id)
                         }
                     } catch {
+                        let message = Self.longChatFailureMessage(error)
                         try storage.updateTask(sessionId: conversation.sessionId, taskId: task.id) {
                             $0.attempts[$0.attempts.count - 1].status = .failed
-                            $0.attempts[$0.attempts.count - 1].summary = error.localizedDescription
+                            $0.attempts[$0.attempts.count - 1].summary = message
+                            $0.attempts[$0.attempts.count - 1].failure = .init(phase: .launch, code: "worker_session_setup_failed", message: message)
                         }
                         try await refreshLongChatDependencies(sessionID: conversation.sessionId)
                         try await publishLongChatTask(
@@ -99,6 +82,36 @@ extension CoreService {
             })
         {
             Task { [weak self] in await self?.dispatchLongChatWorkers() }
+        }
+    }
+
+    private func startPreparedLongChatWorker(
+        conversation: LongChatConversation, task: LongChatTask, childID: String, model: String
+    ) async throws {
+        try Task.checkCancellation()
+        let sessionID = conversation.sessionId
+        let attemptID = task.attempts.last?.id
+        let current = try currentLongChatTask(sessionID: sessionID, taskID: task.id)
+        guard current.status == .running, current.attempts.last?.id == attemptID else { throw CancellationError() }
+        if current.attempts.last?.workerId != nil { return }
+        let workerID = await runtime.createWorker(spec: .init(
+            taskId: task.id, channelId: sessionChannelID(agentID: conversation.agentId, sessionID: childID),
+            title: task.title, objective: task.objective, agentID: conversation.agentId, tools: [], mode: .fireAndForget
+        ), autoStart: false)
+        do {
+            try Task.checkCancellation()
+            try longChats().updateTask(sessionId: sessionID, taskId: task.id) { value in
+                guard value.status == .running, value.attempts.last?.id == attemptID else { throw CancellationError() }
+                let i = value.attempts.count - 1
+                value.attempts[i].workerId = workerID
+                value.attempts[i].selectedModel = model
+            }
+            try await publishLongChatTask(sessionID: sessionID, taskID: task.id, reason: "started")
+            await runtime.reportManagedWorker(workerId: workerID)
+            guard try currentLongChatTask(sessionID: sessionID, taskID: task.id).status == .running else { throw CancellationError() }
+        } catch {
+            _ = await runtime.cancelWorker(workerId: workerID)
+            throw error
         }
     }
 
@@ -230,7 +243,8 @@ extension CoreService {
             // Carry only attachments from the user turn that authorized this assignment.
             var sourceImageUploads: [AgentAttachmentUpload] = []
             var sourceAttachmentContext: [String] = []
-            if remote == nil, let assignment = conversation.assignments.first(where: { $0.tasks.contains(where: { $0.id == task.id }) }),
+            let assignment = conversation.assignments.first(where: { $0.tasks.contains(where: { $0.id == task.id }) })
+            if remote == nil, let assignment,
                let parent = try? getAgentSession(agentID: conversation.agentId, sessionID: conversation.sessionId),
                let message = parent.events.compactMap(\.message).first(where: { $0.id == assignment.sourceMessageId }) {
                 var bytes = 0
@@ -252,9 +266,7 @@ extension CoreService {
             guard !Task.isCancelled,
                 try currentLongChatTask(sessionID: conversation.sessionId, taskID: task.id).status == .running
             else { return }
-            _ = try await postAgentSessionMessage(
-                agentID: conversation.agentId, sessionID: childID,
-                request: .init(
+            let request = AgentSessionPostMessageRequest(
                     userId: conversation.userId,
                     content: """
                         [Delegated task protocol]
@@ -265,18 +277,30 @@ extension CoreService {
                         \(Self.longChatWorkerPathInstructions(task))
                         [Objective]
                         \(task.objective)
+                        [Acceptance criteria]
+                        \(assignment?.acceptanceCriteria ?? "")
                         [Source attachments]
                         \(sourceAttachmentContext.joined(separator: "\n"))
-                        """, attachments: sourceImageUploads, selectedModel: remote?.request.selection.selectedModel), longChatWorkerDelivery: true)
+                        """, attachments: sourceImageUploads, selectedModel: remote?.request.selection.selectedModel)
+            _ = try await postAgentSessionMessage(
+                agentID: conversation.agentId, sessionID: childID, request: request, longChatWorkerDelivery: true,
+                workerStart: { [weak self] model in
+                    guard let self else { throw CancellationError() }
+                    try await self.startPreparedLongChatWorker(conversation: conversation, task: task, childID: childID, model: model)
+                }
+            )
         } catch {
             guard !longChatIsStopping,
                 let current = try? currentLongChatTask(sessionID: conversation.sessionId, taskID: task.id),
                 !current.status.isTerminal, current.attempts.last?.sessionId == childID
             else { return }
+            let message = Self.longChatFailureMessage(error)
             try? longChats().updateTask(sessionId: conversation.sessionId, taskId: task.id) { value in
                 guard !value.status.isTerminal, value.attempts.last?.sessionId == childID else { return }
                 value.attempts[value.attempts.count - 1].status = .failed
-                value.attempts[value.attempts.count - 1].summary = error.localizedDescription
+                value.attempts[value.attempts.count - 1].summary = message
+                value.attempts[value.attempts.count - 1].failure = .init(
+                    phase: .launch, code: "worker_scope_setup_failed", message: message)
                 value.attempts[value.attempts.count - 1].executionStopped = false
             }
             await toolExecution.cleanupSessionProcesses(childID)
@@ -284,12 +308,16 @@ extension CoreService {
                 $0.attempts[$0.attempts.count - 1].executionStopped = true
             }
             if let workerID = current.attempts.last?.workerId {
-                await runtime.failManagedWorker(workerId: workerID, error: error.localizedDescription)
+                await runtime.failManagedWorker(workerId: workerID, error: message)
             }
             try? await refreshLongChatDependencies(sessionID: conversation.sessionId)
             try? await publishLongChatTask(
                 sessionID: conversation.sessionId, taskID: task.id, reason: "execution_failed", notify: true)
         }
+    }
+
+    private static func longChatFailureMessage(_ error: any Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
     func readOnlyLongChatMCPTools() async -> Set<String> {
@@ -371,25 +399,44 @@ extension CoreService {
             let iteration = Array(detail.events.dropFirst(task.attempts.last?.eventOffset ?? 0))
             let answered = Set(iteration.compactMap { $0.inputResponse?.requestId })
             let input = iteration.reversed().compactMap(\.inputRequest).first { !answered.contains($0.id) }
-            let runStart =
-                iteration.lastIndex(where: { $0.runStatus?.stage == .thinking }) ?? iteration.startIndex
+            let runStart = iteration.lastIndex(where: { $0.runStatus?.turnCheckpoint != nil })
+                ?? iteration.lastIndex(where: { $0.runStatus?.stage == .thinking }) ?? iteration.startIndex
             let finish = iteration[runStart...].reversed().compactMap(\.toolResult).first {
                 $0.tool == "agent_delegate.finish" && $0.ok
             }?.data?.asObject
             let status: LongChatTaskStatus =
                 input != nil ? .waitingInput : (finish?["status"]?.asString == "completed" ? .completed : .failed)
+            let runStatus = iteration[runStart...].reversed().compactMap(\.runStatus).first { $0.executionOutcome != nil }
+            let runtimeFailure = runStatus?.executionOutcome.flatMap { outcome -> ExecutionOutcome? in
+                outcome.state == .failed || outcome.state == .cancelled ? outcome : nil
+            }
             let summary =
-                input?.title ?? finish?["summary"]?.asString ?? "Worker ended without a structured completed result."
+                input?.title ?? finish?["summary"]?.asString ?? (runtimeFailure == nil ? nil : runStatus?.details)
+                ?? "Worker ended without a structured completed result."
+            let code = runtimeFailure?.code ?? (runtimeFailure?.state == .cancelled ? "worker_cancelled"
+                : finish?["status"]?.asString == "blocked" ? "worker_reported_blocked"
+                : finish == nil ? "worker_completion_missing" : "worker_reported_failure")
+            let phase: LongChatAttemptFailure.Phase
+            if task.attempts.last?.workerId == nil, runtimeFailure?.category == .context {
+                phase = .contextPreflight
+            } else if task.attempts.last?.workerId == nil || code == "worker_launch_failed" {
+                phase = .launch
+            } else {
+                phase = .execution
+            }
             try longChats().updateTask(sessionId: conversation.sessionId, taskId: task.id) { value in
                 guard !value.status.isTerminal else { return }
                 let i = value.attempts.count - 1
                 value.attempts[i].status = status
-                if status == .failed { value.attempts[i].executionStopped = false }
+                if status == .failed {
+                    value.attempts[i].executionStopped = false
+                    value.attempts[i].failure = .init(phase: phase, code: code, message: summary)
+                }
                 value.attempts[i].summary = summary
                 value.attempts[i].updatedAt = Date()
-                value.attempts[i].automaticRetryAllowed = finish?["status"]?.asString != "blocked"
+                value.attempts[i].automaticRetryAllowed = phase != .contextPreflight && finish?["status"]?.asString != "blocked"
                 value.attempts[i].selectedModel =
-                    iteration.reversed().compactMap { $0.runStatus?.selectedModel }.first
+                    iteration.reversed().compactMap { $0.runStatus?.selectedModel }.first ?? value.attempts[i].selectedModel
                 value.attempts[i].evidence = finish?["evidence"]?.asArray?.compactMap(\.asString) ?? []
                 value.attempts[i].artifacts = finish?["artifacts"]?.asArray?.compactMap(\.asString) ?? []
             }

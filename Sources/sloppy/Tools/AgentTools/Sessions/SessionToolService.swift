@@ -7,6 +7,8 @@ protocol SessionToolService: Sendable {
     func continueSubagentTask(agentID: String, parentSessionID: String, sessionID: String, objective: String) async throws -> JSONValue
     func reportSessionRunStatus(agentID: String, sessionID: String, status: AgentRunStatusEvent) async
     func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool?
+    func manageSessionWatch(agentID: String, sessionID: String, arguments: [String: JSONValue],
+                            allowedTools: Set<String>?) async -> ToolInvocationResult
     func linkCurrentSessionToCodeReview(providerID: String, reviewID: String, agentID: String, sessionID: String) async throws -> AgentSessionSummary
     func sendPeerSessionMessage(
         senderAgentID: String, senderSessionID: String, targetAgentID: String, targetSessionID: String,
@@ -21,6 +23,10 @@ extension SessionToolService {
     }
     func reportSessionRunStatus(agentID: String, sessionID: String, status: AgentRunStatusEvent) async {}
     func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool? { nil }
+    func manageSessionWatch(agentID: String, sessionID: String, arguments: [String: JSONValue],
+                            allowedTools: Set<String>?) async -> ToolInvocationResult {
+        toolFailure(tool: SessionWatchTool.toolName, code: "watch_unavailable", message: "Job watches are unavailable.", retryable: false)
+    }
 }
 
 enum SessionToolQuery {

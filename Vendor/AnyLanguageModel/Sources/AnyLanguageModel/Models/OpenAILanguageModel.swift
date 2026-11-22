@@ -24,6 +24,12 @@ public struct OpenAILanguageModel: LanguageModel {
     /// The default base URL for OpenAI's API.
     public static let defaultBaseURL = URL(string: "https://api.openai.com/v1/")!
 
+    /// GPT-6.2 places top-level Responses instructions after the cacheable input prefix.
+    public static func usesTrailingResponsesInstructions(for model: String) -> Bool {
+        let name = model.split(separator: "/").last
+        return name?.hasPrefix("gpt-6.2-") == true
+    }
+
     /// The OpenAI API variant to use.
     public enum APIVariant: Sendable {
         /// When selected, use the Chat Completions API.
@@ -1183,6 +1189,15 @@ private enum Responses {
             case .assistant:
                 break
             }
+        }
+        if OpenAILanguageModel.usesTrailingResponsesInstructions(for: model),
+            case .string(let instructions) = body.removeValue(forKey: "instructions"), !instructions.isEmpty
+        {
+            outputs.insert(.object([
+                "type": .string("message"),
+                "role": .string("developer"),
+                "content": .string(instructions),
+            ]), at: 0)
         }
         body["input"] = .array(outputs)
 

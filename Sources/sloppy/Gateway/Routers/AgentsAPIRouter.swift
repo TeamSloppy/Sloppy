@@ -9,6 +9,23 @@ struct AgentsAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.post("/v1/agents/:agentId/sessions/:sessionId/restore", metadata: RouteMetadata(summary: "Restore an interrupted turn", description: "Resumes a native agent turn from a durable checkpoint without adding a user message", tags: ["Agents"])) { request in
+            guard let body = request.body, let payload = CoreRouter.decode(body, as: AgentSessionRestoreRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let response = try await service.restoreAgentSession(
+                    agentID: request.pathParam("agentId") ?? "", sessionID: request.pathParam("sessionId") ?? "", request: payload
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.SessionRestoreError {
+                return CoreRouter.json(status: 409, payload: ["error": error.rawValue, "message": error.localizedDescription])
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionWriteFailed])
+            }
+        }
         router.post("/v1/agents/:agentId/sessions/:sessionId/tool-calls/:callEventId/reconcile", metadata: RouteMetadata(summary: "Reconcile interrupted tool execution", description: "Records owner-supplied evidence without executing or replaying the tool", tags: ["Agents"])) { request in
             guard let data = request.body, let body = CoreRouter.decode(data, as: ToolCallReconciliationRequest.self) else {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
@@ -20,6 +37,8 @@ struct AgentsAPIRouter: APIRouter {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_reconciliation_evidence"])
             } catch CoreService.ToolReconciliationError.notInterrupted {
                 return CoreRouter.json(status: 409, payload: ["error": "tool_call_not_interrupted"])
+            } catch CoreService.ToolReconciliationError.callStillRunning {
+                return CoreRouter.json(status: 409, payload: ["error": "tool_call_still_running"])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "tool_call_not_found"])
             }
@@ -479,6 +498,24 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/agents/:agentId/sessions/:sessionId/prompt-suggestion", metadata: RouteMetadata(
+            summary: "Suggest the next prompt", description: "Generate an optional draft for the specified completed run", tags: ["Agents"]
+        )) { request in
+            guard let sourceRunID = request.decode([String: String].self)?["sourceRunId"], !sourceRunID.isEmpty else {
+                return CoreRouter.agentSessionErrorResponse(.invalidPayload, fallback: ErrorCode.sessionLoadFailed)
+            }
+            do {
+                let suggestion = try await service.suggestSessionPrompt(
+                    agentID: request.pathParam("agentId") ?? "", sessionID: request.pathParam("sessionId") ?? "",
+                    sourceRunID: sourceRunID)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: suggestion)
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionLoadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionLoadFailed])
+            }
+        }
+
         router.get("/v1/agents/:agentId/sessions/:sessionId/stream", metadata: RouteMetadata(summary: "Stream agent session", description: "Open a server-sent events stream for session updates", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""
@@ -679,6 +716,28 @@ struct AgentsAPIRouter: APIRouter {
                     request: payload
                 )
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionWriteFailed])
+            }
+        }
+
+        router.post("/v1/agents/:agentId/sessions/:sessionId/goal/clear", metadata: RouteMetadata(summary: "Clear session goal", description: "Returns the cleared goal or null if there was no goal", tags: ["Agents"])) { request in
+            let userID: String
+            if await service.identityAuthEnabled() {
+                guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                    return CoreRouter.json(status: 403, payload: ["error": "forbidden"])
+                }
+                userID = actor.user.id
+            } else {
+                userID = "local"
+            }
+            do {
+                let goal = try await service.clearAgentSessionGoal(
+                    agentID: request.pathParam("agentId") ?? "", sessionID: request.pathParam("sessionId") ?? "", userID: userID
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: goal)
             } catch let error as CoreService.AgentSessionError {
                 return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
             } catch {

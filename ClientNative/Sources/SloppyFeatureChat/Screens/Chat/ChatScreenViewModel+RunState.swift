@@ -27,6 +27,7 @@ extension ChatScreenViewModel {
             scheduleAuxiliaryRefresh(agentId: agentId, sessionId: sessionId)
         }
         activeRunStatus = status
+        if status.stage != .done { dismissPromptSuggestion() }
         if status.stage == .interrupted,
            let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines),
            !details.isEmpty,
@@ -76,12 +77,53 @@ extension ChatScreenViewModel {
             } else {
                 pendingToolApproval = nil
                 if let agentId = selectedAgent?.id {
+                    if allowsCompletionNotification, status.stage == .done, let runID = status.id {
+                        requestPromptSuggestion(agentID: agentId, sessionID: sessionId, runID: runID)
+                    }
                     Task { @MainActor in
                         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
                         await sendNextQueuedMessageIfReady()
                     }
                 }
             }
+        }
+    }
+
+    private var hasEmptyPromptComposer: Bool {
+        composerDraft.text.isEmpty && composerAttachments.isEmpty && composerQuotes.isEmpty
+            && queuedMessages.isEmpty && activeInputRequest == nil && pendingToolApproval == nil
+    }
+
+    var visiblePromptSuggestion: String? {
+        guard hasEmptyPromptComposer, !isSending, !isAwaitingAgentResponse, !isStopping,
+              promptSuggestion?.sourceRunId == activeRunStatus?.id else { return nil }
+        return promptSuggestion?.text
+    }
+
+    func dismissPromptSuggestion() {
+        promptSuggestionTask?.cancel()
+        promptSuggestionTask = nil
+        promptSuggestion = nil
+    }
+
+    func acceptPromptSuggestion() -> Bool {
+        guard let text = visiblePromptSuggestion else { return false }
+        dismissPromptSuggestion()
+        composerDraft.text = text
+        composerDraft.selection = TextSelection(insertionPoint: composerDraft.text.endIndex)
+        saveActiveComposerDraft()
+        return true
+    }
+
+    private func requestPromptSuggestion(agentID: String, sessionID: String, runID: String) {
+        guard hasEmptyPromptComposer, promptSuggestionRunID != runID else { return }
+        dismissPromptSuggestion()
+        promptSuggestionRunID = runID
+        promptSuggestionTask = Task { [weak self, apiClient] in
+            let result = try? await apiClient.fetchPromptSuggestion(agentID: agentID, sessionID: sessionID, sourceRunID: runID)
+            guard let self, !Task.isCancelled, self.isCurrentSession(agentId: agentID, sessionId: sessionID),
+                  self.activeRunStatus?.id == runID, self.hasEmptyPromptComposer else { return }
+            self.promptSuggestion = result
         }
     }
 

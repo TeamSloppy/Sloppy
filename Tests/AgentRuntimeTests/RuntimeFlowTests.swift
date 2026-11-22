@@ -1614,6 +1614,46 @@ func compactionUsesLedgerBackedUtilizationAfterResponse() async throws {
 }
 
 @Test
+func managedWorkerDoesNotSampleWhenStartupFails() async throws {
+    let provider = NativeToolSequenceModelProvider(toolNames: ["files.list"])
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+    let capture = NativeLoopOutcomeCapture()
+    let tools = ToolInvocationCounter()
+    _ = await runtime.postMessage(
+        channelId: "worker-start-failure",
+        request: .init(userId: "test", content: "Inspect the fixture"),
+        toolInvoker: { request in
+            await tools.increment(tool: request.tool)
+            return .init(tool: request.tool, ok: true)
+        },
+        nativeLoopOutcomeHandler: { await capture.store($0) },
+        workerStart: { _ in
+            throw NSError(domain: "worker-test", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not register worker."])
+        }
+    )
+    let outcome = try #require(await capture.value())
+    #expect(outcome.turnExitReason == .workerLaunchFailed)
+    #expect(outcome.lastAssistantText == "Could not register worker.")
+    #expect(await tools.value() == 0)
+}
+
+@Test
+func respondInlineKeepsEmptyNonStreamingFallbackIncomplete() async throws {
+    let provider = NativeToolSequenceModelProvider(toolNames: [], finalText: " ", failStreaming: true)
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+    let capture = NativeLoopOutcomeCapture()
+    _ = await runtime.postMessage(
+        channelId: "idle-empty",
+        request: .init(userId: "test", content: "Answer this question"),
+        nativeLoopOutcomeHandler: { await capture.store($0) }
+    )
+    let outcome = try #require(await capture.value())
+    #expect(outcome.turnExitReason == .emptyResponse)
+    #expect(!outcome.finishedNaturally)
+}
+
+@Test
 func respondInlineRepairsEmptyStreamAndCompletion() async {
     let provider = SequencedModelProvider(outputs: ["   ", "\n", "Recovered final answer."])
     let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")

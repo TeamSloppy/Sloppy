@@ -53,12 +53,22 @@ public enum AgentSessionTranscriptBuilder {
         var pendingToolCallEntryIndicesByID: [String: Int] = [:]
 
         let recoveredEvents = detail.events + SessionToolRecovery.interruptionEvents(for: detail)
-        var lastResultIndex: [String: Int] = [:]
-        for (index, event) in recoveredEvents.enumerated() {
-            if let id = event.toolResult?.callEventId { lastResultIndex[id] = index }
+        let lastResultIndex = SessionToolRecovery.resultIndices(in: recoveredEvents)
+        // Keep a reconciled result at the position where the interrupted tool was
+        // answered, even when later assistant messages preceded its real result.
+        var resultPositions = lastResultIndex
+        for (index, event) in recoveredEvents.enumerated() where event.importOrigin == nil {
+            if let result = event.toolResult, result.executionOutcome?.requiresReconciliation == true,
+               let id = result.callEventId, let position = resultPositions[id] {
+                resultPositions[id] = min(position, index)
+            }
         }
-        for (index, event) in recoveredEvents.enumerated() {
-            if let id = event.toolResult?.callEventId, lastResultIndex[id] != index { continue }
+        for (index, savedEvent) in recoveredEvents.enumerated() {
+            var event = savedEvent
+            if event.importOrigin == nil, let id = event.toolResult?.callEventId {
+                guard resultPositions[id] == index, let latest = lastResultIndex[id] else { continue }
+                event = recoveredEvents[latest]
+            }
             if event.importOrigin != nil, event.type == .toolCall || event.type == .toolResult {
                 let text: String
                 if let call = event.toolCall {

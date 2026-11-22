@@ -190,7 +190,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("pin", "Pin or unpin the current session"),
         SloppyTUISlashCommand("clear", "Clear local cards"),
         SloppyTUISlashCommand("stop", "Interrupt the current run"),
-        SloppyTUISlashCommand("restore", "Nudge a live session or restore it after a failed run"),
+        SloppyTUISlashCommand("restore", "Resume the interrupted turn through Core"),
         SloppyTUISlashCommand("up", "Alias for restore"),
         SloppyTUISlashCommand("undo", "Undo file changes from the last completed turn"),
         SloppyTUISlashCommand("redo", "Redo the last undone turn"),
@@ -401,6 +401,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var liveRunStatusLine: String?
     var latestSessionRunStatus: AgentRunStatusEvent?
     var pendingToolCalls: [AgentSessionEvent] = []
+    var promptSuggestion: SessionPromptSuggestion?
+    var promptSuggestionTask: Task<Void, Never>?
+    var promptSuggestionRunID: String?
     var liveTurnTokenUsageTracker = SloppyTUILiveTurnTokenUsageTracker()
     var lastTurnTokenUsage: TokenUsage?
     var shellRunStatusLine: String?
@@ -504,6 +507,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             Task { @MainActor in await self.submit(value) }
         }
         editor.onChange = { [weak self] value in
+            if !value.isEmpty { self?.dismissPromptSuggestion() }
             self?.persistDraft(value)
             self?.editorTextRevision += 1
             self?.currentProjectFileTokenCache = nil

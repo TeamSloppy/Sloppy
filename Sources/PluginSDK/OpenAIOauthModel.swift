@@ -655,13 +655,34 @@ private extension OpenAIOAuthModel {
         options: GenerationOptions,
         tools: [[String: Any]]
     ) throws -> Data {
+        try encodeRequestBody(
+            input: transcriptToResponsesInput(transcript),
+            instructions: responseInstructions(from: transcript),
+            options: options,
+            tools: tools
+        )
+    }
+
+    func encodeRequestBody(
+        input: [[String: Any]],
+        instructions: String,
+        options: GenerationOptions,
+        tools: [[String: Any]]
+    ) throws -> Data {
         var body: [String: Any] = [
             "model": modelName,
-            "instructions": responseInstructions(from: transcript),
-            "input": transcriptToResponsesInput(transcript),
             "stream": true,
             "store": false
         ]
+        var input = input
+        if OpenAILanguageModel.usesTrailingResponsesInstructions(for: modelName) {
+            if !instructions.isEmpty {
+                input.insert(["type": "message", "role": "developer", "content": instructions], at: 0)
+            }
+        } else {
+            body["instructions"] = instructions
+        }
+        body["input"] = input
         if !tools.isEmpty {
             body["tools"] = tools
             body["parallel_tool_calls"] = parallelToolCalls.isEnabled
@@ -749,23 +770,12 @@ private extension OpenAIOAuthModel {
             ] as [String: Any]
         }
 
-        var body: [String: Any] = [
-            "model": modelName,
-            "instructions": responseInstructions(from: transcript),
-            "input": inputItems,
-            "stream": true,
-            "store": false
-        ]
-        if !tools.isEmpty {
-            body["tools"] = tools
-            body["parallel_tool_calls"] = parallelToolCalls.isEnabled
-        }
-        if let temperature = options.temperature {
-            body["temperature"] = temperature
-        }
-        applyReasoningOptions(options, to: &body)
-        applyPromptCacheHints(to: &body)
-        return try JSONSerialization.data(withJSONObject: body)
+        return try encodeRequestBody(
+            input: inputItems,
+            instructions: responseInstructions(from: transcript),
+            options: options,
+            tools: tools
+        )
     }
 
     func appendingToolRound(

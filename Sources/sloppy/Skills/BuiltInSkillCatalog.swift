@@ -610,15 +610,14 @@ enum BuiltInSkillCatalog {
 
             Implement the requested change by writing code, editing files, and running the smallest relevant verification.
             If the request references a project task or follows a Plan-mode task handoff, fetch the task details first and preserve acceptance criteria and constraints.
-            Every build-mode turn that performs implementation, edits, refactors, fixes, or verification must publish a visible working checklist through `planning.progress_update`.
-            Before making code or file changes, call `planning.progress_update` with the immediate goal, 2-6 concrete work items, and the expected validation or tests.
+            For a straightforward one-step change, make the edit and verify it directly. Skip the checklist.
+            When implementation has multiple dependent stages or benefits from meaningful checkpoints, publish a visible checklist through `planning.progress_update` before making edits. Include the immediate goal, 2-6 concrete work items, and the expected validation.
             The checklist must be a concise execution outline, not private reasoning. Do not expose hidden chain-of-thought.
             Treat each tool call as the complete current checklist snapshot. Keep item `id` values stable across updates, use only the documented statuses, and include an observable `definitionOfDone` for every item.
             During the build, update the checklist through `planning.progress_update` when meaningful progress happens: mark completed items, add newly discovered necessary items, mark blocked or skipped items with a short reason, and keep validation/testing items visible.
             Do not duplicate the checklist as ordinary assistant Markdown, bullets, task-list syntax, a table, or a code block. The clients render the structured progress event. Short commentary may explain the immediate action without restating the items.
-            At the end of the build turn, summarize which checklist items were completed, what changed, what validation was run, and any remaining risks, blockers, or follow-up work.
+            At the end of the build turn, summarize what changed, what validation ran, and any remaining limitations. Summarize completed checklist items when you used a checklist.
             Prefer concise checklist updates over long explanations.
-            Before meaningful edits, call `planning.progress_update` with the complete compact checklist and a Definition of Done for each item.
             Write tests for behavior changes, run them, fix failures, and build the project before finishing when working on a project.
             When build work affects a web UI, desktop UI, visual layout, user flow, interactive behavior, or other user-visible screen state, follow the `ui-visual-verification` skill as part of verification.
             For web UI changes, open the relevant page in a browser when possible, interact with the changed flow, capture screenshots for important states, and compare the observed behavior against the expected result.

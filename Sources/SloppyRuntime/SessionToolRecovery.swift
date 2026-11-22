@@ -38,15 +38,48 @@ public enum SessionToolRecovery {
             guard event.importOrigin == nil, let call = event.toolCall else { return nil }
             return (event.id, call)
         }, uniquingKeysWith: { _, latest in latest })
-        var lastByCall: [String: AgentToolResultEvent] = [:]
-        for event in events {
-            guard let result = event.toolResult, let id = result.callEventId else { continue }
-            lastByCall[id] = result
-        }
-        return lastByCall.contains { id, result in
+        let interruptedCalls = Set(events.compactMap { event in
+            event.importOrigin == nil && event.toolResult?.executionOutcome?.requiresReconciliation == true
+                ? event.toolResult?.callEventId : nil
+        })
+        return resultIndices(in: events).contains { id, index in
+            guard let result = events[index].toolResult else { return false }
             let reconciliation = result.data?.asObject?["reconciliation"]?.asString
-            guard result.executionOutcome?.requiresReconciliation == true || reconciliation == "completed" || reconciliation == "failed", let call = calls[id] else { return false }
+            // A late result replaces the unknown outcome in the transcript. It does not
+            // authorize executing the operation again.
+            guard (interruptedCalls.contains(id) && reconciliation != "not_executed")
+                    || reconciliation == "completed" || reconciliation == "failed",
+                  let call = calls[id] else { return false }
             return call.tool == tool && call.arguments == arguments
+        }
+    }
+
+    /// A recovery marker is provisional. A real result wins even if both writers
+    /// race and the marker is appended after the result.
+    static func resultIndices(in events: [AgentSessionEvent]) -> [String: Int] {
+        var latest: [String: Int] = [:]
+        for (index, event) in events.enumerated() where event.importOrigin == nil {
+            guard let result = event.toolResult, let id = result.callEventId else { continue }
+            if result.executionOutcome?.requiresReconciliation == true, let prior = latest[id],
+               events[prior].toolResult?.executionOutcome?.requiresReconciliation != true { continue }
+            latest[id] = index
+        }
+        return latest
+    }
+
+    public static func result(for callEventID: String, in events: [AgentSessionEvent]) -> AgentToolResultEvent? {
+        resultIndices(in: events)[callEventID].flatMap { events[$0].toolResult }
+    }
+
+    public static func confirmedResults(in events: [AgentSessionEvent]) -> [(AgentToolCallEvent, AgentToolResultEvent)] {
+        let calls = Dictionary(events.compactMap { event -> (String, AgentToolCallEvent)? in
+            guard event.importOrigin == nil, let call = event.toolCall else { return nil }
+            return (event.id, call)
+        }, uniquingKeysWith: { _, latest in latest })
+        return resultIndices(in: events).values.sorted().compactMap { index in
+            guard let result = events[index].toolResult, let id = result.callEventId,
+                  let call = calls[id], result.ok else { return nil }
+            return (call, result)
         }
     }
 }

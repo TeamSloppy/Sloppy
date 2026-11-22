@@ -159,6 +159,7 @@ public struct ChatMessageSegment: Codable, Sendable, Equatable {
 
 public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var longChatTask: LongChatTaskEvent?
+    public var turnDiff: ChatTurnDiff?
     public var workerSession: ChatSubSessionEvent?
     public var id: String
     public var role: ChatMessageRole
@@ -831,6 +832,7 @@ public struct ChatEventEnvelope: Decodable, Sendable {
         self.subSession = subSession
         self.longChatTask = longChatTask
         self.message = message ?? buildProgress?.timelineMessage
+            ?? runStatus?.diffTimelineMessage(eventID: id, createdAt: createdAt)
         if self.message == nil, let subSession {
             var card = ChatMessage(id: "worker-session-\(subSession.childSessionId)", role: .system,
                 segments: [.init(kind: .text, text: subSession.title)], createdAt: createdAt)
@@ -874,6 +876,7 @@ public struct ChatEventEnvelope: Decodable, Sendable {
             ?? buildProgress?.timelineMessage
             ?? toolCall?.timelineMessage(id: id, createdAt: createdAt)
             ?? toolResult?.timelineMessage(id: id, createdAt: createdAt)
+            ?? runStatus?.diffTimelineMessage(eventID: id, createdAt: createdAt)
         if let longChatTask {
             var card = ChatMessage(id: "long-chat-task-\(longChatTask.task.id)", role: .system,
                                    segments: [.init(kind: .text, text: longChatTask.task.title)], createdAt: longChatTask.task.attempts.first?.createdAt ?? createdAt)
@@ -932,6 +935,7 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
         public let turnExitReason: String?
     }
 
+    public var id: String?
     public var stage: ChatRunStage
     public var label: String
     public var details: String?
@@ -940,6 +944,7 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
     public var selectedModel: String?
     public var createdAt: Date?
     public var diagnostics: Diagnostics?
+    public var turnDiff: ChatTurnDiff?
 
     public init(
         stage: ChatRunStage,
@@ -948,8 +953,12 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
         expandedText: String? = nil,
         tokenUsage: ChatTokenUsage? = nil,
         selectedModel: String? = nil,
-        createdAt: Date? = nil
+        createdAt: Date? = nil,
+        id: String? = nil,
+        turnDiff: ChatTurnDiff? = nil
     ) {
+        self.id = id
+        self.turnDiff = turnDiff
         self.stage = stage
         self.label = label
         self.details = details
@@ -1061,6 +1070,7 @@ public struct ChatStreamEvent: Decodable, Sendable, Equatable {
             ?? buildProgress?.timelineMessage
             ?? toolCall?.timelineMessage(id: id, createdAt: createdAt)
             ?? toolResult?.timelineMessage(id: id, createdAt: createdAt)
+            ?? runStatus?.diffTimelineMessage(eventID: id, createdAt: createdAt)
         if let longChatTask {
             var card = ChatMessage(id: "long-chat-task-\(longChatTask.task.id)", role: .system,
                 segments: [.init(kind: .text, text: longChatTask.task.title)], createdAt: longChatTask.task.attempts.first?.createdAt ?? createdAt)

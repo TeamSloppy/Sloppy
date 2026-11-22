@@ -66,7 +66,7 @@ enum ToolCatalog {
     }
 
     private static func parameterSchema(for toolID: String) -> JSONValue {
-        if ["browser.tabs", "browser.groups", "browser.create_note", "browser.create_todo", "devices.preview"].contains(toolID),
+        if ["browser.tabs", "browser.groups", "browser.create_note", "browser.create_todo", "devices.preview", "files.instructions", "session.watch"].contains(toolID),
            let tool = builtInRegistry.tool(for: toolID), let data = try? JSONEncoder().encode(tool.parameters),
            let schema = try? JSONDecoder().decode(JSONValue.self, from: data) { return schema }
 

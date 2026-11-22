@@ -89,6 +89,7 @@ extension CoreService {
             do { try await textSearch.start() }
             catch { logger.error("Search index could not restart", metadata: ["error": .string(String(describing: error))]) }
             sessionMessageIsStopping = true
+            stopSessionWatchRunners()
             for task in sessionMessageRunners.values { task.cancel() }
             sessionMessageRunners.removeAll()
             sessionMessageStorage = nil
@@ -125,6 +126,7 @@ extension CoreService {
         systemLogStore.updateWorkspaceRootURL(workspaceRootURL)
         await channelDelivery.updateStore(refreshedStore)
         await recoveryManager.updateStore(refreshedStore)
+        recoverSessionWatchesIfNeeded()
         readyTaskStartupDispatchCompleted = false
         readyTaskStartupDispatchInProgress = false
         await searchProviderService.updateConfig(config.searchTools)

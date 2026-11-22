@@ -16,8 +16,9 @@ struct OpenAIOAuthContinuationTests {
         config.protocolClasses = [OAuthContinuationURLProtocol.self]
         let http = URLSession(configuration: config)
         defer { http.invalidateAndCancel() }
-        let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-6.1-sol", session: http)
-        let session = LanguageModelSession(model: model)
+        let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-6.2-sol", session: http)
+        let instructions = "Keep the response concise."
+        let session = LanguageModelSession(model: model, instructions: instructions)
         session.toolExecutionDelegate = SloppyToolExecutionDelegate { request in
             .init(tool: request.tool, ok: true, data: .string("checked"))
         }
@@ -37,12 +38,16 @@ struct OpenAIOAuthContinuationTests {
         #expect(requests.count == 3)
         for data in requests {
             let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let input = try #require(body["input"] as? [[String: Any]])
+            #expect(body["instructions"] == nil)
+            #expect(input.first as? [String: String] == ["type": "message", "role": "developer", "content": instructions])
+            #expect(input.filter { $0["role"] as? String == "developer" }.count == 1)
             #expect((body["reasoning"] as? [String: String])?["effort"] == "max")
             #expect(body["include"] as? [String] == ["reasoning.encrypted_content"])
         }
         let lastRequest = try #require(requests.last)
         let body = try #require(JSONSerialization.jsonObject(with: lastRequest) as? [String: Any])
-        let input = try #require(body["input"] as? [[String: Any]])
+        let input = Array(try #require(body["input"] as? [[String: Any]]).dropFirst())
         #expect(input.compactMap { $0["type"] as? String } == [
             "message", "reasoning", "message", "function_call", "function_call_output",
             "reasoning", "message", "function_call", "function_call_output",
@@ -53,6 +58,33 @@ struct OpenAIOAuthContinuationTests {
         #expect(input[6]["phase"] as? String == "commentary")
         #expect(input[3]["call_id"] as? String == input[4]["call_id"] as? String)
         #expect(input[7]["call_id"] as? String == input[8]["call_id"] as? String)
+    }
+
+    @Test(arguments: ["gpt-6.2-sol", "openai/gpt-6.2-astra", "gpt-6.1-sol"])
+    func apiKeyResponsesRequestEncodesInstructionsForModel(_ modelName: String) async throws {
+        OAuthContinuationURLProtocol.requests = []
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [OAuthContinuationURLProtocol.self]
+        let http = URLSession(configuration: config)
+        defer { http.invalidateAndCancel() }
+        let model = OpenAILanguageModel(apiKey: "test", model: modelName, apiVariant: .responses, session: http)
+        let instructions = "Keep the response concise."
+        let session = LanguageModelSession(model: model, instructions: instructions)
+
+        let response = try await session.respond(to: "Hello")
+        #expect(response.content == "Verified and finished.")
+
+        let request = try #require(OAuthContinuationURLProtocol.requests.first)
+        let body = try #require(JSONSerialization.jsonObject(with: request) as? [String: Any])
+        let input = try #require(body["input"] as? [[String: Any]])
+        if modelName == "gpt-6.1-sol" {
+            #expect(body["instructions"] as? String == instructions)
+            #expect(input.compactMap { $0["role"] as? String } == ["user"])
+        } else {
+            #expect(body["instructions"] == nil)
+            #expect(input.compactMap { $0["role"] as? String } == ["developer", "user"])
+            #expect(input.first as? [String: String] == ["type": "message", "role": "developer", "content": instructions])
+        }
     }
 
     @Test(arguments: ["low", "medium", "high", "xhigh", "max"])
@@ -129,6 +161,14 @@ private final class OAuthContinuationURLProtocol: URLProtocol, @unchecked Sendab
                 let index = Self.recordedRequests.count
                 Self.recordedRequests.append(body)
                 return index
+            }
+            if request.url?.path == "/v1/responses" {
+                let data = Data(#"{"id":"resp_test","output_text":"Verified and finished."}"#.utf8)
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+                return
             }
             let text = round < 2 ? "Progress \(round)." : "Verified and finished."
             var output: [[String: Any]] = []

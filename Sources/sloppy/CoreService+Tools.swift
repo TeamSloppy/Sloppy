@@ -26,7 +26,8 @@ extension CoreService {
         request: ToolInvocationRequest,
         recordSessionEvents: Bool = true,
         requireApproval: Bool = false,
-        chatMode: AgentChatMode? = nil
+        chatMode: AgentChatMode? = nil,
+        backgroundStatusCheck: Bool = false
     ) async -> ToolInvocationResult {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             return .init(
@@ -90,8 +91,8 @@ extension CoreService {
             return .init(tool: request.tool, ok: false, error: .init(code: "tool_forbidden", message: "Worker assignment ledger is unavailable; execution is disabled.", retryable: false))
         }
         let sessionMCPRegistry = acpSessionMCPRegistries[normalizedSessionID] ?? mcpRegistry
-        if SessionToolRecovery.requiresReconciliation(tool: request.tool, arguments: request.arguments, events: sessionDetail.events) {
-            return .init(tool: request.tool, ok: false, error: .init(code: "tool_reconciliation_required", message: "The previous identical call was interrupted and may have produced side effects. Inspect and reconcile its result before replaying it.", retryable: false))
+        if let recoveryResult = toolReplayResult(for: request, session: sessionDetail) {
+            return recoveryResult
         }
         let needsReadEffects = peerConversationSessions.contains(normalizedSessionID) || sessionDetail.summary.kind == .longChat || (isLongChatWorker.map { $0.1.readOnly ?? $0.1.resourceKeys.isEmpty } ?? false)
         let readOnlyMCPTools: Set<String>
@@ -145,6 +146,13 @@ extension CoreService {
         }
 
         let trimmedToolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
+        if backgroundStatusCheck {
+            guard authorization.allowed, !ToolCatalog.knownToolIDs.contains(trimmedToolID),
+                  await sessionMCPRegistry.dynamicTool(for: trimmedToolID)?.readOnlyHint == true else {
+                return toolFailure(tool: trimmedToolID, code: "watch_target_unavailable",
+                    message: "The integration no longer exposes this authorized read-only status tool.", retryable: false)
+            }
+        }
         if LongChatCoordinatorPolicy.managementTools.contains(trimmedToolID) {
             guard authorization.allowed, sessionDetail.summary.kind == .longChat else {
                 return .init(tool: request.tool, ok: false, error: .init(code: "tool_forbidden", message: "Long chat management is only available to its coordinator.", retryable: false))
@@ -336,7 +344,11 @@ extension CoreService {
             }
         }
 
-        let loopGuardEnabled = !currentConfig.experimentalFlags.disableToolBudgetAndLoopGuard
+        if backgroundStatusCheck, effectiveRequest.tool != request.tool || effectiveRequest.arguments != request.arguments {
+            return toolFailure(tool: trimmedToolID, code: "watch_target_changed",
+                message: "A tool hook changed the status request. The original job could not be checked.", retryable: false)
+        }
+        let loopGuardEnabled = !backgroundStatusCheck && !currentConfig.experimentalFlags.disableToolBudgetAndLoopGuard
         let loopDecision: ToolLoopGuard.Decision
         if loopGuardEnabled, authorization.allowed, preHookBlockedResult == nil {
             loopDecision = await toolLoopGuard.evaluate(
@@ -350,6 +362,17 @@ extension CoreService {
             loopDecision = .allow(signature: "")
         }
 
+        // Hooks may rewrite the operation and a late result may have arrived during authorization.
+        if SessionTurnRecovery.active?.sessionID == normalizedSessionID || effectiveRequest.tool != request.tool
+            || effectiveRequest.arguments != request.arguments {
+            guard let current = try? sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID) else {
+                return toolFailure(tool: effectiveRequest.tool, code: "session_write_failed",
+                    message: "Could not check the tool against the session journal.", retryable: true)
+            }
+            if let recoveryResult = toolReplayResult(for: effectiveRequest, session: current) {
+                return recoveryResult
+            }
+        }
         let toolCallEvent = AgentSessionEvent(
             agentId: normalizedAgentID,
             sessionId: normalizedSessionID,
@@ -362,6 +385,8 @@ extension CoreService {
             )
         )
 
+        activeSessionToolCallIDs.insert(toolCallEvent.id)
+        defer { activeSessionToolCallIDs.remove(toolCallEvent.id) }
         if recordSessionEvents, preHookBlockedResult == nil {
             do {
                 let summary = try sessionStore.appendEvents(
@@ -434,6 +459,9 @@ extension CoreService {
                     ), let deniedResult = toolApprovalDeniedResult(tool: effectiveRequest.tool, approval: approval) {
                         result = deniedResult
                         break
+                    }
+                    if backgroundStatusCheck, Task.isCancelled {
+                        return toolFailure(tool: trimmedToolID, code: "tool_cancelled", message: "The watch stopped.", retryable: false)
                     }
                     // Approval can wait while the coordinator cancels or retries the task.
                     if isLongChatWorker != nil {
@@ -1633,6 +1661,21 @@ private func runToolInvocationWithHardTimeout(
         ),
         durationMs: durationMs
     )
+}
+
+private func toolReplayResult(for request: ToolInvocationRequest, session: AgentSessionDetail) -> ToolInvocationResult? {
+    if let scope = SessionTurnRecovery.active, scope.sessionID == session.summary.id,
+       !LongChatCoordinatorPolicy.readTools.contains(request.tool),
+       let (_, persisted) = SessionToolRecovery.confirmedResults(in: scope.priorEvents(in: session.events)).last(where: {
+           $0.0.tool == request.tool && $0.0.arguments == request.arguments
+       }) {
+        return .init(tool: persisted.tool, ok: true, data: persisted.data)
+    }
+    guard SessionToolRecovery.requiresReconciliation(tool: request.tool, arguments: request.arguments, events: session.events) else {
+        return nil
+    }
+    return toolFailure(tool: request.tool, code: "tool_reconciliation_required",
+        message: "The previous identical call may have produced side effects. Inspect its saved outcome before replaying it.", retryable: false)
 }
 
 private func toolInvocationHardTimeoutMs(request: ToolInvocationRequest, policy: AgentToolsPolicy) -> Int {

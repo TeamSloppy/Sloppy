@@ -56,6 +56,32 @@ struct SessionGoalCommandTests {
         #expect(try await service.getAgentSessionGoal(agentID: chat.agentId, sessionID: chat.id) == nil)
     }
 
+    @Test func clearEndpointChecksLongChatOwnershipAndAllowsRetry() async throws {
+        let (service, foreignChat) = try await fixture()
+        defer { Task { await service.stop() } }
+        let chat = try await service.openLongChat(agentID: foreignChat.agentId, userID: "local")
+        for (session, owner) in [(foreignChat, "owner"), (chat, "local")] {
+            _ = try await service.postAgentSessionMessage(agentID: session.agentId, sessionID: session.id,
+                request: .init(userId: owner, content: "/goal finish"))
+        }
+        let router = CoreRouter(service: service)
+        let denied = await router.handle(method: "POST",
+            path: "/v1/agents/\(foreignChat.agentId)/sessions/\(foreignChat.id)/goal/clear", body: nil)
+        #expect(denied.status == 400)
+        #expect(try await service.getAgentSessionGoal(agentID: foreignChat.agentId, sessionID: foreignChat.id)?.status == .active)
+
+        let path = "/v1/agents/\(chat.agentId)/sessions/\(chat.id)/goal/clear"
+        let response = await router.handle(method: "POST", path: path, body: nil)
+        #expect(response.status == 200)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        #expect(try decoder.decode(AgentSessionGoalRecord.self, from: response.body).status == .cleared)
+        #expect(try await service.goalTestPersistedGoal(chat.id) == nil)
+        let retry = await router.handle(method: "POST", path: path, body: nil)
+        #expect(retry.status == 200)
+        #expect(try decoder.decode(AgentSessionGoalRecord?.self, from: retry.body) == nil)
+    }
+
     @Test func plainMentionAndInvalidCommandDoNotCreateGoal() async throws {
         let (service, chat) = try await fixture()
         defer { Task { await service.stop() } }

@@ -16,9 +16,13 @@ enum ConsoleOwnerChatPolicy {
             if method == .post { required.insert(.write) }; return required
         }
         if segments.count == 5, method == .get { return required }
+        if method == .post, segments.dropFirst(5).elementsEqual(["goal", "clear"]) {
+            return required.union([.write])
+        }
         guard segments.count == 6 else { return nil }
         if method == .get, ["ws", "stream", "status"].contains(segments[5]) { return required }
-        if method == .post, segments[5] == "messages" { return required.union([.write]) }
+        if method == .post, segments[5] == "prompt-suggestion" { return required }
+        if method == .post, ["messages", "restore"].contains(segments[5]) { return required.union([.write]) }
         if method == .post, segments[5] == "control",
            let body, let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
            json["action"] as? String == "interrupt" { return required.union([.write]) }

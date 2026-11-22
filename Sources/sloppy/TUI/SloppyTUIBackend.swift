@@ -37,6 +37,7 @@ protocol SloppyTUIBackend: Sendable {
     func getSessionApprovalPolicy(agentID: String, sessionID: String) async throws -> SessionApprovalPolicy
     func setSessionApprovalPolicy(agentID: String, sessionID: String, policy: SessionApprovalPolicy) async throws -> SessionApprovalPolicy
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail
+    func suggestPrompt(agentID: String, sessionID: String, sourceRunID: String) async throws -> SessionPromptSuggestion?
     func deleteAgentSession(agentID: String, sessionID: String) async throws
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse
     func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord
@@ -45,6 +46,7 @@ protocol SloppyTUIBackend: Sendable {
     func resumeAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord?
     func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord?
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse
+    func restoreAgentSession(agentID: String, sessionID: String, request: AgentSessionRestoreRequest) async throws -> AgentSessionMessageResponse
     func controlAgentSession(agentID: String, sessionID: String, request: AgentSessionControlRequest) async throws -> AgentSessionMessageResponse
     func listAgentUISurfaces(agentID: String, sessionID: String) async throws -> [AgentUISurfaceSnapshot]
     func submitAgentUIAction(agentID: String, sessionID: String, surfaceID: String, submission: AgentUISubmission) async throws -> AgentUIActionReceipt
@@ -84,6 +86,7 @@ enum SloppyTUIBackendError: Error, LocalizedError {
 }
 
 extension SloppyTUIBackend {
+    func suggestPrompt(agentID: String, sessionID: String, sourceRunID: String) async throws -> SessionPromptSuggestion? { nil }
     var uiDraftNamespace: String { displayName }
     func listMachineMentions(projectId: String) async throws -> [MachineMention] { [] }
     func listAgentSessions(agentID: String) async throws -> [AgentSessionSummary] {
@@ -108,6 +111,9 @@ extension SloppyTUIBackend {
 }
 
 struct LocalSloppyTUIBackend: SloppyTUIBackend {
+    func suggestPrompt(agentID: String, sessionID: String, sourceRunID: String) async throws -> SessionPromptSuggestion? {
+        try await service.suggestSessionPrompt(agentID: agentID, sessionID: sessionID, sourceRunID: sourceRunID)
+    }
     let service: CoreService
 
     var isRemote: Bool { false }
@@ -199,6 +205,9 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     }
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse {
         try await service.addAgentSessionDirectory(agentID: agentID, sessionID: sessionID, request: request)
+    }
+    func restoreAgentSession(agentID: String, sessionID: String, request: AgentSessionRestoreRequest) async throws -> AgentSessionMessageResponse {
+        try await service.restoreAgentSession(agentID: agentID, sessionID: sessionID, request: request)
     }
     func controlAgentSession(agentID: String, sessionID: String, request: AgentSessionControlRequest) async throws -> AgentSessionMessageResponse {
         try await service.controlAgentSession(agentID: agentID, sessionID: sessionID, request: request)
@@ -303,6 +312,9 @@ enum RemoteSloppyTUIBackendError: Error, LocalizedError {
 }
 
 struct RemoteSloppyTUIBackend: SloppyTUIBackend {
+    func suggestPrompt(agentID: String, sessionID: String, sourceRunID: String) async throws -> SessionPromptSuggestion? {
+        try await post(tuiPromptSuggestionPath(agentID, sessionID), body: ["sourceRunId": sourceRunID], as: SessionPromptSuggestion.self)
+    }
     let client: SloppyCLIClient
     let node: CoreConfig.Node
     let projectID: String?
@@ -418,10 +430,13 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
         throw RemoteSloppyTUIBackendError.unsupported("/goal")
     }
     func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
-        throw RemoteSloppyTUIBackendError.unsupported("/goal")
+        try await postEmpty("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/goal/clear", as: AgentSessionGoalRecord?.self)
     }
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/directories", body: request, as: AgentSessionDirectoryResponse.self)
+    }
+    func restoreAgentSession(agentID: String, sessionID: String, request: AgentSessionRestoreRequest) async throws -> AgentSessionMessageResponse {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/restore", body: request, as: AgentSessionMessageResponse.self)
     }
     func controlAgentSession(agentID: String, sessionID: String, request: AgentSessionControlRequest) async throws -> AgentSessionMessageResponse {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/control", body: request, as: AgentSessionMessageResponse.self)
@@ -556,6 +571,9 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
 }
 
 struct MeshSloppyTUIBackend: SloppyTUIBackend {
+    func suggestPrompt(agentID: String, sessionID: String, sourceRunID: String) async throws -> SessionPromptSuggestion? {
+        try await post(tuiPromptSuggestionPath(agentID, sessionID), body: ["sourceRunId": sourceRunID], as: SessionPromptSuggestion.self)
+    }
     let service: CoreService
     let node: MeshNodeRecord
     let projectID: String?
@@ -659,6 +677,9 @@ struct MeshSloppyTUIBackend: SloppyTUIBackend {
     }
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/directories", body: request, as: AgentSessionDirectoryResponse.self)
+    }
+    func restoreAgentSession(agentID: String, sessionID: String, request: AgentSessionRestoreRequest) async throws -> AgentSessionMessageResponse {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/restore", body: request, as: AgentSessionMessageResponse.self)
     }
     func controlAgentSession(agentID: String, sessionID: String, request: AgentSessionControlRequest) async throws -> AgentSessionMessageResponse {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/control", body: request, as: AgentSessionMessageResponse.self)
@@ -808,6 +829,10 @@ struct MeshSloppyTUIBackend: SloppyTUIBackend {
     private static func escape(_ raw: String) -> String {
         raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? raw
     }
+}
+
+private func tuiPromptSuggestionPath(_ agentID: String, _ sessionID: String) -> String {
+    "/v1/agents/\(SloppyCLIClient.escape(agentID))/sessions/\(SloppyCLIClient.escape(sessionID))/prompt-suggestion"
 }
 
 private enum SloppyTUILineStream {

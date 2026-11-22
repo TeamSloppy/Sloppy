@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 
 extension ChatScreenViewModel {
     func disconnectCurrentSession() {
+        dismissPromptSuggestion()
+        promptSuggestionRunID = nil
         cancelDictationIfNeeded()
         approvalModeLoadTask?.cancel()
         approvalModeLoadTask = nil
