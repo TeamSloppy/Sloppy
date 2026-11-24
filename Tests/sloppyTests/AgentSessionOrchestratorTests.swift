@@ -315,6 +315,7 @@ private struct ToolCallingLanguageModel: LanguageModel {
     var toolArguments: [String: GeneratedContent] = [:]
     let finalText: String
     var callStore: MockCallStore? = nil
+    var streamError: (@Sendable () async -> (any Error)?)? = nil
 
     func respond<Content>(
         within session: LanguageModelSession,
@@ -392,6 +393,11 @@ private struct ToolCallingLanguageModel: LanguageModel {
                         includeSchemaInPrompt: includeSchemaInPrompt,
                         options: options
                     )
+                    if let error = await streamError?() {
+                        let draft = "Unfinished draft before disconnect."
+                        continuation.yield(.init(content: (draft as! Content).asPartiallyGenerated(), rawContent: GeneratedContent(draft)))
+                        throw error
+                    }
                     continuation.yield(.init(content: response.content.asPartiallyGenerated(), rawContent: response.rawContent))
                     continuation.finish()
                 } catch {
@@ -411,6 +417,7 @@ private actor ToolCallingModelProvider: ModelProvider {
     nonisolated let tools: [any Tool]
     private let finalText: String
     nonisolated let callStore = MockCallStore()
+    private var remainingPostToolDisconnects = 0
 
     init(models: [String], toolName: String, finalText: String = "Tool result inspected.") {
         self.supportedModels = models
@@ -437,7 +444,16 @@ private actor ToolCallingModelProvider: ModelProvider {
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
-        ToolCallingLanguageModel(toolNames: toolNames, toolArguments: toolArguments, finalText: finalText, callStore: callStore)
+        ToolCallingLanguageModel(toolNames: toolNames, toolArguments: toolArguments, finalText: finalText,
+            callStore: callStore, streamError: { await self.disconnectAfterTools() })
+    }
+
+    func failNextToolStreams(_ count: Int) { remainingPostToolDisconnects = count }
+
+    private func disconnectAfterTools() -> (any Error)? {
+        guard remainingPostToolDisconnects > 0 else { return nil }
+        remainingPostToolDisconnects -= 1
+        return URLError(.networkConnectionLost)
     }
 
     func requestedTranscriptsSnapshot() -> [[String]] { callStore.transcripts }
@@ -1573,6 +1589,48 @@ func agentSessionPersistsCurrentTurnDiffWithTheFinalStatus() async throws {
     #expect(diff.files.first?.patch?.contains("+new content") == true)
     let persisted = try store.loadSession(agentID: agentID, sessionID: session.id)
     #expect(persisted.events.compactMap(\.runStatus).last?.turnDiff == diff)
+}
+
+@Test(arguments: [1, 2], [AgentChatMode.ask, .build])
+func nativeChatAutomaticallyContinuesFromOneDurableWrite(disconnects: Int, mode: AgentChatMode) async throws {
+    let config = CoreConfig.test
+    let root = config.resolvedWorkspaceRootURL()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let service = CoreService(config: config, currentDirectory: root.path, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let model = "mock:test-model"
+    let tool = ModelToolNameSanitizer.sanitizeName("files.write")
+    let target = root.appendingPathComponent("automatic-restore.txt")
+    let provider = ToolCallingModelProvider(models: [model], toolNames: [tool],
+        toolArguments: [tool: GeneratedContent(properties: ["path": target.path, "content": "saved\n"])],
+        finalText: "The saved file is ready.", tools: ToolRegistry.makeDefault().allTools)
+    await service.overrideModelProviderForTests(provider, defaultModel: model)
+    let agent = try await service.createAgent(.init(id: "automatic-restore-agent", displayName: "Auto restore", role: "Test"))
+    let session = try await service.createAgentSession(agentID: agent.id, request: .init())
+    await provider.failNextToolStreams(disconnects)
+    let response = try await service.postAgentSessionMessage(agentID: agent.id, sessionID: session.id,
+        request: .init(userId: "test", content: "Write the file and confirm it is ready.", mode: mode))
+    let detail = try await service.getAgentSession(agentID: agent.id, sessionID: session.id)
+    #expect(try String(contentsOf: target, encoding: .utf8) == "saved\n")
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.write" }.count == 1)
+    #expect(detail.events.filter { $0.message?.role == .user }.count == 1)
+    let checkpoints = detail.events.compactMap(\.runStatus).compactMap(\.turnCheckpoint)
+    #expect(checkpoints.count == 2)
+    #expect(Set(checkpoints.map(\.turnId)).count == 1)
+    #expect(checkpoints.last?.resumesCheckpointId != nil)
+    let terminal = detail.events.compactMap(\.runStatus).filter { $0.stage == .done || $0.stage == .interrupted }
+    #expect(terminal.count == 1)
+    #expect(terminal.last?.executionOutcome?.state == (disconnects == 1 && mode == .ask ? .completed : .failed))
+    if disconnects == 1 && mode == .build {
+        #expect(terminal.last?.executionOutcome?.code == "completion_missing")
+    }
+    #expect(response.appendedEvents.contains { $0.message?.segments.first?.text == "The saved file is ready." } == (disconnects == 1))
+    #expect(!detail.events.contains { $0.message?.segments.first?.text == "Unfinished draft before disconnect." })
+    let transcripts = await provider.requestedTranscriptsSnapshot().filter { $0.contains { $0.hasPrefix("prompt:") && $0.contains("Write the file and confirm") } }
+    // Build can also call its planner. Only the two executor requests see a tool result.
+    #expect(provider.callStore.toolOutputs.count == 2)
+    #expect(transcripts.last?.contains { $0.hasPrefix("toolOutput:") && $0.contains("automatic-restore.txt") } == true)
+    #expect(transcripts.last?.filter { $0.hasPrefix("prompt:") }.count == 1)
+    await service.stop()
 }
 
 @Test

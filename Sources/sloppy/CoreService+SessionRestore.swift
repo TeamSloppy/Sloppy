@@ -74,9 +74,7 @@ extension CoreService {
         await toolLoopGuard.beginTurn(sessionID: sessionID)
         let goalContext = await sessionGoalContext(agentID: agentID, sessionID: sessionID)
         do {
-            let scope = SessionTurnRecovery.Scope(
-                sessionID: sessionID, firstCheckpointID: recovery.firstCheckpointID, sourceCheckpointID: recovery.checkpointID
-            )
+            let scope = recovery.scope(sessionID: sessionID)
             let response = try await SessionTurnRecovery.$active.withValue(scope) {
                 try await sessionOrchestrator.restoreMessage(
                     agentID: agentID, sessionID: sessionID, recovery: recovery,

@@ -615,7 +615,8 @@ extension RuntimeSystem {
             return Self.toolRoundLimitMessage
         }
 
-        return latest.isEmpty ? nil : latest
+        let finalText = latest.trimmingCharacters(in: .whitespacesAndNewlines)
+        return finalText.isEmpty ? nil : finalText
     }
 
     func elapsedMilliseconds(since start: Date) -> Int {

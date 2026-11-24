@@ -1,28 +1,36 @@
 import Foundation
 
 extension RuntimeSystem {
-    /// Retrying replays the user message from scratch. After tools have run that would repeat their side
-    /// effects, so keep the executed tool transcript for the next turn and stop instead.
+    /// Hand a post-tool disconnect to the journal owner. Only the owner can verify
+    /// which tool effects were persisted before resuming the turn.
     func haltRetryAfterExecutedTools(
         channelId: String,
         tracker: StreamActivityTracker,
         config: NativeAgentLoopConfig,
         onResponseChunk: (@Sendable (String) async -> Bool)?,
-        outcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)?
+        outcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)?,
+        contextExhausted: Bool = false
     ) async -> Bool {
         guard await tracker.hasExecutedTools else { return false }
         let entries = await tracker.toolTranscriptEntries
         if !entries.isEmpty, let cached = sessionsByChannel[channelId]?.session {
             pendingToolTranscriptByChannel[channelId] = (ObjectIdentifier(cached), entries)
         }
-        let text = "The model connection was interrupted after tools had already run. Their results are kept; send a message to continue."
-        if let onResponseChunk { _ = await onResponseChunk(text) }
-        await channels.appendSystemMessage(channelId: channelId, content: text)
+        let text = contextExhausted
+            ? "The model context was exhausted after tool execution. The tool results were kept."
+            : config.managesPostToolRecovery
+            ? "The model connection was interrupted after tool execution. Check the saved results and use /restore to continue."
+            : "The model connection was interrupted after tools had already run. Their results are kept; send a message to continue."
+        if !config.managesPostToolRecovery {
+            if let onResponseChunk { _ = await onResponseChunk(text) }
+            await channels.appendSystemMessage(channelId: channelId, content: text)
+        }
         await outcomeHandler?(await tracker.nativeLoopOutcome(
             maxToolRounds: config.maxToolRounds,
             finishedNaturally: false,
             lastAssistantText: text,
-            turnExitReason: .streamRetryFailed
+            turnExitReason: contextExhausted ? .contextWindowRecoveryFailed
+                : (config.managesPostToolRecovery ? .streamInterruptedAfterTools : .streamRetryFailed)
         ))
         return true
     }

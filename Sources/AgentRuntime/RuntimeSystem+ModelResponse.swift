@@ -189,6 +189,7 @@ extension RuntimeSystem {
             } catch is StreamIdleTimeoutError {
                 if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                 if await haltRetryAfterExecutedTools(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
+                if Self.isResumingTurn && nativeLoopConfig.managesPostToolRecovery { throw StreamIdleTimeoutError() }
                 let chunks = await tracker.chunks
                 let content = await tracker.latestContent
                 logger.warning(
@@ -369,6 +370,8 @@ extension RuntimeSystem {
                 let latest = await tracker.latestContent
                 let streamChunks = await tracker.chunks
                 if case .exceededContextWindowSize = error {
+                    if await haltRetryAfterExecutedTools(channelId: channelId, tracker: tracker, config: nativeLoopConfig,
+                        onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler, contextExhausted: true) { return }
                     logger.warning(
                         "Context window exceeded, recreating session with summary",
                         metadata: modelCallMetadata(
@@ -392,6 +395,9 @@ extension RuntimeSystem {
                         loopTracker: tracker,
                         nativeLoopConfig: nativeLoopConfig
                     )
+                    try Task.checkCancellation()
+                    if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig,
+                        onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                     if let recovered {
                         await channels.appendSystemMessage(channelId: channelId, content: recovered)
                     }
@@ -785,7 +791,7 @@ extension RuntimeSystem {
             if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
             if isInterruptedModelSessionError(error),
                await haltRetryAfterExecutedTools(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
-            if await retryInterruptedModelSessionIfNeeded(
+            if !(Self.isResumingTurn && nativeLoopConfig.managesPostToolRecovery), await retryInterruptedModelSessionIfNeeded(
                 channelId: channelId,
                 userMessage: userMessage,
                 model: model,

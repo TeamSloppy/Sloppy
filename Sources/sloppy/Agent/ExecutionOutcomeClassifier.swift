@@ -7,8 +7,10 @@ enum ExecutionOutcomeClassifier {
         if interrupted || reason == .consumerCancelled || reason == .modelCancelled { return .init(state: .cancelled) }
         if waitingInput { return .init(state: .waitingInput) }
         switch reason {
-        case .modelProviderError, .streamRetryFailed:
+        case .modelProviderError, .streamRetryFailed, .streamInterruptedAfterTools:
             return .init(state: .failed, category: .provider, code: reason.rawValue, retryable: true)
+        case .steered:
+            return .init(state: .interrupted, code: reason.rawValue)
         case .missingRuntimeOutcome:
             return .init(state: .failed, category: .unknown, code: reason.rawValue, retryable: true)
         case .contextWindowRecoveryFailed, .workerContextTooLarge:
@@ -21,7 +23,10 @@ enum ExecutionOutcomeClassifier {
             return .init(state: .failed, category: .unavailable, code: reason.rawValue)
         case .toolRoundLimit, .emptyResponse:
             return .init(state: .failed, category: .incomplete, code: reason.rawValue)
-        default: break
+        case .modelCancelled, .consumerCancelled:
+            return .init(state: .cancelled)
+        case .completed, .streamIdleTimeoutFallback, .contextWindowRecovered, .emptyResponseRepaired:
+            break
         }
         if blocked { return .init(state: .failed, category: .tool, code: "blocked") }
         if incomplete { return .init(state: .failed, category: .incomplete, code: "completion_missing") }

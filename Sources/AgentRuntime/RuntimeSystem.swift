@@ -70,6 +70,7 @@ public struct NativeAgentLoopConfig: Sendable, Equatable {
     public var finalizerToolNames: Set<String>
     public var overBudgetRecoveryBatches: Int
     public var budgetExhaustedMessage: String
+    public var managesPostToolRecovery: Bool
 
     public init(
         maxToolRounds: Int = 60,
@@ -77,7 +78,8 @@ public struct NativeAgentLoopConfig: Sendable, Equatable {
         finalizerToolNames: Set<String> = [],
         overBudgetRecoveryBatches: Int = 0,
         budgetExhaustedMessage: String = "Agent reached the tool turn limit before producing a final answer.",
-        maxOutputTokens: Int = 1024
+        maxOutputTokens: Int = 1024,
+        managesPostToolRecovery: Bool = false
     ) {
         self.maxToolRounds = max(0, maxToolRounds)
         self.maxOutputTokens = max(128, min(16_384, maxOutputTokens))
@@ -85,6 +87,7 @@ public struct NativeAgentLoopConfig: Sendable, Equatable {
         self.finalizerToolNames = finalizerToolNames
         self.overBudgetRecoveryBatches = max(0, overBudgetRecoveryBatches)
         self.budgetExhaustedMessage = budgetExhaustedMessage
+        self.managesPostToolRecovery = managesPostToolRecovery
     }
 }
 
@@ -93,6 +96,7 @@ public enum NativeAgentLoopTurnExitReason: String, Sendable, Equatable {
     case fallbackNoModel
     case streamIdleTimeoutFallback
     case streamRetryFailed
+    case streamInterruptedAfterTools
     case contextWindowRecovered
     case contextWindowRecoveryFailed
     case toolRoundLimit

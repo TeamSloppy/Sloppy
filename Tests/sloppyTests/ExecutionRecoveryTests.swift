@@ -9,6 +9,23 @@ import Testing
 
 @Suite("Typed execution and interrupted call recovery")
 struct ExecutionRecoveryTests {
+    @Test("Automatic continuation requires a matching durable outcome for every call")
+    func autoRestoreSkipsUnknownToolEffects() throws {
+        let user = AgentSessionEvent(agentId: "agent", sessionId: "session", type: .message,
+            message: .init(role: .user, segments: [.init(kind: .text, text: "Write a file.")]))
+        let id = try #require(user.message?.id)
+        let checkpoint = AgentSessionEvent(agentId: "agent", sessionId: "session", type: .runStatus,
+            runStatus: .init(stage: .responding, label: "Responding", turnCheckpoint: .init(turnId: id, mode: .ask)))
+        let call = call("unknown")
+        let events = [user, checkpoint, call]
+        #expect(SessionTurnRecovery.automatic(in: events, turnID: id, checkpointID: checkpoint.id) == nil)
+        #expect(SessionTurnRecovery.automatic(in: events + SessionToolRecovery.interruptionEvents(for: detail(events)),
+                                              turnID: id, checkpointID: checkpoint.id) == nil)
+        let result = AgentSessionEvent(agentId: "agent", sessionId: "session", type: .toolResult,
+            toolResult: .init(tool: "files.write", ok: true, callEventId: call.id, executionOutcome: .completed))
+        #expect(SessionTurnRecovery.automatic(in: events + [result], turnID: id, checkpointID: checkpoint.id) != nil)
+    }
+
     @Test("The restore endpoint resumes a persisted attempt after restart and acknowledges a duplicate")
     func restoreAfterRestart() async throws {
         let fixture = try CodingHarnessFixture()

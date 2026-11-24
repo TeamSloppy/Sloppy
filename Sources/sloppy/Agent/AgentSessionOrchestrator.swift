@@ -796,17 +796,16 @@ actor AgentSessionOrchestrator {
         var coordinatorHandoffError: ToolErrorPayload?
         switch agentConfig.runtime.type {
         case .native:
+            let canAutomaticallyResume = recovery == nil && toolInvokerRecordsEvents
+                && (summary.kind == .chat || summary.kind == .longChatWorker)
+            var attemptedAutomaticRecovery = false
             let plannedRuntimeContent: String
             let runPlanner = recovery == nil && !isCoordinator && workerStart == nil
                 && Self.shouldRunPlanner(mode: requestMode, hasExplicitPlannerModel: hasExplicitPlannerModel)
             let plannerStartedAt = Date()
             if let recovery {
-                let evidence = sessionVerificationEvidenceByChannel[verificationChannelID, default: []].map {
-                    "- \($0.id) \($0.kind.rawValue) \($0.tool) \($0.command ?? "")"
-                }
-                let evidenceContext = evidence.isEmpty ? "" : "Verified evidence from this turn:\n" + evidence.joined(separator: "\n")
-                plannedRuntimeContent = [recovery.instructions(restoreInstruction), runtimeContent, turnContext, evidenceContext]
-                    .filter { !$0.isEmpty }.joined(separator: "\n\n")
+                plannedRuntimeContent = recoveryInput(recovery, instruction: restoreInstruction,
+                    modeContent: runtimeContent, turnContext: turnContext, channelID: verificationChannelID)
             } else if runPlanner {
                 plannedRuntimeContent = await runtimeContentWithPlannerOutput(
                     agentID: agentID,
@@ -846,8 +845,47 @@ actor AgentSessionOrchestrator {
                     turnContext: turnContext,
                     attachmentNames: attachments.map(\.name)
                 ),
-                shouldSteer: shouldSteer, resumingTurn: recovery != nil, workerStart: workerStart
+                shouldSteer: shouldSteer, resumingTurn: recovery != nil, workerStart: workerStart,
+                managesPostToolRecovery: canAutomaticallyResume
             )
+            if canAutomaticallyResume, runtimeOutcome.turnExitReason == .streamInterruptedAfterTools,
+               !runtimeOutcome.wasInterrupted, !runtimeOutcome.hitTurnLimit, runtimeOutcome.completionRecord == nil,
+               runtimeOutcome.pausedInputRequestID == nil, await shouldSteer?() != true,
+               let checkpointID = initialEvents.last?.id,
+               let prepared = await prepareAutomaticRecovery(agentID: agentID, sessionID: sessionID,
+                    userID: effectiveRequest.userId, turnID: userMessage.id, checkpointID: checkpointID) {
+                let previous = runtimeOutcome
+                let route = previous.selectedAutoRouteMode ?? continuationMode
+                let modeContent = Self.contentWithFriendReminder(
+                    Self.runtimeContent("", mode: route ?? requestMode, autoRouteCatalog: autoRouteCatalog),
+                    documents: runtimeDocuments
+                )
+                let checkpoint = AgentSessionEvent(
+                    agentId: agentID, sessionId: sessionID, type: .runStatus,
+                    runStatus: .init(stage: .responding, label: "Reconnecting", details: "Continuing from saved tool results.",
+                        selectedModel: selectedModel, turnCheckpoint: .init(turnId: userMessage.id, mode: requestMode,
+                            reasoningEffort: reasoningEffort, resumesCheckpointId: checkpointID))
+                )
+                if let updated = try? appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: [checkpoint]) {
+                    summary = updated
+                    initialEvents.append(checkpoint)
+                    responseTimelineByChannel[verificationChannelID]?.startNewAttempt()
+                    let scope = prepared.scope(sessionID: sessionID)
+                    attemptedAutomaticRecovery = true
+                    let input = recoveryInput(prepared, instruction: nil, modeContent: modeContent,
+                        turnContext: turnContext, channelID: verificationChannelID)
+                    let resumed = await SessionTurnRecovery.$active.withValue(scope) {
+                        await postNativeMessage(agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId,
+                            content: input, selectedModel: selectedModel, reasoningEffort: reasoningEffort, mode: route ?? requestMode,
+                            publishResponseChunks: false, shouldSteer: shouldSteer,
+                            resumingTurn: true, managesPostToolRecovery: true, stopIfInterrupted: true)
+                    }
+                    runtimeOutcome = Self.mergingCompletionRecovery(initial: previous, recovery: resumed,
+                        selectedMode: route ?? requestMode)
+                    runtimeOutcome.finishedNaturally = resumed.finishedNaturally
+                    await runtime.invalidateChannelSession(channelId: verificationChannelID)
+                }
+            }
             if recovery != nil {
                 await runtime.invalidateChannelSession(channelId: channelID)
             }
@@ -911,7 +949,7 @@ actor AgentSessionOrchestrator {
                 }
             }
             let completionMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
-            if !isCoordinator, !delegatedSubagentSessionIDs.contains(sessionID) {
+            if !attemptedAutomaticRecovery, !isCoordinator, !delegatedSubagentSessionIDs.contains(sessionID) {
                 // Weaker models often end a turn by narrating intent. Retry a bounded number of times, and say
                 // plainly (from recorded tool rounds, not from their prose) when the last attempt did no work.
                 var attempt = 0
@@ -1818,7 +1856,9 @@ actor AgentSessionOrchestrator {
         memoryQuery: String? = nil,
         shouldSteer: (@Sendable () async -> Bool)? = nil,
         resumingTurn: Bool = false,
-        workerStart: RuntimeSystem.WorkerStart? = nil
+        workerStart: RuntimeSystem.WorkerStart? = nil,
+        managesPostToolRecovery: Bool = false,
+        stopIfInterrupted: Bool = false
     ) async -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         if mode == .auto, let continuationMode {
@@ -1832,6 +1872,12 @@ actor AgentSessionOrchestrator {
         }
         await runtime.setChannelImages(channelId: channelID, images: images)
         await runtime.setChannelMemoryQuery(channelId: channelID, query: memoryQuery)
+        if stopIfInterrupted && (Task.isCancelled || interruptedSessionRunChannels.contains(channelID)) {
+            return SessionRuntimeOutcome(assistantText: "", routeDecision: nil, wasInterrupted: true,
+                didResetContext: false, pausedInputRequestID: nil, usedTools: false, didExplicitlyComplete: false,
+                completionRecord: nil, toolRoundsUsed: 0, maxToolRounds: 0, finishedNaturally: false,
+                hitTurnLimit: false, toolErrors: [], lastAssistantText: "", tokenUsage: nil, turnExitReason: .modelCancelled)
+        }
         let runID = UUID()
         activeSessionRunChannels.insert(channelID)
         activeSessionRunIDsByChannel[channelID] = runID
@@ -1849,11 +1895,12 @@ actor AgentSessionOrchestrator {
 
         let messageContent = content.isEmpty ? "User attached files." : content
         let toolInvokerRecordsEvents = self.toolInvokerRecordsEvents
-        let nativeLoopConfig = Self.nativeLoopConfig(
+        var nativeLoopConfig = Self.nativeLoopConfig(
             coreConfig: persistedModelContext.config,
             userID: userID,
             isDelegatedSubagent: delegatedSubagentSessionIDs.contains(sessionID)
         )
+        nativeLoopConfig.managesPostToolRecovery = managesPostToolRecovery
         let archiveStore = ToolOutputArtifactStore(workspaceRootURL: persistedModelContext.config.resolvedWorkspaceRootURL(), agentID: agentID, sessionID: sessionID)
         await runtime.setMalformedToolCallObserver(channelId: channelID) { [weak self] _ in
             await self?.recordMalformedToolCall(channelID: channelID)
@@ -3163,6 +3210,39 @@ actor AgentSessionOrchestrator {
             )
         }
         return await toolInvoker(agentID, sessionID, request, mode)
+    }
+
+    private func recoveryInput(
+        _ recovery: SessionTurnRecovery, instruction: String?, modeContent: String, turnContext: String, channelID: String
+    ) -> String {
+        let evidence = sessionVerificationEvidenceByChannel[channelID, default: []].map {
+            "- \($0.id) \($0.kind.rawValue) \($0.tool) \($0.command ?? "")"
+        }
+        let evidenceContext = evidence.isEmpty ? "" : "Verified evidence from this turn:\n" + evidence.joined(separator: "\n")
+        return [recovery.instructions(instruction), modeContent, turnContext, evidenceContext]
+            .filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
+    private func prepareAutomaticRecovery(
+        agentID: String, sessionID: String, userID: String, turnID: String, checkpointID: String
+    ) async -> SessionTurnRecovery? {
+        let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        do {
+            let detail = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+            guard SessionTurnRecovery.automatic(in: detail.events, turnID: turnID, checkpointID: checkpointID) != nil,
+                  !Self.hasUnansweredInputRequest(in: detail.events) else { return nil }
+            await runtime.invalidateChannelSession(channelId: channelID)
+            try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID, userID: userID)
+            let refreshed = try sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+            guard !Task.isCancelled, !interruptedSessionRunChannels.contains(channelID),
+                  !Self.hasUnansweredInputRequest(in: refreshed.events) else { return nil }
+            return SessionTurnRecovery.automatic(in: refreshed.events, turnID: turnID, checkpointID: checkpointID)
+        } catch {
+            logger.warning("session.auto_restore_prepare_failed", metadata: [
+                "agent_id": .string(agentID), "session_id": .string(sessionID), "error": .string(error.localizedDescription),
+            ])
+            return nil
+        }
     }
 
     private func ensureSessionContextLoaded(

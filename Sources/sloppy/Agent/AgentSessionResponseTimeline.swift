@@ -8,6 +8,12 @@ struct AgentSessionResponseTimeline {
     private var pendingStartedAt: Date?
     private(set) var persistedResponses: [AgentSessionEvent] = []
 
+    mutating func startNewAttempt() {
+        snapshot = ""
+        persistedPrefix = ""
+        pendingStartedAt = nil
+    }
+
     mutating func recordSnapshot(_ text: String, at date: Date = Date()) {
         if pendingStartedAt == nil, text != persistedPrefix { pendingStartedAt = date }
         snapshot = text

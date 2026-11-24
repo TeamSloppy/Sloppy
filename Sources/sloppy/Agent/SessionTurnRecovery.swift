@@ -1,5 +1,6 @@
 import Foundation
 import Protocols
+import SloppyRuntime
 
 struct SessionTurnRecovery {
     let checkpointID: String
@@ -78,6 +79,24 @@ struct SessionTurnRecovery {
             guard event.importOrigin == nil, let checkpoint = event.runStatus?.turnCheckpoint else { return false }
             return checkpoint.turnId == request.turnId && checkpoint.resumesCheckpointId == request.checkpointId
         }
+    }
+
+    static func automatic(in events: [AgentSessionEvent], turnID: String, checkpointID: String) -> Self? {
+        guard let recovery = latest(in: events), recovery.checkpoint.turnId == turnID,
+              recovery.checkpointID == checkpointID, recovery.checkpoint.resumesCheckpointId == nil,
+              let start = events.firstIndex(where: { $0.id == checkpointID }) else { return nil }
+        let attempt = Array(events.suffix(from: start))
+        let calls = attempt.filter { $0.importOrigin == nil && $0.toolCall != nil }
+        let confirmed = SessionToolRecovery.confirmedResults(in: attempt)
+        guard !calls.isEmpty, confirmed.count == calls.count,
+              confirmed.allSatisfy({ call, result in
+                  result.tool == call.tool && result.executionOutcome?.requiresReconciliation != true
+              }) else { return nil }
+        return recovery
+    }
+
+    func scope(sessionID: String) -> Scope {
+        Scope(sessionID: sessionID, firstCheckpointID: firstCheckpointID, sourceCheckpointID: checkpointID)
     }
 
     func instructions(_ extraInstruction: String?) -> String {
