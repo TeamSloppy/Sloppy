@@ -22,6 +22,8 @@ type PlanInputRequest = {
   title?: string;
   questions?: PlanInputQuestion[];
   autoApproveAt?: string;
+  mcpURL?: string;
+  mcpSchema?: Record<string, unknown>;
 };
 
 type PlanInputPanelProps = {
@@ -35,6 +37,15 @@ export function PlanInputPanel({ request, disabled = false, onSubmit }: PlanInpu
     () => (Array.isArray(request?.questions) ? request.questions : []).filter((q) => String(q?.id || "").trim()),
     [request]
   );
+  let mcpURL: URL | null = null;
+  if (request.mode === "mcp" && request.mcpURL) {
+    try {
+      const parsed = new URL(request.mcpURL);
+      if (parsed.protocol === "https:" && !parsed.username && !parsed.password) mcpURL = parsed;
+    } catch {
+      // Invalid URLs never become navigation targets.
+    }
+  }
   const debugQuestion = questions.length === 1 && request?.mode === "debug" ? questions[0] : null;
   const isDebugActionRequest = Boolean(
     debugQuestion
@@ -154,6 +165,17 @@ export function PlanInputPanel({ request, disabled = false, onSubmit }: PlanInpu
           <div key={questionId} className="plan-input-panel__question">
             {question.header ? <span className="plan-input-panel__header">{question.header}</span> : null}
             <p>{question.question}</p>
+            {mcpURL ? (
+              <a href={mcpURL.href} target="_blank" rel="noopener noreferrer">
+                Open {mcpURL.hostname} in browser
+              </a>
+            ) : null}
+            {request.mode === "mcp" && request.mcpSchema ? (
+              <details>
+                <summary>Response schema</summary>
+                <pre>{JSON.stringify(request.mcpSchema, null, 2)}</pre>
+              </details>
+            ) : null}
             <div className="plan-input-panel__options">
               {options.map((option) => {
                 const optionId = String(option.id || "");

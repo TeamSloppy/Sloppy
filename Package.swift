@@ -90,6 +90,7 @@ let package = Package(
         .executable(name: "SloppyNode", targets: ["SloppyNode"]),
     ] + platformRelayProducts,
     dependencies: [
+        .package(url: "https://github.com/jpsim/Yams.git", from: "5.4.0"),
         .package(path: "Packages/SloppyA2UI"),
         .package(path: "Packages/SloppyMigration"),
         .package(path: "Packages/SloppyRemoteProtocol"),
@@ -197,6 +198,8 @@ let package = Package(
                 .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "TauTUI", package: "TauTUI"),
                 .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "Yams", package: "Yams"),
+                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "ACP", package: "swift-acp"),
                 .product(name: "ACPModel", package: "swift-acp"),
                 .product(name: "ACPHTTP", package: "swift-acp"),

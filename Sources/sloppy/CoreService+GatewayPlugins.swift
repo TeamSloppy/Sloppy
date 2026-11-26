@@ -249,6 +249,8 @@ extension CoreService {
         await heartbeatRunner?.stop()
         await taskSyncRunner?.stop()
         await stopManualMeshClient()
+        await stopMCPTasks()
+        await mcpRegistry.disconnectAll()
         await shutdownACPMCPServers()
         await launches.shutdown()
         await acpSessionManager.shutdown()

@@ -141,7 +141,7 @@ final class ToolExecutionService: @unchecked Sendable {
         }
         let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            if let result = try await context.mcpRegistry.invokeDynamicTool(toolID: toolID, arguments: request.arguments) {
+            if let result = try await context.mcpRegistry.invokeDynamicTool(toolID: toolID, arguments: request.arguments, context: context) {
                 return context.outputArtifacts.bound(result, maxBytes: min(50 * 1024, max(1, policy.guardrails.maxExecOutputBytes)))
             }
         } catch {

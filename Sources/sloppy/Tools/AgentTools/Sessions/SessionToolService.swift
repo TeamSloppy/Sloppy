@@ -3,6 +3,11 @@ import Protocols
 import SloppyRuntime
 
 protocol SessionToolService: Sendable {
+    func mcpInteraction(agentID: String, sessionID: String, serverID: String, toolName: String,
+                        registry: MCPClientRegistry) async -> MCPToolInteraction?
+    func cancelMCPTask(agentID: String, sessionID: String, id: String) async throws
+    func useMCPSkill(agentID: String, sessionID: String, serverID: String, uri: String,
+                     fileURI: String?, registry: MCPClientRegistry) async throws -> JSONValue
     func delegatedSubagentSessionID(agentID: String, parentSessionID: String, taskID: String) async throws -> String?
     func continueSubagentTask(agentID: String, parentSessionID: String, sessionID: String, objective: String) async throws -> JSONValue
     func reportSessionRunStatus(agentID: String, sessionID: String, status: AgentRunStatusEvent) async
@@ -17,6 +22,16 @@ protocol SessionToolService: Sendable {
 }
 
 extension SessionToolService {
+    func mcpInteraction(agentID: String, sessionID: String, serverID: String, toolName: String,
+                        registry: MCPClientRegistry) async -> MCPToolInteraction? { nil }
+    func cancelMCPTask(agentID: String, sessionID: String, id: String) async throws {
+        throw MCPRegistryError.invalidResult("MCP Tasks unavailable.")
+    }
+
+    func useMCPSkill(agentID: String, sessionID: String, serverID: String, uri: String,
+                     fileURI: String?, registry: MCPClientRegistry) async throws -> JSONValue {
+        throw MCPRegistryError.invalidResult("MCP skill approval is unavailable.")
+    }
     func delegatedSubagentSessionID(agentID: String, parentSessionID: String, taskID: String) async throws -> String? { nil }
     func continueSubagentTask(agentID: String, parentSessionID: String, sessionID: String, objective: String) async throws -> JSONValue {
         throw CoreService.SubagentReuseError.unavailable

@@ -5,7 +5,7 @@ struct MCPCommand: SloppyGroupCommand {
     static let configuration = CommandConfiguration(
         commandName: "mcp",
         abstract: "Manage MCP servers and tools.",
-        subcommands: [MCPServerListCommand.self, MCPToolListCommand.self, MCPCallCommand.self]
+        subcommands: [MCPServerListCommand.self, MCPToolListCommand.self, MCPCallCommand.self, MCPSkillListCommand.self]
     )
 }
 
@@ -80,5 +80,25 @@ struct MCPCallCommand: AsyncParsableCommand {
         } catch {
             CLIStyle.error(error.localizedDescription); throw ExitCode.failure
         }
+    }
+}
+
+
+struct MCPSkillListCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "skills", abstract: "List skills advertised by an MCP server.")
+
+    @Argument(help: "Configured MCP server ID") var serverID: String
+    @Option(name: .long) var cursor: String?
+    @Option(name: .long) var url: String?
+    @Option(name: .long) var token: String?
+    @Option(name: .long) var format: String = "json"
+
+    mutating func run() async throws {
+        let client = SloppyCLIClient.resolve(url: url, token: token, verbose: false)
+        var path = URLComponents()
+        path.percentEncodedPath = "/v1/mcp/" + SloppyCLIClient.escape(serverID) + "/skills"
+        path.queryItems = cursor.map { [.init(name: "cursor", value: $0)] }
+        let data = try await client.get(path.string ?? "/v1/mcp")
+        CLIFormatters.output(data, format: CLIFormatters.resolveFormat(format))
     }
 }

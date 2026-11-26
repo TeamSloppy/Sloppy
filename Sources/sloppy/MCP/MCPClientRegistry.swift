@@ -51,6 +51,8 @@ struct MCPServerStatus: Encodable, Sendable {
     let exposePrompts: Bool
     let toolPrefix: String?
     let message: String?
+    var protocolVersion: String? = nil
+    var advertisedCapabilities: [String: JSONValue]? = nil
 }
 
 struct MCPDynamicTool: Sendable {
@@ -297,102 +299,344 @@ actor ManagedMCPStdioTransport: Transport {
     }
 }
 
-actor MCPServerConnection {
-    private let config: CoreConfig.MCP.Server
-    private let logger: Logging.Logger
-    private var client: Client?
-    private var transport: (any Transport)?
-    private var pendingClient: Client?
-    private var connectionTask: Task<Client, any Error>?
+struct MCPToolReply: Sendable {
+    let content: [MCP.Tool.Content]
+    let isError: Bool?
+    var structuredContent: JSONValue? = nil
+}
 
-    init(config: CoreConfig.MCP.Server, logger: Logging.Logger) {
+actor MCPServerConnection {
+    private enum Connection: Sendable {
+        case legacy(Client, protocolVersion: String)
+        case modern(MCPHTTPDiscovery.Server)
+    }
+
+    nonisolated let config: CoreConfig.MCP.Server
+    private let logger: Logging.Logger
+    private var connection: Connection?
+    private var toolHeaders: [String: MCPToolHeaders] = [:]
+    private var toolHeadersExpireAt: ContinuousClock.Instant?
+    private var subscription: Task<Void, Never>?
+    private let catalogChanged: @Sendable () async -> Void
+    private var pendingClient: Client?
+    private var stdio: MCPModernStdio?
+    private var attempt: (id: UUID, task: Task<Connection, any Error>)?
+
+    init(config: CoreConfig.MCP.Server, logger: Logging.Logger, catalogChanged: @escaping @Sendable () async -> Void = {}) {
         self.config = config
         self.logger = logger
+        self.catalogChanged = catalogChanged
     }
 
     func disconnect() async {
-        let clientToDisconnect = client ?? pendingClient
-        let transportToDisconnect = transport
-        connectionTask?.cancel()
-        connectionTask = nil
-        client = nil
-        pendingClient = nil
-        transport = nil
-        if let clientToDisconnect {
-            await clientToDisconnect.disconnect()
-        } else if let transportToDisconnect {
-            await transportToDisconnect.disconnect()
+        let clientToDisconnect: Client?
+        if case .legacy(let client, _) = connection {
+            clientToDisconnect = client
+        } else {
+            clientToDisconnect = pendingClient
         }
+        attempt?.task.cancel()
+        attempt = nil
+        connection = nil
+        toolHeaders.removeAll()
+        toolHeadersExpireAt = nil
+        subscription?.cancel()
+        subscription = nil
+        pendingClient = nil
+        let stdioToDisconnect = stdio
+        stdio = nil
+        await clientToDisconnect?.disconnect()
+        await stdioToDisconnect?.disconnect()
     }
 
     func listTools(cursor: String? = nil) async throws -> (tools: [MCP.Tool], nextCursor: String?) {
-        let client = try await ensureClient()
-        return try await client.listTools(cursor: cursor)
+        switch try await ensureConnection() {
+        case .legacy(let client, _): return try await client.listTools(cursor: cursor)
+        case .modern(let server): return try await listModernTools(cursor: cursor, server: server)
+        }
     }
 
-    func callTool(name: String, arguments: [String: Value]?) async throws -> (content: [MCP.Tool.Content], isError: Bool?) {
-        let client = try await ensureClient()
-        return try await client.callTool(name: name, arguments: arguments)
+    private func listModernTools(cursor: String?, server: MCPHTTPDiscovery.Server) async throws -> (tools: [MCP.Tool], nextCursor: String?) {
+        guard server.capabilities["tools"]?.asObject != nil else { return ([], nil) }
+        let raw = try await request("tools/list", params: pagination(cursor), server: server, capability: "tools")
+        let result = try decodeComplete(raw, as: ListTools.Result.self)
+        let ttl = max(0, min(raw["ttlMs"]?.asNumber ?? 0, Double(Int32.max)))
+        let expiry = ContinuousClock.Instant.now + .milliseconds(Int(ttl))
+        toolHeadersExpireAt = cursor == nil ? expiry : min(toolHeadersExpireAt ?? expiry, expiry)
+        if cursor == nil { toolHeaders.removeAll() }
+        let tools = result.tools.filter { tool in
+            guard config.transport == .http else { return true }
+            do {
+                toolHeaders[tool.name] = try MCPToolHeaders(schema: MCPClientRegistry.jsonValue(from: tool.inputSchema))
+                return true
+            } catch {
+                toolHeaders.removeValue(forKey: tool.name)
+                logger.warning("MCP tool definition rejected", metadata: ["tool": "\(tool.name)"])
+                return false
+            }
+        }
+        return (tools, result.nextCursor)
+    }
+
+    func callTool(name: String, arguments: [String: JSONValue], interaction: MCPToolInteraction? = nil) async throws -> MCPToolReply {
+        switch try await ensureConnection() {
+        case .legacy(let client, _):
+            let result = try await client.callTool(name: name, arguments: arguments.mapValues(MCPClientRegistry.mcpValue(from:)))
+            return MCPToolReply(content: result.content, isError: result.isError)
+        case .modern(let server):
+            let params: [String: JSONValue] = ["name": .string(name), "arguments": .object(arguments)]
+            let headers = try await mirroredToolHeaders(name: name, arguments: arguments, server: server)
+            let raw: [String: JSONValue]
+            do {
+                raw = try await request("tools/call", params: params, server: server, capability: "tools", headers: headers, interaction: interaction)
+            } catch let failure as MCPRPCFailure where failure.code == -32020 && config.transport == .http {
+                toolHeaders.removeValue(forKey: name)
+                let refreshed = try await mirroredToolHeaders(name: name, arguments: arguments, server: server)
+                guard refreshed != headers else { throw failure }
+                raw = try await request("tools/call", params: params, server: server, capability: "tools", headers: refreshed, interaction: interaction)
+            }
+            if raw["resultType"]?.asString == "task", let interaction {
+                return try await interaction.registerTask(raw, config)
+            }
+            let result = try decodeComplete(raw, as: CallTool.Result.self)
+            return MCPToolReply(content: result.content, isError: result.isError, structuredContent: raw["structuredContent"])
+        }
+    }
+
+    private func mirroredToolHeaders(name: String, arguments: [String: JSONValue], server: MCPHTTPDiscovery.Server) async throws -> [String: String] {
+        guard config.transport == .http else { return [:] }
+        if let expiry = toolHeadersExpireAt, expiry <= .now { toolHeaders.removeAll() }
+        var cursor: String?
+        var seen: Set<String> = []
+        while toolHeaders[name] == nil {
+            let page = try await listModernTools(cursor: cursor, server: server)
+            guard let next = page.nextCursor, seen.insert(next).inserted, seen.count <= 1_000 else { break }
+            cursor = next
+        }
+        guard let headers = toolHeaders[name] else {
+            throw MCPRegistryError.invalidResult("MCP tool has no valid definition.")
+        }
+        return try headers.encode(arguments)
     }
 
     func listResources(cursor: String? = nil) async throws -> (resources: [Resource], nextCursor: String?) {
-        let client = try await ensureClient()
-        return try await client.listResources(cursor: cursor)
+        switch try await ensureConnection() {
+        case .legacy(let client, _): return try await client.listResources(cursor: cursor)
+        case .modern(let server):
+            let raw = try await request("resources/list", params: pagination(cursor), server: server, capability: "resources")
+            let result = try decodeComplete(raw, as: ListResources.Result.self)
+            return (result.resources, result.nextCursor)
+        }
     }
 
     func readResource(uri: String) async throws -> [Resource.Content] {
-        let client = try await ensureClient()
-        return try await client.readResource(uri: uri)
+        switch try await ensureConnection() {
+        case .legacy(let client, _): return try await client.readResource(uri: uri)
+        case .modern(let server):
+            let raw = try await request("resources/read", params: ["uri": .string(uri)], server: server, capability: "resources")
+            return try decodeComplete(raw, as: ReadResource.Result.self).contents
+        }
     }
 
     func listPrompts(cursor: String? = nil) async throws -> (prompts: [Prompt], nextCursor: String?) {
-        let client = try await ensureClient()
-        return try await client.listPrompts(cursor: cursor)
+        switch try await ensureConnection() {
+        case .legacy(let client, _): return try await client.listPrompts(cursor: cursor)
+        case .modern(let server):
+            let raw = try await request("prompts/list", params: pagination(cursor), server: server, capability: "prompts")
+            let result = try decodeComplete(raw, as: ListPrompts.Result.self)
+            return (result.prompts, result.nextCursor)
+        }
     }
 
     func getPrompt(name: String, arguments: [String: String]?) async throws -> (description: String?, messages: [Prompt.Message]) {
-        let client = try await ensureClient()
-        return try await client.getPrompt(name: name, arguments: arguments)
+        switch try await ensureConnection() {
+        case .legacy(let client, _): return try await client.getPrompt(name: name, arguments: arguments)
+        case .modern(let server):
+            let raw = try await request("prompts/get", params: [
+                "name": .string(name), "arguments": .object((arguments ?? [:]).mapValues(JSONValue.string))
+            ], server: server, capability: "prompts")
+            let result = try decodeComplete(raw, as: GetPrompt.Result.self)
+            return (result.description, result.messages)
+        }
     }
 
-    func probe() async throws {
-        _ = try await ensureClient()
+    private func pagination(_ cursor: String?) -> [String: JSONValue] {
+        cursor.map { ["cursor": .string($0)] } ?? [:]
     }
 
-    private func ensureClient() async throws -> Client {
-        if let client { return client }
-        if let connectionTask { return try await connectionTask.value }
+    private func decodeComplete<T: Decodable>(_ raw: [String: JSONValue], as type: T.Type) throws -> T {
+        guard raw["resultType"]?.asString == "complete" else {
+            throw MCPRegistryError.invalidResult("Unexpected MCP result type.")
+        }
+        return try JSONDecoder().decode(type, from: JSONEncoder().encode(JSONValue.object(raw)))
+    }
 
-        let transport = try makeTransport()
-        let candidate = Client(name: "sloppy", version: "1.0.0", capabilities: .init())
-        pendingClient = candidate
-        self.transport = transport
+    func extensionRequest(_ method: String, extensionID: String, params: [String: JSONValue],
+                          capabilities: [String: JSONValue] = [:]) async throws -> [String: JSONValue] {
+        guard case .modern(let server) = try await ensureConnection(),
+              server.capabilities["extensions"]?.asObject?[extensionID]?.asObject != nil,
+              extensionID != MCPRemoteSkill.extensionID || server.capabilities["resources"]?.asObject != nil else {
+            throw MCPRegistryError.invalidResult("Server does not advertise the requested MCP extension.")
+        }
+        return try await sendModern(method, params: params, capabilities: capabilities)
+    }
+
+    private func request(
+        _ method: String, params: [String: JSONValue], server: MCPHTTPDiscovery.Server, capability: String,
+        headers: [String: String] = [:], interaction: MCPToolInteraction? = nil
+    ) async throws -> [String: JSONValue] {
+        guard server.capabilities[capability]?.asObject != nil else {
+            throw MCPRegistryError.invalidResult("Server does not advertise MCP \(capability).")
+        }
+        var capabilities = interaction?.capabilities ?? [:]
+        if server.capabilities["extensions"]?.asObject?[MCPToolInteraction.tasksID] == nil {
+            capabilities.removeValue(forKey: "extensions")
+        }
+        var outgoing = params
+        if let interaction {
+            outgoing["_meta"] = .object(["progressToken": .string(interaction.progressToken)])
+        }
+        for _ in 0..<32 {
+            let result = try await sendModern(method, params: outgoing, capabilities: capabilities,
+                                              headers: headers, onNotification: interaction?.notification)
+            guard result["resultType"]?.asString == "input_required" else { return result }
+            let state = result["requestState"]?.asString.map(JSONValue.string)
+            let requests = result["inputRequests"]?.asObject
+            guard state != nil || requests != nil else {
+                throw MCPRegistryError.invalidResult("Invalid MCP input-required response.")
+            }
+            outgoing["requestState"] = state
+            outgoing.removeValue(forKey: "inputResponses")
+            if let requests, !requests.isEmpty {
+                guard let interaction else {
+                    throw MCPRegistryError.invalidResult("MCP server requires input unavailable to this caller.")
+                }
+                outgoing["inputResponses"] = .object(try await interaction.answer(requests))
+            }
+        }
+        throw MCPRegistryError.invalidResult("MCP request exceeded the input round limit.")
+    }
+
+    private func sendModern(
+        _ method: String, params: [String: JSONValue], capabilities: [String: JSONValue],
+        headers: [String: String] = [:], onNotification: (@Sendable ([String: JSONValue]) -> Void)? = nil
+    ) async throws -> [String: JSONValue] {
+        if let stdio { return try await stdio.request(method, params: params, capabilities: capabilities, onNotification: onNotification) }
+        return try await MCPHTTPDiscovery.request(config, method: method, params: params, capabilities: capabilities,
+                                                 headers: headers, onNotification: onNotification)
+    }
+
+    func probe() async throws -> (version: String, advertisedCapabilities: [String: JSONValue]?) {
+        switch try await ensureConnection() {
+        case .legacy(_, let version):
+            return (version, nil)
+        case .modern(let server):
+            return (MCPHTTPDiscovery.protocolVersion, server.capabilities)
+        }
+    }
+
+    private func ensureConnection() async throws -> Connection {
+        if let current = stdio, await current.isClosed(), stdio === current, case .modern = connection {
+            self.stdio = nil
+            connection = nil
+            await current.disconnect()
+        }
+        if stdio == nil, case .modern(let server) = connection, server.expiresAt <= .now { connection = nil }
+        if let connection { return connection }
+        if let attempt { return try await attempt.task.value }
+        let id = UUID()
         let task = Task {
+            defer {
+                if attempt?.id == id {
+                    attempt = nil
+                    pendingClient = nil
+                }
+            }
+            let negotiated = try await negotiate()
+            guard attempt?.id == id else { throw CancellationError() }
+            connection = negotiated
+            if case .modern(let server) = negotiated { startSubscription(server) }
+            return negotiated
+        }
+        attempt = (id, task)
+        return try await task.value
+    }
+
+    private func negotiate() async throws -> Connection {
+        if config.transport == .http, let server = try await MCPHTTPDiscovery.probe(config) {
+            try Task.checkCancellation()
+            return .modern(server)
+        }
+        if config.transport == .stdio {
+            let candidate = MCPModernStdio(transport: try makeTransport(), timeoutMs: config.timeoutMs)
+            stdio = candidate
             do {
-                _ = try await candidate.connect(transport: transport)
-                try Task.checkCancellation()
-                return candidate
+                if let server = try await candidate.probe() {
+                    try Task.checkCancellation()
+                    return .modern(server)
+                }
             } catch {
+                if stdio === candidate { stdio = nil }
                 await candidate.disconnect()
                 throw error
             }
+            if stdio === candidate { stdio = nil }
+            await candidate.disconnect()
         }
-        connectionTask = task
+        try Task.checkCancellation()
+        let transport = try makeTransport()
+        let candidate = Client(name: "sloppy", version: "1.0.0", capabilities: .init())
+        pendingClient = candidate
         do {
-            let connected = try await task.value
-            guard pendingClient === candidate else { throw CancellationError() }
-            client = connected
-            pendingClient = nil
-            connectionTask = nil
-            return connected
+            let initialized = try await candidate.connect(transport: transport)
+            try Task.checkCancellation()
+            return .legacy(candidate, protocolVersion: initialized.protocolVersion)
         } catch {
-            if pendingClient === candidate {
-                pendingClient = nil
-                connectionTask = nil
-                self.transport = nil
-            }
+            await candidate.disconnect()
             throw error
         }
+    }
+
+    func toolCatalogExpiry() -> ContinuousClock.Instant? { toolHeadersExpireAt }
+
+    private func startSubscription(_ server: MCPHTTPDiscovery.Server) {
+        guard config.transport == .http, subscription == nil else { return }
+        var filter: [String: JSONValue] = [:]
+        if config.exposeTools, server.capabilities["tools"]?.asObject?["listChanged"]?.asBool == true {
+            filter["toolsListChanged"] = .bool(true)
+        }
+        if config.exposePrompts, server.capabilities["prompts"]?.asObject?["listChanged"]?.asBool == true {
+            filter["promptsListChanged"] = .bool(true)
+        }
+        if config.exposeResources, server.capabilities["resources"]?.asObject?["listChanged"]?.asBool == true {
+            filter["resourcesListChanged"] = .bool(true)
+        }
+        guard !filter.isEmpty else { return }
+        let settings = config
+        subscription = Task { [weak self] in
+            var delay: Double = 1
+            while self != nil, !Task.isCancelled {
+                do {
+                    try await MCPHTTPDiscovery.listen(settings, notifications: filter) { [weak self] packet in
+                        guard let method = packet["method"]?.asString,
+                              method == "notifications/tools/list_changed" || method == "notifications/subscriptions/acknowledged" else { return }
+                        Task { await self?.invalidateTools() }
+                    }
+                    delay = 1
+                } catch let failure as MCPRPCFailure where failure.code == -32601 {
+                    return
+                } catch {
+                    delay = min(60, delay * 2)
+                }
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            }
+        }
+    }
+
+    private func invalidateTools() async {
+        toolHeaders.removeAll()
+        toolHeadersExpireAt = nil
+        await catalogChanged()
     }
 
     private func makeTransport() throws -> any Transport {
@@ -410,10 +654,7 @@ actor MCPServerConnection {
                 logger: logger
             )
         case .http:
-            let endpointRaw = config.endpoint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard let endpoint = URL(string: endpointRaw), !endpointRaw.isEmpty else {
-                throw MCPRegistryError.invalidConfiguration("MCP server '\(config.id)' uses http but endpoint is missing.")
-            }
+            let endpoint = try MCPHTTPDiscovery.endpoint(for: config)
             let sessionConfiguration = URLSessionConfiguration.default
             sessionConfiguration.timeoutIntervalForRequest = TimeInterval(max(config.timeoutMs, 250)) / 1_000
             let headers = config.headers
@@ -442,6 +683,7 @@ actor MCPClientRegistry {
     private var connections: [String: MCPServerConnection] = [:]
     private var dynamicToolsByID: [String: MCPDynamicTool] = [:]
     private var dynamicDiscoveryLoaded = false
+    private var dynamicDiscoveryExpiresAt: ContinuousClock.Instant?
     private var discoveryConfigurationRevision = 0
     private var dynamicDiscoveryLastFailureAt: Date?
     private var toolTraitsByServer: [String: [String: ToolTraits]] = [:]
@@ -455,19 +697,25 @@ actor MCPClientRegistry {
     }
 
     func updateConfig(_ config: CoreConfig.MCP) async {
-        let nextIDs = Set(config.servers.map(\.id))
-        let obsolete = connections.keys.filter { !nextIDs.contains($0) }
-        for serverID in obsolete {
-            if let connection = connections.removeValue(forKey: serverID) {
-                await connection.disconnect()
-            }
+        let obsolete = connections.filter { id, connection in
+            config.servers.first(where: { $0.id == id }) != connection.config
         }
+        for id in obsolete.keys { connections.removeValue(forKey: id) }
         self.config = config
         self.toolTraitsByServer = [:]
         self.dynamicToolsByID = [:]
         self.dynamicDiscoveryLoaded = false
         self.discoveryConfigurationRevision += 1
         self.dynamicDiscoveryLastFailureAt = nil
+        for connection in obsolete.values { await connection.disconnect() }
+    }
+
+    func disconnectAll() async {
+        let disconnected = Array(connections.values)
+        connections.removeAll()
+        dynamicToolsByID.removeAll()
+        invalidateDynamicCatalog()
+        for connection in disconnected { await connection.disconnect() }
     }
 
     func listServers() -> [MCPServerSummary] {
@@ -506,9 +754,11 @@ actor MCPClientRegistry {
                 continue
             }
 
+            var probingConnection: MCPServerConnection?
             do {
                 let connection = try connection(for: server.id)
-                try await withDiscoveryTimeout(milliseconds: max(250, server.timeoutMs)) {
+                probingConnection = connection
+                let probe = try await withDiscoveryTimeout(milliseconds: max(250, server.timeoutMs)) {
                     try await connection.probe()
                 }
                 statuses.append(
@@ -521,11 +771,13 @@ actor MCPClientRegistry {
                         exposeResources: server.exposeResources,
                         exposePrompts: server.exposePrompts,
                         toolPrefix: server.toolPrefix,
-                        message: nil
+                        message: nil,
+                        protocolVersion: probe.version,
+                        advertisedCapabilities: probe.advertisedCapabilities
                     )
                 )
             } catch {
-                await connections[server.id]?.disconnect()
+                await probingConnection?.disconnect()
                 statuses.append(
                     MCPServerStatus(
                         id: server.id,
@@ -536,7 +788,7 @@ actor MCPClientRegistry {
                         exposeResources: server.exposeResources,
                         exposePrompts: server.exposePrompts,
                         toolPrefix: server.toolPrefix,
-                        message: String(describing: error)
+                        message: (error as? MCPRegistryError)?.errorDescription ?? String(describing: error)
                     )
                 )
             }
@@ -591,10 +843,9 @@ actor MCPClientRegistry {
         return try await connection.listTools(cursor: cursor)
     }
 
-    func callTool(serverID: String, name: String, arguments: [String: JSONValue]) async throws -> (content: [MCP.Tool.Content], isError: Bool?) {
+    func callTool(serverID: String, name: String, arguments: [String: JSONValue], interaction: MCPToolInteraction? = nil) async throws -> MCPToolReply {
         let connection = try connection(for: serverID)
-        let convertedArguments = arguments.mapValues(Self.mcpValue(from:))
-        return try await connection.callTool(name: name, arguments: convertedArguments)
+        return try await connection.callTool(name: name, arguments: arguments, interaction: interaction)
     }
 
     func listResources(serverID: String, cursor: String? = nil) async throws -> (resources: [Resource], nextCursor: String?) {
@@ -651,23 +902,26 @@ actor MCPClientRegistry {
         return dynamicToolsByID[toolID]
     }
 
-    func invokeDynamicTool(toolID: String, arguments: [String: JSONValue]) async throws -> ToolInvocationResult? {
+    func invokeDynamicTool(toolID: String, arguments: [String: JSONValue], context: ToolContext? = nil) async throws -> ToolInvocationResult? {
         await refreshDynamicToolsIfNeeded()
         guard let dynamicTool = dynamicToolsByID[toolID] else {
             return nil
         }
 
+        let interaction = await context?.mcpInteraction(serverID: dynamicTool.serverID, toolName: dynamicTool.toolName)
         let result = try await callTool(
             serverID: dynamicTool.serverID,
             name: dynamicTool.toolName,
-            arguments: arguments
+            arguments: arguments, interaction: interaction
         )
-        let payload: JSONValue = .object([
+        var fields: [String: JSONValue] = [
             "server": .string(dynamicTool.serverID),
             "tool": .string(dynamicTool.toolName),
             "isError": result.isError.map(JSONValue.bool) ?? .null,
             "content": .array(result.content.map(Self.jsonValue(from:)))
-        ])
+        ]
+        fields["structuredContent"] = result.structuredContent
+        let payload = JSONValue.object(fields)
         return ToolInvocationResult(
             tool: toolID,
             ok: result.isError != true,
@@ -706,7 +960,7 @@ actor MCPClientRegistry {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    private func connection(for serverID: String) throws -> MCPServerConnection {
+    func connection(for serverID: String) throws -> MCPServerConnection {
         guard let server = config.servers.first(where: { $0.id == serverID }) else {
             throw MCPRegistryError.unknownServer(serverID)
         }
@@ -718,14 +972,23 @@ actor MCPClientRegistry {
         }
         let connection = MCPServerConnection(
             config: server,
-            logger: Logging.Logger.sloppy(label: "sloppy.mcp.\(serverID)")
+            logger: Logging.Logger.sloppy(label: "sloppy.mcp.\(serverID)"),
+            catalogChanged: { [weak self] in await self?.invalidateDynamicCatalog() }
         )
         connections[serverID] = connection
         return connection
     }
 
+    private func invalidateDynamicCatalog() {
+        dynamicDiscoveryLoaded = false
+        dynamicDiscoveryExpiresAt = nil
+        dynamicDiscoveryLastFailureAt = nil
+        discoveryConfigurationRevision += 1
+        toolTraitsByServer.removeAll()
+    }
+
     private func refreshDynamicToolsIfNeeded() async {
-        if dynamicDiscoveryLoaded {
+        if dynamicDiscoveryLoaded, dynamicDiscoveryExpiresAt.map({ $0 > .now }) ?? true {
             return
         }
         if let dynamicDiscoveryLastFailureAt,
@@ -736,6 +999,7 @@ actor MCPClientRegistry {
         let configurationRevision = discoveryConfigurationRevision
         var discovered: [String: MCPDynamicTool] = [:]
         var failedServers: [String] = []
+        var expiresAt: ContinuousClock.Instant?
         for server in config.servers where server.enabled && server.exposeTools {
             do {
                 let tools = try await withDiscoveryTimeout(milliseconds: max(250, server.timeoutMs)) {
@@ -751,6 +1015,9 @@ actor MCPClientRegistry {
                         }
                     } while cursor != nil
                     return tools
+                }
+                if let expiry = await connections[server.id]?.toolCatalogExpiry() {
+                    expiresAt = min(expiresAt ?? expiry, expiry)
                 }
                 for tool in tools {
                     let toolID = Self.dynamicToolID(
@@ -769,6 +1036,7 @@ actor MCPClientRegistry {
                     )
                 }
             } catch {
+                guard configurationRevision == discoveryConfigurationRevision else { return }
                 failedServers.append(server.id)
                 if let failedConnection = connections.removeValue(forKey: server.id) {
                     await failedConnection.disconnect()
@@ -782,6 +1050,7 @@ actor MCPClientRegistry {
         guard configurationRevision == discoveryConfigurationRevision else { return }
         dynamicToolsByID = discovered
         dynamicDiscoveryLoaded = failedServers.isEmpty
+        dynamicDiscoveryExpiresAt = expiresAt
         dynamicDiscoveryLastFailureAt = failedServers.isEmpty ? nil : Date()
     }
 

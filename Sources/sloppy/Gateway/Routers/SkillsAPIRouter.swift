@@ -9,6 +9,18 @@ struct SkillsAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/mcp/:serverId/skills", metadata: .init(summary: "List MCP skills", tags: ["MCP"])) { request in
+            let serverID = request.pathParam("serverId") ?? ""
+            do {
+                let result = try await service.listMCPSkills(serverID: serverID, cursor: request.queryParam("cursor"))
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: result)
+            } catch let error as MCPRegistryError {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            } catch {
+                return CoreRouter.json(status: 502, payload: ["error": "mcp_skill_discovery_failed"])
+            }
+        }
+
         router.get("/v1/skills/registry", metadata: RouteMetadata(summary: "List skills registry", description: "Returns a list of skills available in the registry", tags: ["Skills"])) { request in
             let search = request.queryParam("search") ?? request.queryParam("q") ?? request.queryParam("query")
             let sort = request.queryParam("sort") ?? "installs"
