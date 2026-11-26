@@ -241,6 +241,9 @@ public actor CoreService {
     let safariBridgeService: SafariBridgeService
     var toolExecution: ToolExecutionService
     let mcpRegistry: MCPClientRegistry
+    var mcpInputReplies: [String: AsyncThrowingStream<JSONValue, any Error>.Continuation] = [:]
+    var mcpActiveSkills: [MCPActiveSkillKey: MCPRemoteSkill] = [:]
+    var mcpTaskWorkers: [String: Task<Void, Never>] = [:]
     var acpSessionMCPRegistries: [String: MCPClientRegistry] = [:]
     let systemLogStore: SystemLogFileStore
     let issueReportLogUploader: (any IssueReportLogUploading)?
@@ -843,6 +846,7 @@ public actor CoreService {
             await self.resumePendingMigrations()
             await self.restoreWorkflowExecutionsIfNeeded()
             await self.recoverSessionWatchesIfNeeded()
+            await self.resumeMCPTasks()
         }
     }
 

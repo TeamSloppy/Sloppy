@@ -113,7 +113,7 @@ jobs:
         run: |
           # Linux runs the full suite; macOS covers Darwin/AppKit-sensitive paths.
           swift test --no-parallel \
-            --filter "SloppyTUIThemeTests|DashboardTerminalTests|DesktopNotificationTests|CoreMainTests|ModelProxyTests|MeshRelayDisconnectTests" \
+            --filter "SloppyTUIThemeTests|DashboardTerminalTests|DesktopNotificationTests|CoreMainTests|ModelProxyTests|MeshRelayDisconnectTests|MCPHTTPDiscoveryTests" \
             --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
             status=$?
             grep -n -B 2 -A 8 -E 'error:|recorded an issue' swift-test.log | head -n 300 || true

@@ -2027,7 +2027,7 @@ actor AgentSessionOrchestrator {
                             error: result.error,
                             durationMs: result.durationMs,
                             callEventId: toolCallEvent.id,
-                            executionOutcome: .init(state: result.ok ? .completed : .failed, category: result.ok ? nil : .tool, code: result.error?.code, retryable: result.error?.retryable ?? false)
+                            executionOutcome: ExecutionOutcomeClassifier.toolResult(result)
                         )
                     )
                     if toolInvokerRecordsEvents {
@@ -2061,7 +2061,7 @@ actor AgentSessionOrchestrator {
                             error: result.error,
                             durationMs: result.durationMs,
                             callEventId: toolCallEvent.id,
-                            executionOutcome: .init(state: result.ok ? .completed : .failed, category: result.ok ? nil : .tool, code: result.error?.code, retryable: result.error?.retryable ?? false)
+                            executionOutcome: ExecutionOutcomeClassifier.toolResult(result)
                         )
                     )
                     if toolInvokerRecordsEvents {
@@ -2120,7 +2120,7 @@ actor AgentSessionOrchestrator {
                         error: result.error,
                         durationMs: result.durationMs,
                         callEventId: toolCallEvent.id,
-                        executionOutcome: .init(state: result.ok ? .completed : .failed, category: result.ok ? nil : .tool, code: result.error?.code, retryable: result.error?.retryable ?? false)
+                        executionOutcome: ExecutionOutcomeClassifier.toolResult(result)
                     )
                 )
 

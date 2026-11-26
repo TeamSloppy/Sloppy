@@ -202,6 +202,10 @@ extension CoreService {
             guard let payload else { throw AgentSessionError.invalidPayload }
             response = try validatedPlanInputResponse(payload: payload, request: inputRequest)
         }
+        if inputRequest.mode == "mcp" {
+            return try resolveMCPInput(agentID: normalizedAgentID, sessionID: normalizedSessionID,
+                                      request: inputRequest, response: response)
+        }
         let summaryText = answerSummaryText(request: inputRequest, response: response)
         let responseEvent = AgentSessionEvent(
             agentId: normalizedAgentID,

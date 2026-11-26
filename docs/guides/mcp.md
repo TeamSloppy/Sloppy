@@ -10,9 +10,17 @@ Sloppy acts as an MCP (Model Context Protocol) client. You can connect external 
 ## How it works
 
 1. Each MCP server entry in config describes a connection (stdio subprocess or HTTP endpoint).
-2. On first use, Sloppy connects to the server, initializes an MCP client session, and discovers available capabilities.
+2. On first use, Sloppy discovers the protocol version and server capabilities. Servers using the earlier protocol connect through the initialization handshake.
 3. Discovered tools can be exposed as dynamic agent tools — agents call them like any built-in tool.
 4. Resources and prompts are accessible through dedicated agent tools.
+
+## MCP 2026-07-28
+
+Sloppy supports the stateless revision over Streamable HTTP and stdio for tools, resources, and prompts. Streamable HTTP accepts JSON and SSE responses and can follow advertised catalog changes. The server's configured HTTP headers supply its credentials.
+
+Use `sloppy mcp skills <server-id>` or `mcp.list_skills` to browse a server's skill metadata. From an interactive chat, `mcp.read_skill` asks for permission to activate a skill. Supporting files can then be requested by URI from the verified manifest. Each approval is bound to the current session, server connection, and manifest.
+
+Dashboard presents MCP form and URL requests in the chat's input panel. For a form, enter the JSON object described by the displayed schema. For a URL request, open the displayed host and return to the chat to continue or decline. Sloppy saves handles for MCP tasks from configured servers, polls after restart, and reports completion in the originating session. Use `mcp.cancel_task` with the local task ID to request cancellation.
 
 ## Config format
 

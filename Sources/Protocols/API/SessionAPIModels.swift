@@ -741,6 +741,8 @@ public struct PlanInputRequest: Codable, Sendable, Equatable {
     public var title: String?
     public var questions: [PlanInputQuestion]
     public var createdAt: Date
+    public var mcpURL: String?
+    public var mcpSchema: [String: JSONValue]?
 
     public init(
         id: String = UUID().uuidString,
@@ -748,7 +750,9 @@ public struct PlanInputRequest: Codable, Sendable, Equatable {
         title: String? = nil,
         questions: [PlanInputQuestion],
         autoApproveAt: Date? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        mcpURL: String? = nil,
+        mcpSchema: [String: JSONValue]? = nil
     ) {
         self.id = id
         self.mode = mode
@@ -756,6 +760,8 @@ public struct PlanInputRequest: Codable, Sendable, Equatable {
         self.questions = questions
         self.autoApproveAt = autoApproveAt
         self.createdAt = createdAt
+        self.mcpURL = mcpURL
+        self.mcpSchema = mcpSchema
     }
 }
 

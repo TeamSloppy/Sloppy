@@ -124,10 +124,11 @@ struct MCPCallToolTool: CoreTool {
         }
 
         do {
+            let interaction = await context.mcpInteraction(serverID: serverID, toolName: toolName)
             let result = try await context.mcpRegistry.callTool(
                 serverID: serverID,
                 name: toolName,
-                arguments: toolArguments
+                arguments: toolArguments, interaction: interaction
             )
             Counter(label: "sloppy.tool.discovery.mcp_calls", dimensions: [("outcome", result.isError == true ? "server_error" : "success")]).increment()
             var data: [String: JSONValue] = [
@@ -136,12 +137,15 @@ struct MCPCallToolTool: CoreTool {
                 "isError": result.isError.map(JSONValue.bool) ?? .null,
                 "content": .array(result.content.map(MCPClientRegistry.jsonValue(from:)))
             ]
+            data["structuredContent"] = result.structuredContent
             if result.isError != true {
                 let traits = await context.mcpRegistry.toolTraits(serverID: serverID, tool: toolName)
                 if let kind = traits.verificationKind { data["verificationKind"] = .string(kind) }
                 if let readOnly = traits.readOnly { data["readOnly"] = .bool(readOnly) }
             }
             return toolSuccess(tool: name, data: .object(data))
+        } catch let unknown as MCPToolOutcomeUnknown {
+            return unknown.result(tool: name)
         } catch {
             Counter(label: "sloppy.tool.discovery.mcp_calls", dimensions: [("outcome", "transport_error")]).increment()
             return toolFailure(tool: name, code: "mcp_error", message: String(describing: error), retryable: true)
@@ -310,5 +314,14 @@ struct MCPGetPromptTool: CoreTool {
         } catch {
             return toolFailure(tool: name, code: "mcp_error", message: String(describing: error), retryable: true)
         }
+    }
+}
+
+
+extension ToolContext {
+    func mcpInteraction(serverID: String, toolName: String) async -> MCPToolInteraction? {
+        guard channelID == nil else { return nil }
+        return await sessionService?.mcpInteraction(agentID: agentID, sessionID: sessionID,
+            serverID: serverID, toolName: toolName, registry: mcpRegistry)
     }
 }
