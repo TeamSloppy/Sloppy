@@ -763,6 +763,58 @@ Sloppy calls `stop()` on every active in-process gateway plugin during shutdown.
 
 ## Source-Control Plugins
 
+Source-control providers can optionally implement `SourceControlPullRequestProvider`.
+Node.js plugins advertise the capabilities below and implement the corresponding
+JSON-RPC methods under `source_control.` with Plugin API v2. Legacy Node.js
+plugins use the unprefixed method names. Dates in requests are ISO 8601.
+
+| Capability | Method | Parameters and result |
+|---|---|---|
+| `pull_request_events` | `pollPullRequestEvents` | Accepts a repository path, account, review IDs, event kinds, start time, and optional opaque cursor. Returns `events`, `nextCursor`, and `hasMore`. |
+| `pull_request_context` | `getPullRequestContext` | Accepts the repository path, review reference, optional revision, and byte limit. Returns the existing `CodeReviewDetail` model. |
+| `pull_request_comment_reply` | `replyToPullRequestComment` | Accepts the repository path, review reference, parent comment ID, and approved text. Returns the ID and URL of the published reply. |
+
+Emit stable event IDs across retries. Use the same provider and review IDs as the
+Pull Requests screen to preserve existing chat links. Supported event kinds are
+`review_requested` and `feedback_received`. Providers must filter the latter
+to feedback from others on the configured account's open PRs. A page with
+`hasMore` must return a cursor that advances to the next page. Reading failures
+must leave enough state for the next call to recover missing events.
+
+### Enable PR automation for a project
+
+Select a Source Control provider and repository path for the project. Send
+an authenticated `PUT /v1/projects/{projectId}/pr-automation` with this body,
+using the login and agent ID for the project:
+
+```json
+{
+  "enabled": true,
+  "agentId": "reviewer",
+  "account": "review-login",
+  "kinds": ["review_requested", "feedback_received"],
+  "reviewIDs": [],
+  "intervalSeconds": 60
+}
+```
+
+An empty `reviewIDs` array watches the account's matching PRs. Use PR IDs to
+limit the scope. Read the subscription status and latest chat with `GET` at
+the same path. Disable the subscription by sending `enabled: false` with the
+current settings.
+
+For GitHub, add `githubRepository` with the repository's `owner/name`. The
+Core process needs `SLOPPY_GITHUB_PR_WEBHOOK_SECRET`, and GitHub needs the same
+secret at `POST /v1/pr-automation/github/webhook`. Subscribe to pull requests,
+pull request reviews, pull request review comments, and issue comments. Set
+`reviewNewGitHubPullRequests` to `true` to review newly opened non-draft PRs.
+
+The agent prepares a result in the linked PR chat. It can apply a fix to a
+verified task worktree in a chat configured to ask for tool approval. To publish
+an approved response, send an authenticated
+`POST /v1/projects/{projectId}/pr-automation/reply` with `eventId` from the
+automation message and the final `body`.
+
 Source-control plugins let project review isolation use something other than `git worktree`. The built-in provider remains `git-cli`; projects can opt into another provider from the CLI:
 
 ```bash

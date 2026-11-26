@@ -17,7 +17,7 @@ enum NodeSourceControlProviderError: Error, LocalizedError, Sendable {
     }
 }
 
-struct NodeSourceControlProvider: SourceControlProvider {
+struct NodeSourceControlProvider: SourceControlPullRequestProvider {
     let id: String
     let displayName: String
     let capabilities: Set<SourceControlCapability>
@@ -146,6 +146,33 @@ struct NodeSourceControlProvider: SourceControlProvider {
                 "targetBranch": .string(targetBranch),
             ]
         )
+    }
+
+    func pollPullRequestEvents(_ query: PullRequestEventQuery) async throws -> PullRequestEventPage {
+        try await callPullRequest("pollPullRequestEvents", capability: .pullRequestEvents, request: query)
+    }
+
+    func getPullRequestContext(_ request: PullRequestContextRequest) async throws -> CodeReviewDetail {
+        try await callPullRequest("getPullRequestContext", capability: .pullRequestContext, request: request)
+    }
+
+    func replyToPullRequestComment(_ request: PullRequestCommentReply) async throws -> PullRequestCommentReplyReceipt {
+        try await callPullRequest("replyToPullRequestComment", capability: .pullRequestCommentReply, request: request)
+    }
+
+    private func callPullRequest<Request: Encodable, Response: Decodable>(
+        _ method: String,
+        capability: SourceControlCapability,
+        request: Request
+    ) async throws -> Response {
+        guard capabilities.contains(capability) else {
+            throw SourceControlProviderError.unsupportedOperation(method)
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let params = try JSONDecoder().decode([String: JSONValue].self, from: encoder.encode(request))
+        let response = try await callJSON(method, params: params)
+        return try NodePluginRuntime.decode(response, as: Response.self)
     }
 
     private func call<T: Decodable>(

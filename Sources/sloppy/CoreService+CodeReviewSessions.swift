@@ -8,10 +8,35 @@ extension CoreService {
 
     func codeReviewSessions(_ review: CodeReviewReference) async throws -> [AgentSessionSummary] {
         try validateCodeReviewReference(review)
+        return try await linkedCodeReviewSessions(review)
+    }
+
+    private func linkedCodeReviewSessions(_ review: CodeReviewReference) async throws -> [AgentSessionSummary] {
         let sessions = try await listAllAgentSessions(includeWorkers: true)
         return CodeReviewSessionStore.associatedSessions(
             review: review, links: try codeReviewSessionStore.links(), sessions: sessions
         )
+    }
+
+    func automationCodeReviewSession(
+        _ review: CodeReviewReference, projectID: String, agentID: String, title: String
+    ) async throws -> AgentSessionSummary {
+        let sessions = try await linkedCodeReviewSessions(review).filter {
+            $0.projectId == projectID && $0.kind == .chat && $0.parentSessionId == nil
+        }
+        if let existing = sessions.first(where: { $0.taskId != nil }) ?? sessions.first {
+            return existing
+        }
+        let summary = try await createAgentSession(agentID: agentID, request: .init(
+            title: "PR \(review.reviewId): \(title)", separateChat: true, projectId: projectID
+        ))
+        do {
+            try codeReviewSessionStore.link(review, session: summary)
+        } catch {
+            try? sessionStore.deleteSession(agentID: summary.agentId, sessionID: summary.id)
+            throw error
+        }
+        return summary
     }
 
     func attachCodeReviewSession(_ review: CodeReviewReference, agentID: String, sessionID: String) throws -> AgentSessionSummary {

@@ -9,6 +9,56 @@ struct ProjectAutomationsAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/projects/:projectId/pr-automation") { request in
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.pullRequestAutomationStatus(
+                    projectID: request.pathParam("projectId") ?? ""
+                ))
+            } catch {
+                return automationErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            }
+        }
+        router.put("/v1/projects/:projectId/pr-automation") { request in
+            guard let settings = request.decode(PullRequestAutomationSettings.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let status = try await service.configurePullRequestAutomation(
+                    projectID: request.pathParam("projectId") ?? "", settings: settings
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+        router.post("/v1/projects/:projectId/pr-automation/reply") { request in
+            guard let payload = request.decode(PullRequestAutomationReplyRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let receipt = try await service.publishPullRequestAutomationReply(
+                    projectID: request.pathParam("projectId") ?? "", request: payload
+                )
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: receipt)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+        router.post("/v1/pr-automation/github/webhook") { request in
+            do {
+                let accepted = try await service.receiveGitHubPullRequestEvent(
+                    body: request.body ?? Data(), signature: request.header("x-hub-signature-256"),
+                    type: request.header("x-github-event"), deliveryID: request.header("x-github-delivery")
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: ["accepted": accepted])
+            } catch CoreService.TaskSyncError.signatureInvalid {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": "invalid_signature"])
+            } catch is DecodingError {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "event_persistence_failed"])
+            }
+        }
         router.get("/v1/projects/:projectId/automations", metadata: RouteMetadata(summary: "List project automations", description: "Returns automation definitions for a project", tags: ["Automations"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             do {

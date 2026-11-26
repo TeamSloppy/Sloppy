@@ -10,7 +10,7 @@ struct GitHubCodeReviewProvider: CodeReviewProvider {
 
     let id = "github"
     let displayName = "GitHub"
-    let capabilities: Set<String> = ["list_pull_requests", "read_details", "read_comments", "read_diff"]
+    let capabilities: Set<String> = ["list_pull_requests", "read_details", "read_comments", "read_diff", "reply_to_comments"]
 
     private let tokenProvider: @Sendable () -> String?
     private let transport: Transport
@@ -148,7 +148,8 @@ struct GitHubCodeReviewProvider: CodeReviewProvider {
             commentsError: commentErrors.isEmpty ? nil : commentErrors.joined(separator: "\n"),
             diff: diff,
             diffTruncated: diffTruncated,
-            diffError: diffError
+            diffError: diffError,
+            headRevision: (pull["head"] as? [String: Any])?["sha"] as? String
         )
     }
 
@@ -200,10 +201,54 @@ struct GitHubCodeReviewProvider: CodeReviewProvider {
         return rawItems.compactMap { parse($0, role: role) }
     }
 
+    func replyToCodeReviewComment(
+        reviewID: String, parentCommentID: String, body: String, credential: String?
+    ) async throws -> CodeReviewComment {
+        guard let token = tokenProvider(), !token.isEmpty else { throw ProviderError.missingToken }
+        let reference = try parseReviewID(reviewID)
+        let repo = reference.repository
+        let number = reference.number
+        let pullPath = "/repos/\(repo)/pulls"
+        let destination: String
+        let payload: String
+        if parentCommentID.hasPrefix("github-review-comment-"),
+           let id = Int(parentCommentID.dropFirst("github-review-comment-".count)) {
+            let parentData = try await request(path: "\(pullPath)/comments/\(id)", token: token)
+            guard let parent = try JSONSerialization.jsonObject(with: parentData) as? [String: Any],
+                  let pullURL = parent["pull_request_url"] as? String,
+                  pullURL.caseInsensitiveCompare("https://api.github.com\(pullPath)/\(number)") == .orderedSame else {
+                throw ProviderError.invalidResponse
+            }
+            let root = (parent["in_reply_to_id"] as? NSNumber)?.intValue ?? id
+            destination = "\(pullPath)/\(number)/comments/\(root)/replies"
+            payload = body
+        } else {
+            let sources = [
+                ("github-issue-comment-", "issuecomment-"),
+                ("github-review-", "pullrequestreview-"),
+            ]
+            guard let (prefix, anchor) = sources.first(where: { parentCommentID.hasPrefix($0.0) }),
+                  let id = Int(parentCommentID.dropFirst(prefix.count)) else {
+                throw ProviderError.invalidResponse
+            }
+            destination = "/repos/\(repo)/issues/\(number)/comments"
+            payload = "In reply to https://github.com/\(repo)/pull/\(number)#\(anchor)\(id)\n\n\(body)"
+        }
+        let data = try await request(path: destination, token: token, postBody: ["body": payload])
+        guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = result["id"] as? NSNumber, let url = result["html_url"] as? String else {
+            throw ProviderError.invalidResponse
+        }
+        let prefix = destination.hasSuffix("/replies") ? "github-review-comment-" : "github-issue-comment-"
+        return .init(id: prefix + id.stringValue, author: (result["user"] as? [String: Any])?["login"] as? String,
+                     body: result["body"] as? String ?? body, inReplyToId: parentCommentID, url: url)
+    }
+
     private func request(
         path: String,
         token: String,
-        accept: String = "application/vnd.github+json"
+        accept: String = "application/vnd.github+json",
+        postBody: [String: String]? = nil
     ) async throws -> Data {
         guard let url = URL(string: "https://api.github.com\(path)") else {
             throw ProviderError.invalidResponse
@@ -213,6 +258,11 @@ struct GitHubCodeReviewProvider: CodeReviewProvider {
         request.setValue(accept, forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         request.setValue("sloppy-core", forHTTPHeaderField: "User-Agent")
+        if let postBody {
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(postBody)
+        }
         let (data, response) = try await transport(request)
         guard (200..<300).contains(response.statusCode) else {
             throw ProviderError.githubHTTP(
@@ -251,11 +301,11 @@ struct GitHubCodeReviewProvider: CodeReviewProvider {
     private func parseReviewID(_ reviewID: String) throws -> (repository: String, number: Int) {
         let value = reviewID.hasPrefix("github:") ? String(reviewID.dropFirst("github:".count)) : reviewID
         guard let separator = value.lastIndex(of: "#"),
-              let number = Int(value[value.index(after: separator)...]) else {
+              let number = Int(value[value.index(after: separator)...]), number > 0 else {
             throw ProviderError.invalidReviewID
         }
         let repository = String(value[..<separator])
-        guard repository.split(separator: "/").count == 2 else {
+        guard repository.range(of: #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil else {
             throw ProviderError.invalidReviewID
         }
         return (repository, number)

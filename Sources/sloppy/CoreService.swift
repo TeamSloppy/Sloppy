@@ -285,6 +285,7 @@ public actor CoreService {
     var kanbanScheduler: KanbanMaintenanceScheduler?
     var autodreamRunner: AutodreamRunner?
     var cronRunner: CronRunner?
+    var pullRequestAutomationTask: Task<Void, Never>?
     var heartbeatRunner: HeartbeatRunner?
     lazy var proactiveHeartbeatService = makeProactiveHeartbeatService()
     var proactiveTaskEventTask: Task<Void, Never>?

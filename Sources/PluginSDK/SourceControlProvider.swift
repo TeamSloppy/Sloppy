@@ -9,6 +9,9 @@ public enum SourceControlCapability: String, Codable, Sendable, Hashable {
     case worktrees
     case restore
     case merge
+    case pullRequestEvents = "pull_request_events"
+    case pullRequestContext = "pull_request_context"
+    case pullRequestCommentReply = "pull_request_comment_reply"
 }
 
 public enum SourceControlProviderError: Error, LocalizedError, Sendable {
@@ -38,6 +41,28 @@ public protocol SourceControlProvider: Sendable {
     func worktreePath(repoPath: String, taskId: String, worktreeRootPath: String?) -> String
     func restorePathFromHead(repoPath: String, relativePath: String) async throws
     func mergeBranch(repoPath: String, branchName: String, targetBranch: String) async throws
+}
+
+/// Optional extension of the source-control contract. The legacy Swift plugin ABI
+/// and providers that only handle working copies keep their existing requirements.
+public protocol SourceControlPullRequestProvider: SourceControlProvider {
+    func pollPullRequestEvents(_ query: PullRequestEventQuery) async throws -> PullRequestEventPage
+    func getPullRequestContext(_ request: PullRequestContextRequest) async throws -> CodeReviewDetail
+    func replyToPullRequestComment(_ request: PullRequestCommentReply) async throws -> PullRequestCommentReplyReceipt
+}
+
+public extension SourceControlPullRequestProvider {
+    func pollPullRequestEvents(_ query: PullRequestEventQuery) async throws -> PullRequestEventPage {
+        throw SourceControlProviderError.unsupportedOperation("pull request events")
+    }
+
+    func getPullRequestContext(_ request: PullRequestContextRequest) async throws -> CodeReviewDetail {
+        throw SourceControlProviderError.unsupportedOperation("pull request context")
+    }
+
+    func replyToPullRequestComment(_ request: PullRequestCommentReply) async throws -> PullRequestCommentReplyReceipt {
+        throw SourceControlProviderError.unsupportedOperation("pull request comment reply")
+    }
 }
 
 public extension SourceControlProvider {

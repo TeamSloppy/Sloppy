@@ -161,6 +161,7 @@ extension CoreService {
             cronRunner = makeCronRunner()
         }
         await cronRunner?.start()
+        startPullRequestAutomation()
 
         if heartbeatRunner == nil {
             heartbeatRunner = HeartbeatRunner(
@@ -246,6 +247,7 @@ extension CoreService {
         await runtime.stopVisorSupervision()
         await memoryOutboxIndexer?.stop()
         await cronRunner?.stop()
+        stopPullRequestAutomation()
         await heartbeatRunner?.stop()
         await taskSyncRunner?.stop()
         await stopManualMeshClient()

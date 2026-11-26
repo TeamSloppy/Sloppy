@@ -728,6 +728,7 @@ public actor CoreRouter {
         guard request.segments.first == "v1" else {
             return true
         }
+        if isGitHubPullRequestWebhook(request) { return true }
         if request.method == .get,
            request.segments == ["v1", "auth", "challenge"] {
             return true
@@ -1793,6 +1794,7 @@ public actor CoreRouter {
         guard request.segments.first == "v1" else {
             return false
         }
+        if Self.isGitHubPullRequestWebhook(request) { return false }
         if request.method == .get,
            request.segments == ["v1", "dashboard", "auth", "status"] {
             return false
@@ -1803,6 +1805,10 @@ public actor CoreRouter {
         }
         let status = await service.dashboardAuthStatus()
         return status.protectsMutatingRoutes
+    }
+
+    private static func isGitHubPullRequestWebhook(_ request: HTTPRequest) -> Bool {
+        request.method == .post && request.segments == ["v1", "pr-automation", "github", "webhook"]
     }
 }
 

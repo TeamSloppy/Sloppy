@@ -67,6 +67,10 @@ struct NodePluginRuntime: Sendable {
         as type: T.Type
     ) async throws -> T {
         let result = try await callJSON(method, params: params)
+        return try Self.decode(result, as: type)
+    }
+
+    static func decode<T: Decodable>(_ result: JSONValue, as type: T.Type) throws -> T {
         let data = try JSONEncoder().encode(result)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in

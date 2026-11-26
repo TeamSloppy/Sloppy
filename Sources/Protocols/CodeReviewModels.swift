@@ -116,6 +116,7 @@ public struct CodeReviewComment: Codable, Sendable, Equatable, Identifiable {
     public var status: String?
     public var createdAt: Date?
     public var updatedAt: Date?
+    public var url: String?
 
     public init(
         id: String,
@@ -131,7 +132,8 @@ public struct CodeReviewComment: Codable, Sendable, Equatable, Identifiable {
         isOutdated: Bool? = nil,
         status: String? = nil,
         createdAt: Date? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        url: String? = nil
     ) {
         self.id = id
         self.author = author
@@ -147,6 +149,7 @@ public struct CodeReviewComment: Codable, Sendable, Equatable, Identifiable {
         self.status = status
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.url = url
     }
 }
 
@@ -161,6 +164,7 @@ public struct CodeReviewDetail: Codable, Sendable, Equatable {
     public var diff: String
     public var diffTruncated: Bool
     public var diffError: String?
+    public var headRevision: String?
 
     public init(
         item: CodeReviewItem,
@@ -172,7 +176,8 @@ public struct CodeReviewDetail: Codable, Sendable, Equatable {
         commentsError: String? = nil,
         diff: String = "",
         diffTruncated: Bool = false,
-        diffError: String? = nil
+        diffError: String? = nil,
+        headRevision: String? = nil
     ) {
         self.item = item
         self.description = description
@@ -184,6 +189,7 @@ public struct CodeReviewDetail: Codable, Sendable, Equatable {
         self.diff = diff
         self.diffTruncated = diffTruncated
         self.diffError = diffError
+        self.headRevision = headRevision
     }
 }
 

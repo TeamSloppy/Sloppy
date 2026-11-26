@@ -145,6 +145,42 @@ struct NodeSourceControlPluginTests {
             }
         }
     }
+
+    @Test
+    func pullRequestOperationsUseTheV2SourceControlContract() async throws {
+        guard nodeIsAvailable() else { return }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("pr-contract-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = """
+        let input = "";
+        process.stdin.on("data", chunk => input += chunk);
+        process.stdin.on("end", () => {
+          const request = JSON.parse(input);
+          const result = request.method === "source_control.pollPullRequestEvents"
+            && request.params.since === "1970-01-01T00:00:00Z"
+            && request.params.account === "reviewer"
+            ? { events: [], nextCursor: request.params.cursor, hasMore: false }
+            : null;
+          process.stdout.write(JSON.stringify({ id: request.id, result }));
+        });
+        """
+        try script.write(to: root.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+        let provider = try NodeSourceControlProvider(
+            manifest: .init(name: "pr-provider", protocol: "source_control",
+                            apiVersion: PluginManifest.nodePluginAPIVersionV2, runtime: .nodejs, entrypoint: "index.js"),
+            pluginDirectory: root,
+            descriptor: .init(sourceControls: [.init(name: "pr-provider", capabilities: ["pull_request_events"])])
+        )
+        let cursor = JSONValue.object(["since": .string("provider-specific")])
+        let page = try await provider.pollPullRequestEvents(.init(
+            repositoryPath: root.path, account: "reviewer", reviewIDs: [], kinds: [.reviewRequested],
+            since: Date(timeIntervalSince1970: 0), cursor: cursor
+        ))
+        #expect(page.nextCursor == cursor)
+        #expect(page.events.isEmpty)
+        #expect(provider.capabilities == [.pullRequestEvents])
+    }
 }
 
 private func nodeIsAvailable() -> Bool {
