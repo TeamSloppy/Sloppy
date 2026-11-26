@@ -84,7 +84,7 @@ jobs:
       - name: Windows runtime regression tests
         shell: pwsh
         run: |
-          swift test --parallel --filter 'WindowsServiceTests|WindowsSupportTests|SloppyCLIParsingTests|LocalOwnerAuthTests|ProtocolsTests|AgentRuntimeTests|FoundationModelTransportTests|dashboardRuntimeConfig|dashboardHTTPServerKeepsLocalConsoleRequestsOnLoopback|consoleDashboardEndpointsRequireLocalOwnerAndRejectExternalOrigins' > windows-runtime-tests.log 2>&1
+          swift test --parallel --filter 'WindowsServiceTests|WindowsSupportTests|SloppyCLIParsingTests|LocalOwnerAuthTests|ProtocolsTests|AgentRuntimeTests|FoundationModelTransportTests|dashboardRuntimeConfig|dashboardHTTPServerKeepsLocalConsoleRequestsOnLoopback|consoleDashboardEndpointsRequireLocalOwnerAndRejectExternalOrigins|MCPHTTPDiscoveryTests' > windows-runtime-tests.log 2>&1
           if ($LASTEXITCODE -ne 0) {
             Get-Content windows-runtime-tests.log -Tail 400
             throw "Windows runtime regression tests failed."
