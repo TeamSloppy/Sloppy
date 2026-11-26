@@ -347,5 +347,19 @@ enum MCPHTTPDiscovery {
 
 struct MCPRPCFailure: LocalizedError {
     let code: Int
+    var rejectedBeforeExecution: Bool { [-32600, -32601, -32602, -32020, -32021, -32022].contains(code) }
     var errorDescription: String? { "MCP server returned JSON-RPC error \(code)." }
+}
+
+
+struct MCPToolOutcomeUnknown: LocalizedError {
+    static let code = "mcp_tool_outcome_unknown"
+
+    var errorDescription: String? {
+        "The MCP call may have produced side effects. Check its remote outcome before replaying it."
+    }
+
+    func result(tool: String) -> ToolInvocationResult {
+        toolFailure(tool: tool, code: Self.code, message: localizedDescription, retryable: false)
+    }
 }

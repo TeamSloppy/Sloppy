@@ -386,20 +386,26 @@ actor MCPServerConnection {
         case .modern(let server):
             let params: [String: JSONValue] = ["name": .string(name), "arguments": .object(arguments)]
             let headers = try await mirroredToolHeaders(name: name, arguments: arguments, server: server)
-            let raw: [String: JSONValue]
             do {
-                raw = try await request("tools/call", params: params, server: server, capability: "tools", headers: headers, interaction: interaction)
-            } catch let failure as MCPRPCFailure where failure.code == -32020 && config.transport == .http {
-                toolHeaders.removeValue(forKey: name)
-                let refreshed = try await mirroredToolHeaders(name: name, arguments: arguments, server: server)
-                guard refreshed != headers else { throw failure }
-                raw = try await request("tools/call", params: params, server: server, capability: "tools", headers: refreshed, interaction: interaction)
+                let raw: [String: JSONValue]
+                do {
+                    raw = try await request("tools/call", params: params, server: server, capability: "tools", headers: headers, interaction: interaction)
+                } catch let failure as MCPRPCFailure where failure.code == -32020 && config.transport == .http {
+                    toolHeaders.removeValue(forKey: name)
+                    let refreshed = try await mirroredToolHeaders(name: name, arguments: arguments, server: server)
+                    guard refreshed != headers else { throw failure }
+                    raw = try await request("tools/call", params: params, server: server, capability: "tools", headers: refreshed, interaction: interaction)
+                }
+                if raw["resultType"]?.asString == "task", let interaction {
+                    return try await interaction.registerTask(raw, config)
+                }
+                let result = try decodeComplete(raw, as: CallTool.Result.self)
+                return MCPToolReply(content: result.content, isError: result.isError, structuredContent: raw["structuredContent"])
+            } catch let failure as MCPRPCFailure where failure.rejectedBeforeExecution {
+                throw failure
+            } catch {
+                throw MCPToolOutcomeUnknown()
             }
-            if raw["resultType"]?.asString == "task", let interaction {
-                return try await interaction.registerTask(raw, config)
-            }
-            let result = try decodeComplete(raw, as: CallTool.Result.self)
-            return MCPToolReply(content: result.content, isError: result.isError, structuredContent: raw["structuredContent"])
         }
     }
 
@@ -496,9 +502,14 @@ actor MCPServerConnection {
         if let interaction {
             outgoing["_meta"] = .object(["progressToken": .string(interaction.progressToken)])
         }
-        for _ in 0..<32 {
-            let result = try await sendModern(method, params: outgoing, capabilities: capabilities,
+        for round in 0..<32 {
+            let result: [String: JSONValue]
+            do {
+                result = try await sendModern(method, params: outgoing, capabilities: capabilities,
                                               headers: headers, onNotification: interaction?.notification)
+            } catch is MCPRPCFailure where method == "tools/call" && round > 0 {
+                throw MCPToolOutcomeUnknown()
+            }
             guard result["resultType"]?.asString == "input_required" else { return result }
             let state = result["requestState"]?.asString.map(JSONValue.string)
             let requests = result["inputRequests"]?.asObject

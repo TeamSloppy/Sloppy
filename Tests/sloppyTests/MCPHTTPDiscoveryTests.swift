@@ -412,6 +412,33 @@ struct MCPHTTPDiscoveryTests {
         }
     }
 
+    @Test func lostToolResponseRequiresReconciliationBeforeReplay() async throws {
+        let methods = MCPFixtureMethods()
+        try await withMCPServer { request in
+            await methods.append(request.rpcMethod)
+            switch request.rpcMethod {
+            case "server/discover":
+                return .init(status: 200, body: request.discoverReply(capabilities: ["tools": .object([:])]))
+            case "tools/list":
+                return request.complete(["tools": .array([.object([
+                    "name": .string("mutate"), "inputSchema": .object(["type": .string("object")])
+                ])]), "ttlMs": .number(60_000)])
+            default: return .init(status: 502, body: Data())
+            }
+        } run: { endpoint in
+            let (service, session) = try await self.chat(endpoint: endpoint)
+            let request = ToolInvocationRequest(tool: "mcp.modern.mutate", arguments: [:])
+            let result = await service.invokeToolFromRuntime(agentID: session.agentId, sessionID: session.id, request: request)
+            #expect(result.error?.code == "mcp_tool_outcome_unknown")
+            #expect(result.error?.retryable == false)
+            let detail = try await service.getAgentSession(agentID: session.agentId, sessionID: session.id)
+            #expect(detail.events.compactMap(\.toolResult).last?.executionOutcome?.requiresReconciliation == true)
+            let again = await service.invokeToolFromRuntime(agentID: session.agentId, sessionID: session.id, request: request)
+            #expect(again.error?.code == "tool_reconciliation_required")
+            #expect(await methods.snapshot().filter { $0 == "tools/call" }.count == 1)
+        }
+    }
+
     private func withMCPServer(
         _ handle: @escaping @Sendable (HTTPRequest) async -> CoreRouterResponse,
         run: (String) async throws -> Void

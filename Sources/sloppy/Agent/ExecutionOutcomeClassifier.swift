@@ -3,6 +3,14 @@ import Foundation
 import Protocols
 
 enum ExecutionOutcomeClassifier {
+    static func toolResult(_ result: ToolInvocationResult) -> ExecutionOutcome {
+        if result.error?.code == MCPToolOutcomeUnknown.code {
+            return .init(state: .interrupted, category: .unknown, code: result.error?.code, requiresReconciliation: true)
+        }
+        return .init(state: result.ok ? .completed : .failed, category: result.ok ? nil : .tool,
+                     code: result.error?.code, retryable: result.error?.retryable ?? false)
+    }
+
     static func classify(reason: NativeAgentLoopTurnExitReason, interrupted: Bool = false, waitingInput: Bool = false, blocked: Bool = false, incomplete: Bool = false) -> ExecutionOutcome {
         if interrupted || reason == .consumerCancelled || reason == .modelCancelled { return .init(state: .cancelled) }
         if waitingInput { return .init(state: .waitingInput) }

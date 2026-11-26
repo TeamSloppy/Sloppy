@@ -144,6 +144,8 @@ struct MCPCallToolTool: CoreTool {
                 if let readOnly = traits.readOnly { data["readOnly"] = .bool(readOnly) }
             }
             return toolSuccess(tool: name, data: .object(data))
+        } catch let unknown as MCPToolOutcomeUnknown {
+            return unknown.result(tool: name)
         } catch {
             Counter(label: "sloppy.tool.discovery.mcp_calls", dimensions: [("outcome", "transport_error")]).increment()
             return toolFailure(tool: name, code: "mcp_error", message: String(describing: error), retryable: true)

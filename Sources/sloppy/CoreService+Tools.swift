@@ -170,8 +170,7 @@ extension CoreService {
                     request: .init(events: [.init(agentId: normalizedAgentID, sessionId: normalizedSessionID, type: .toolResult,
                         toolResult: .init(tool: result.tool, ok: result.ok, data: result.data, error: result.error,
                             durationMs: result.durationMs, callEventId: callEvent.id,
-                            executionOutcome: .init(state: result.ok ? .completed : .failed, category: result.ok ? nil : .tool,
-                                code: result.error?.code, retryable: result.error?.retryable ?? false)))]))
+                            executionOutcome: ExecutionOutcomeClassifier.toolResult(result)))]))
             }
             return result
         }
@@ -582,7 +581,7 @@ extension CoreService {
                 error: result.error,
                 durationMs: result.durationMs,
                 callEventId: toolCallEvent.id,
-                executionOutcome: .init(state: result.ok ? .completed : .failed, category: result.ok ? nil : .tool, code: result.error?.code, retryable: result.error?.retryable ?? false)
+                executionOutcome: ExecutionOutcomeClassifier.toolResult(result)
             )
         )
 
