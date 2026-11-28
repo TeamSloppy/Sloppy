@@ -227,6 +227,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
         case invalidTokenPayload
         case missingCodexCredentials
         case invalidCodexCredentials
+        case catalogUnauthorized
 
         var errorDescription: String? {
             switch self {
@@ -252,6 +253,8 @@ struct OpenAIOAuthService: @unchecked Sendable {
                 return "OpenAI OAuth token payload is invalid."
             case .missingCodexCredentials:
                 return "Codex credentials were not found in ~/.codex/auth.json. Sign in with the official Codex app or CLI first."
+            case .catalogUnauthorized:
+                return "OpenAI OAuth could not authorize the Codex model catalog. Reconnect Codex."
             case .invalidCodexCredentials:
                 return "Codex credentials in ~/.codex/auth.json are missing a valid OpenAI OAuth access token."
             }
@@ -402,8 +405,12 @@ struct OpenAIOAuthService: @unchecked Sendable {
 
     func fetchModels() async throws -> [ProviderModelOption] {
         let stored = try await validCredentials()
-        let models = try await fetchModels(using: stored)
-        return models
+        do {
+            return try await fetchModels(using: stored)
+        } catch Error.catalogUnauthorized {
+            let refreshed = try await validCredentials(forceRefresh: true)
+            return try await fetchModels(using: refreshed)
+        }
     }
 
     func probe() async -> ProviderProbeResponse {
@@ -444,6 +451,13 @@ struct OpenAIOAuthService: @unchecked Sendable {
             try fileManager.removeItem(at: url)
         }
         Self.logger.info("openai_oauth.disconnected")
+    }
+
+    func imageGenerationCredentials(forceRefresh: Bool) async throws -> (accessToken: String, accountID: String) {
+        let auth = try await validCredentials(forceRefresh: forceRefresh)
+        guard let accountID = auth.tokens.accountId ?? Self.parseAuthClaims(from: auth.tokens.accessToken)?.accountId,
+              !accountID.isEmpty else { throw Error.missingAccountID }
+        return (auth.tokens.accessToken, accountID)
     }
 
     func ensureValidToken(forceRefresh: Bool = false) async throws {
@@ -645,6 +659,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
         }
 
         let (data, response) = try await transport(request)
+        if response.statusCode == 401 { throw Error.catalogUnauthorized }
         guard (200..<300).contains(response.statusCode) else {
             throw Error.tokenExchangeFailed(httpErrorMessage(data: data, statusCode: response.statusCode))
         }

@@ -205,6 +205,7 @@ export function ConfigView({
     hasEnvironmentKey: false,
     hasConfiguredKey: false,
     hasAnyKey: false,
+    hasCodexConnection: false,
     models: []
   });
   const providerModelLoadTimerRef = useRef(null);
@@ -624,6 +625,7 @@ export function ConfigView({
       enabled: Boolean(payload.enabled),
       provider: String(payload.provider || "fal"),
       model: String(payload.model || "fal-ai/flux-2"),
+      hasCodexConnection: Boolean(payload.hasCodexConnection),
       hasEnvironmentKey: Boolean(payload.hasEnvironmentKey),
       hasConfiguredKey: Boolean(payload.hasConfiguredKey),
       hasAnyKey: Boolean(payload.hasAnyKey),
@@ -1810,6 +1812,7 @@ export function ConfigView({
           draftConfig={draftConfig}
           status={imageGenerationStatus}
           mutateDraft={mutateDraft}
+          openProviders={() => selectSettings("providers")}
         />
       );
     }

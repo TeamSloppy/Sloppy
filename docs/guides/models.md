@@ -169,6 +169,20 @@ Each model entry in `sloppy.json` has four fields:
 
 ## Provider examples
 
+### Image generation
+
+Open **Settings → Image Generation** and turn it on for tool calls. Choose
+**Follow agent** to use Codex OAuth on Codex turns and the OpenAI Images API on
+OpenAI API turns. For other agents, choose an image provider explicitly.
+
+For example, send a prompt such as “Generate a square fox sprite with
+`images.generate`.” The tool returns a saved image artifact. To edit that
+image, supply it as a reference with the requested changes. To use API billing
+with a Codex chat, select **OpenAI API** here and configure its key under
+**Settings → Providers**. Select **Codex** to use the connected ChatGPT
+account from any chat, or **FAL** to use the configured FAL provider.
+The current image provider and its credential are required for each call.
+
 ### OpenAI
 
 ```json

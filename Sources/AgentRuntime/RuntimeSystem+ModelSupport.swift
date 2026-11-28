@@ -4,6 +4,11 @@ import Logging
 import PluginSDK
 import Protocols
 
+/// The exact model responsible for a native tool call, scoped to that invocation.
+public enum RuntimeToolModel {
+    @TaskLocal public static var current: String?
+}
+
 extension RuntimeSystem {
     func userMessageWithAutoRecalledMemory(channelId: String, userMessage: String) async -> String {
         memoryInjectionByChannel.removeValue(forKey: channelId)
@@ -308,7 +313,9 @@ extension RuntimeSystem {
                 )
             },
             toolCallHandler: { request in
-                let result = await toolCallHandler(request)
+                let result = await RuntimeToolModel.$current.withValue(model) {
+                    await toolCallHandler(request)
+                }
                 await loopTracker?.recordLoopBlock(result)
                 return result
             }

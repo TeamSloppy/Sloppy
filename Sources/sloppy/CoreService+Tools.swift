@@ -518,7 +518,7 @@ extension CoreService {
                     } else {
                         invokeCodeModeTool = nil
                     }
-                    let timeoutMs = toolInvocationHardTimeoutMs(request: invocationRequest, policy: invocationPolicy)
+                    let timeoutMs = toolInvocationHardTimeoutMs(request: invocationRequest, policy: invocationPolicy, imageTimeoutMs: currentConfig.imageGeneration.timeoutMs)
                     result = await runToolInvocationWithHardTimeout(
                         toolID: invocationRequest.tool,
                         timeoutMs: timeoutMs
@@ -936,7 +936,7 @@ extension CoreService {
                     } else {
                         invokeCodeModeTool = nil
                     }
-                    let timeoutMs = toolInvocationHardTimeoutMs(request: invocationRequest, policy: invocationPolicy)
+                    let timeoutMs = toolInvocationHardTimeoutMs(request: invocationRequest, policy: invocationPolicy, imageTimeoutMs: currentConfig.imageGeneration.timeoutMs)
                     result = await runToolInvocationWithHardTimeout(
                         toolID: invocationRequest.tool,
                         timeoutMs: timeoutMs
@@ -1329,6 +1329,7 @@ extension CoreService {
     func configureToolExecutionServices() {
         toolExecution.projectService = self
         toolExecution.configService = self
+        toolExecution.codexImageOAuth = openAIOAuthService
         toolExecution.skillsService = self
         toolExecution.memoryImportService = self
         toolExecution.siteService = self
@@ -1677,7 +1678,7 @@ private func toolReplayResult(for request: ToolInvocationRequest, session: Agent
         message: "The previous identical call may have produced side effects. Inspect its saved outcome before replaying it.", retryable: false)
 }
 
-private func toolInvocationHardTimeoutMs(request: ToolInvocationRequest, policy: AgentToolsPolicy) -> Int {
+private func toolInvocationHardTimeoutMs(request: ToolInvocationRequest, policy: AgentToolsPolicy, imageTimeoutMs: Int) -> Int {
     let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
     switch toolID {
     case CodeMode.toolID:
@@ -1689,6 +1690,9 @@ private func toolInvocationHardTimeoutMs(request: ToolInvocationRequest, policy:
 
     case "runtime.exec":
         return resolvedExecTimeoutMs(arguments: request.arguments, guardrails: policy.guardrails) + 3_000
+
+    case "images.generate":
+        return imageTimeoutMs + 5_000
 
     case "agents.delegate_task":
         return Int(ToolApprovalService.defaultTimeoutSeconds * 1_000) + 5_000

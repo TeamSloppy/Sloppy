@@ -571,6 +571,7 @@ public struct ImageGenerationStatusResponse: Codable, Sendable, Equatable {
     public var hasEnvironmentKey: Bool
     public var hasConfiguredKey: Bool
     public var hasAnyKey: Bool
+    public var hasCodexConnection: Bool?
     public var models: [ImageGenerationModelOption]
 
     public init(
@@ -580,6 +581,7 @@ public struct ImageGenerationStatusResponse: Codable, Sendable, Equatable {
         hasEnvironmentKey: Bool,
         hasConfiguredKey: Bool,
         hasAnyKey: Bool,
+        hasCodexConnection: Bool? = nil,
         models: [ImageGenerationModelOption]
     ) {
         self.enabled = enabled
@@ -588,6 +590,7 @@ public struct ImageGenerationStatusResponse: Codable, Sendable, Equatable {
         self.hasEnvironmentKey = hasEnvironmentKey
         self.hasConfiguredKey = hasConfiguredKey
         self.hasAnyKey = hasAnyKey
+        self.hasCodexConnection = hasCodexConnection
         self.models = models
     }
 }
