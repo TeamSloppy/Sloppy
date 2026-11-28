@@ -31,33 +31,13 @@ struct OpenAIModelProviderFactory: ModelProviderFactory {
         let models = config.resolvedModels.filter { $0.hasPrefix("openai-api:") }
         guard !models.isEmpty else { return nil }
 
-        let primaryConfig = config.modelConfigs.first {
-            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
-        }
-        // An explicit unresolved reference must not become a literal key or fall back to another account.
-        guard let resolution = try? ProviderAPIKeyResolver.resolve(
-            configured: primaryConfig?.apiKey, environmentLookup: environmentLookup ?? config.environmentLookup
+        guard let connection = Self.apiConnection(
+            modelConfigs: config.modelConfigs, environmentLookup: environmentLookup ?? config.environmentLookup
         ) else { return nil }
-        let resolvedStaticKey = resolution.key
-
-        let parsedPrimaryURL = CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
-        let allowKeylessLAN = parsedPrimaryURL.map { OpenAICompatibleCatalogEndpoint.hostAllowsKeylessOpenAIProbe(host: $0.host) } ?? false
-
-        let keyProvider: (@Sendable () -> String)
-        if !resolvedStaticKey.isEmpty {
-            keyProvider = { resolvedStaticKey }
-        } else if allowKeylessLAN {
-            keyProvider = { "" }
-        } else {
-            return nil
-        }
-
-        let baseURL = CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
-            ?? OpenAILanguageModel.defaultBaseURL
 
         let settings = OpenAIModelProvider.Settings(
-            apiKey: keyProvider,
-            baseURL: baseURL,
+            apiKey: { connection.apiKey },
+            baseURL: connection.baseURL,
             session: config.proxySession,
             modelIdentifierPrefix: "openai-api:",
             useOpenAICodexOAuthPath: false
@@ -70,6 +50,24 @@ struct OpenAIModelProviderFactory: ModelProviderFactory {
             tools: config.tools,
             systemInstructions: config.systemInstructions
         )
+    }
+
+    /// OpenAI API chat models share the first configured provider connection.
+    static func apiConnection(
+        modelConfigs: [CoreConfig.ModelConfig],
+        environmentLookup: (String) -> String?
+    ) -> (apiKey: String, baseURL: URL)? {
+        let primary = modelConfigs.first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
+        }
+        // Resolve explicit references before choosing a provider; do not substitute other accounts.
+        guard let resolution = try? ProviderAPIKeyResolver.resolve(configured: primary?.apiKey, environmentLookup: environmentLookup) else {
+            return nil
+        }
+        let configuredURL = CoreModelProviderFactory.parseURL(primary?.apiUrl)
+        let allowsKeyless = configuredURL.map { OpenAICompatibleCatalogEndpoint.hostAllowsKeylessOpenAIProbe(host: $0.host) } ?? false
+        guard !resolution.key.isEmpty || allowsKeyless else { return nil }
+        return (resolution.key, configuredURL ?? OpenAILanguageModel.defaultBaseURL)
     }
 
     private func buildOAuthProvider(from config: ModelProviderBuildConfig) -> OpenAIModelProvider? {

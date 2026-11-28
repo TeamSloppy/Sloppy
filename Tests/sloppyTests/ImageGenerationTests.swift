@@ -85,6 +85,87 @@ private func imageGenerationRequestBody(_ request: URLRequest) -> Data? {
 
 @Suite("Image generation", .serialized)
 struct ImageGenerationTests {
+    @Test("Follow agent chooses a route only for the effective OpenAI provider")
+    func followAgentRouting() throws {
+        #expect(ImageGenerationRouting.resolve(.followAgent, turnModel: "openai-oauth:gpt-6.2-sol", models: []) == .codex)
+        #expect(ImageGenerationRouting.resolve(.followAgent, turnModel: "openai-api:gpt-test", models: []) == .openAI)
+        #expect(ImageGenerationRouting.resolve(.followAgent, turnModel: "anthropic:claude", models: []) == nil)
+        #expect(ImageGenerationRouting.resolve(.followAgent, turnModel: nil, models: []) == nil)
+        #expect(ImageGenerationRouting.resolve(.openAI, turnModel: "openai-oauth:gpt-6.2-sol", models: []) == .openAI)
+        #expect(ImageGenerationRouting.resolve(.codex, turnModel: "openai-api:gpt-test", models: []) == .codex)
+        #expect(ImageGenerationRouting.codexHost(preferred: "current", catalog: ["gpt-6.2-sol", "current"]) == "current")
+        let settings = CoreConfig.ImageGeneration(enabled: true, provider: .codex)
+        let decoded = try JSONDecoder().decode(CoreConfig.ImageGeneration.self, from: JSONEncoder().encode(settings))
+        #expect(decoded == settings)
+        #expect(decoded.model == "gpt-image-2")
+    }
+
+    @Test("Follow agent uses the same OpenAI connection as chat across model IDs")
+    func followsOpenAIConnection() {
+        let primary = CoreConfig.ModelConfig(title: "Primary", apiKey: "$IMAGE_TEST_KEY", apiUrl: "https://primary.test/v1", model: "one", providerCatalogId: "openai-api")
+        let second = CoreConfig.ModelConfig(title: "Second", apiKey: "second-test", apiUrl: "https://second.test/v1", model: "two", providerCatalogId: "openai-api")
+        let result = ImageGenerationCredentialResolver.resolve(
+            provider: .openAI, config: .init(provider: .followAgent), models: [primary, second],
+            environmentOverrides: [:], processEnvironment: [:],
+            followedAPIEnvironment: { $0 == "IMAGE_TEST_KEY" ? "primary-test" : nil }
+        )
+        #expect(result.apiKey == "primary-test")
+        #expect(result.apiBaseURL?.host == "primary.test")
+    }
+
+    @Test("Codex refreshes once, completes a reference edit, and reports actual dimensions")
+    func codexReferenceEdit() async throws {
+        let png = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGP4n8IjZ7MFAAmrAn7yvoSsAAAAAElFTkSuQmCC"))
+        let headers = ImageGenerationLocked<[String]>([])
+        let requestBody = ImageGenerationLocked<Data?>(nil)
+        ImageGenerationMockURLProtocol.requestHandler = { request in
+            #expect(request.url?.absoluteString == "https://chatgpt.com/backend-api/codex/responses")
+            #expect(request.value(forHTTPHeaderField: "ChatGPT-Account-Id") == "account")
+            let bearer = request.value(forHTTPHeaderField: "Authorization") ?? ""
+            headers.withLock { $0.append(bearer) }
+            if bearer == "Bearer stale" {
+                return (imageGenerationHTTPResponse(request: request, status: 401), Data())
+            }
+            requestBody.withLock { $0 = imageGenerationRequestBody(request) }
+            let partial = "data: {\"type\":\"response.image_generation_call.partial_image\",\"partial_image_b64\":\"partial\"}\n\n"
+            let item = "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"\(png.base64EncodedString())\"}}\n\n"
+            let completed = "data: {\"type\":\"response.completed\",\"response\":{\"output\":[]}}\n\n"
+            return (imageGenerationHTTPResponse(request: request, contentType: "text/event-stream"), Data((partial + item + completed).utf8))
+        }
+        defer { ImageGenerationMockURLProtocol.requestHandler = nil }
+        let provider = CodexImageGenerationProvider(
+            credentials: { ($0 ? "fresh" : "stale", "account") },
+            hostModel: "fixture-model",
+            session: imageGenerationSession()
+        )
+        let model = try #require(ImageGenerationCatalog.model(id: "gpt-image-2", provider: .codex))
+        let source = "data:image/png;base64,\(png.base64EncodedString())"
+        let result = try await provider.generate(
+            request: .init(prompt: "Tint the sprite blue", aspectRatio: .square, sourceImages: [source], seed: nil),
+            model: model, timeoutMs: 10_000
+        )
+        #expect(headers.withLock { $0 } == ["Bearer stale", "Bearer fresh"])
+        #expect(result.imageData == png)
+        #expect(result.width == 2)
+        #expect(result.height == 1)
+        let body = try #require(requestBody.withLock { $0 })
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let tools = try #require(json["tools"] as? [[String: String]])
+        let messages = try #require(json["input"] as? [[String: Any]])
+        let content = try #require(messages.first?["content"] as? [[String: String]])
+        #expect(json["model"] as? String == "fixture-model")
+        #expect(tools.first?["action"] == "edit")
+        #expect(content.last?["image_url"] == source)
+    }
+
+    @Test("Codex image bytes require a completed response")
+    func codexRejectsTruncatedImage() {
+        let item = #"data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"YWJj"}}"#
+        #expect(throws: ImageGenerationProviderError.invalidResponse("Codex image stream ended before completion.")) {
+            try CodexImageGenerationProvider.completedImage(in: Data(item.utf8))
+        }
+    }
+
     @Test("old config payloads receive disabled image generation defaults")
     func backwardCompatibleConfigDefaults() throws {
         let encoded = try JSONEncoder().encode(CoreConfig.test)
@@ -475,7 +556,7 @@ struct ImageGenerationTests {
         #expect(status.enabled)
         #expect(status.model == "fal-ai/flux-2-pro")
         #expect(status.hasConfiguredKey)
-        #expect(status.models.count == 3)
+        #expect(Set(status.models.map(\.provider)) == ["fal", "openai", "codex"])
         #expect(status.models.contains { $0.id == "gpt-image-2" && $0.provider == "openai" })
 
         let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])

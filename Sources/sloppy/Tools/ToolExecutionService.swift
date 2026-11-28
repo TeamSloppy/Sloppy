@@ -26,6 +26,7 @@ final class ToolExecutionService: @unchecked Sendable {
     private let artifactRetention = ToolOutputArtifactRetention()
     var projectService: (any ProjectToolService)?
     var configService: (any RuntimeConfigToolService)?
+    var codexImageOAuth: OpenAIOAuthService?
     var skillsService: (any SkillsToolService)?
     var memoryImportService: (any MemoryImportToolService)?
     var siteService: (any SiteToolService)?
@@ -216,6 +217,7 @@ final class ToolExecutionService: @unchecked Sendable {
             logger: logger,
             projectService: projectService,
             configService: configService,
+            codexImageOAuth: codexImageOAuth,
             skillsService: skillsService,
             memoryImportService: memoryImportService,
             siteService: siteService,

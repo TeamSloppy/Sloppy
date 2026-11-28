@@ -73,10 +73,17 @@ enum ImageGenerationCatalog {
             editEndpoint: "v1/images/edits",
             maxReferenceImages: 16
         ),
+        ImageGenerationModelDefinition(
+            id: "gpt-image-2",
+            title: "GPT Image 2",
+            provider: .codex,
+            editEndpoint: "responses",
+            maxReferenceImages: 16
+        ),
     ]
 
-    static func model(id: String) -> ImageGenerationModelDefinition? {
-        models.first { $0.id == id }
+    static func model(id: String, provider: CoreConfig.ImageGeneration.ProviderID? = nil) -> ImageGenerationModelDefinition? {
+        models.first { $0.id == id && (provider == nil || $0.provider == provider) }
     }
 
     static func models(for provider: CoreConfig.ImageGeneration.ProviderID) -> [ImageGenerationModelDefinition] {

@@ -1527,8 +1527,12 @@ public struct CoreConfig: Codable, Sendable {
 
     public struct ImageGeneration: Codable, Sendable, Equatable {
         public enum ProviderID: String, Codable, Sendable, Equatable {
+            case followAgent
+            case codex
             case fal
             case openAI = "openai"
+
+            var defaultModel: String { self == .fal ? "fal-ai/flux-2" : "gpt-image-2" }
         }
 
         public struct FAL: Codable, Sendable, Equatable {
@@ -1548,14 +1552,14 @@ public struct CoreConfig: Codable, Sendable {
         public init(
             enabled: Bool = false,
             provider: ProviderID = .fal,
-            model: String = "fal-ai/flux-2",
+            model: String? = nil,
             fal: FAL = FAL(),
             timeoutMs: Int = 180_000
         ) {
             self.enabled = enabled
             self.provider = provider
-            let normalizedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.model = normalizedModel.isEmpty ? "fal-ai/flux-2" : normalizedModel
+            let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.model = normalizedModel.flatMap { $0.isEmpty ? nil : $0 } ?? provider.defaultModel
             self.fal = fal
             self.timeoutMs = min(max(timeoutMs, 10_000), 600_000)
         }
@@ -1570,10 +1574,11 @@ public struct CoreConfig: Codable, Sendable {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            let provider = try container.decodeIfPresent(ProviderID.self, forKey: .provider) ?? .fal
             self.init(
                 enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
-                provider: try container.decodeIfPresent(ProviderID.self, forKey: .provider) ?? .fal,
-                model: try container.decodeIfPresent(String.self, forKey: .model) ?? "fal-ai/flux-2",
+                provider: provider,
+                model: try container.decodeIfPresent(String.self, forKey: .model) ?? provider.defaultModel,
                 fal: try container.decodeIfPresent(FAL.self, forKey: .fal) ?? FAL(),
                 timeoutMs: try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 180_000
             )

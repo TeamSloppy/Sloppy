@@ -1690,6 +1690,60 @@
   margin-top: 8px;
 }
 
+
+.config-image-provider-picker > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 8px 12px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.config-image-provider-picker > summary::-webkit-details-marker { display: none; }
+
+.config-image-provider-picker > summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin: -3px 2px 0;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.config-image-provider-picker[open] > summary::after { transform: rotate(225deg); }
+.config-image-provider-picker > summary:hover,
+.config-image-provider-picker > .actor-team-dropdown button:hover,
+.config-image-provider-picker > .actor-team-dropdown button[aria-checked="true"] {
+  background: var(--surface-3);
+}
+
+.config-image-provider-picker > .actor-team-dropdown button {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+}
+
+.config-image-provider-picker > .actor-team-dropdown button[aria-checked="true"] {
+  font-weight: 700;
+  box-shadow: inset 2px 0 currentColor;
+}
+
+.config-image-provider-picker :is(summary, button):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -3px;
+}
+
 .config-image-model-list .actor-team-search-option {
   display: flex;
   flex-direction: column;

@@ -8,10 +8,13 @@ import PluginSDK
 extension CoreService {
     public func imageGenerationStatus() -> ImageGenerationStatusResponse {
         let config = currentConfig.imageGeneration
-        let environmentName = config.provider == .openAI ? "OPENAI_API_KEY" : "FAL_KEY"
-        let hasEnvironmentKey = !(ProcessInfo.processInfo.environment[environmentName] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty
+        let environmentName: String? = switch config.provider {
+        case .openAI: "OPENAI_API_KEY"
+        case .fal: "FAL_KEY"
+        case .codex, .followAgent: nil
+        }
+        let hasEnvironmentKey = environmentName.flatMap { ProcessInfo.processInfo.environment[$0] }
+            .map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
         let configuredCredential = ImageGenerationCredentialResolver.resolve(
             provider: config.provider,
             config: config,
@@ -27,6 +30,7 @@ extension CoreService {
             hasEnvironmentKey: hasEnvironmentKey,
             hasConfiguredKey: hasConfiguredKey,
             hasAnyKey: hasEnvironmentKey || hasConfiguredKey,
+            hasCodexConnection: openAIOAuthService.status().hasCredentials,
             models: ImageGenerationCatalog.models.map(\.apiOption)
         )
     }

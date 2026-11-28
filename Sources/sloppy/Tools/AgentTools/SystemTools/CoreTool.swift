@@ -64,6 +64,7 @@ struct ToolContext: @unchecked Sendable {
     let logger: Logger
     let projectService: (any ProjectToolService)?
     let configService: (any RuntimeConfigToolService)?
+    let codexImageOAuth: OpenAIOAuthService?
     let skillsService: (any SkillsToolService)?
     let memoryImportService: (any MemoryImportToolService)?
     let siteService: (any SiteToolService)?
@@ -106,6 +107,7 @@ struct ToolContext: @unchecked Sendable {
         logger: Logger,
         projectService: (any ProjectToolService)?,
         configService: (any RuntimeConfigToolService)?,
+        codexImageOAuth: OpenAIOAuthService? = nil,
         skillsService: (any SkillsToolService)?,
         memoryImportService: (any MemoryImportToolService)? = nil,
         siteService: (any SiteToolService)? = nil,
@@ -150,6 +152,7 @@ struct ToolContext: @unchecked Sendable {
         self.logger = logger
         self.projectService = projectService
         self.configService = configService
+        self.codexImageOAuth = codexImageOAuth
         self.skillsService = skillsService
         self.memoryImportService = memoryImportService
         self.siteService = siteService

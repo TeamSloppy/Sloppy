@@ -1,3 +1,4 @@
+import AgentRuntime
 import AnyLanguageModel
 import Foundation
 import Protocols
@@ -15,7 +16,7 @@ struct ImagesGenerateTool: CoreTool {
         switch provider {
         case .fal:
             FALImageGenerationProvider(apiKey: apiKey)
-        case .openAI:
+        case .openAI, .codex, .followAgent:
             OpenAIImageGenerationProvider(
                 apiKey: apiKey,
                 apiBaseURL: apiBaseURL ?? URL(string: "https://api.openai.com/v1")!
@@ -77,21 +78,47 @@ struct ImagesGenerateTool: CoreTool {
         guard config.enabled else {
             return toolFailure(tool: name, code: "image_generation_disabled", message: "Image generation is disabled in Settings.", retryable: false)
         }
-        guard let model = ImageGenerationCatalog.model(id: config.model), model.provider == config.provider else {
+        let turnModel = RuntimeToolModel.current
+        guard let selectedProvider = ImageGenerationRouting.resolve(config.provider, turnModel: turnModel, models: runtimeConfig.models) else {
+            return toolFailure(tool: name, code: "not_configured", message: "Choose an explicit image provider in Settings for this agent.", retryable: false)
+        }
+        let configuredModel = config.provider == .followAgent ? selectedProvider.defaultModel : config.model
+        guard let model = ImageGenerationCatalog.model(id: configuredModel, provider: selectedProvider) else {
             return toolFailure(tool: name, code: "unsupported_model", message: "Configured image model is not supported.", retryable: false)
         }
-        let credential = ImageGenerationCredentialResolver.resolve(
-            provider: config.provider,
-            config: config,
-            models: runtimeConfig.models,
-            environmentOverrides: context.environmentOverrides,
-            processEnvironment: ProcessInfo.processInfo.environment
-        )
-        guard !credential.apiKey.isEmpty else {
-            let message = config.provider == .openAI
-                ? "Set OPENAI_API_KEY or configure an OpenAI API provider key in Settings."
-                : "Set FAL_KEY or configure a FAL API key in Settings."
-            return toolFailure(tool: name, code: "not_configured", message: message, retryable: false)
+        let provider: any ImageGenerationProvider
+        if selectedProvider == .codex {
+            guard let oauth = context.codexImageOAuth, oauth.status().hasCredentials else {
+                return toolFailure(tool: name, code: "not_configured", message: "Connect Codex under Settings → Providers.", retryable: false)
+            }
+            let codexModels: [ProviderModelOption]
+            do {
+                codexModels = try await oauth.fetchModels()
+            } catch {
+                return toolFailure(tool: name, code: "provider_http_error", message: "Could not load Codex models. Reconnect Codex if needed.", retryable: true)
+            }
+            let modelIDs = codexModels.filter { $0.capabilities.contains("tools") }.map(\.id)
+            let preferred = turnModel?.hasPrefix("openai-oauth:") == true ? turnModel.map { String($0.dropFirst("openai-oauth:".count)) } : nil
+            guard let host = ImageGenerationRouting.codexHost(preferred: preferred, catalog: modelIDs) else {
+                return toolFailure(tool: name, code: "unsupported_model", message: "No Codex model is available for image generation.", retryable: false)
+            }
+            provider = CodexImageGenerationProvider(credentials: { try await oauth.imageGenerationCredentials(forceRefresh: $0) }, hostModel: host)
+        } else {
+            let credential = ImageGenerationCredentialResolver.resolve(
+                provider: selectedProvider,
+                config: config,
+                models: runtimeConfig.models,
+                environmentOverrides: context.environmentOverrides,
+                processEnvironment: ProcessInfo.processInfo.environment,
+                followedAPIEnvironment: config.provider == .followAgent ? ProviderEnvironment.lookup(workspaceRoot: context.workspaceRootURL) : nil
+            )
+            guard !credential.apiKey.isEmpty else {
+                let message = selectedProvider == .openAI
+                    ? "Set OPENAI_API_KEY or configure an OpenAI API provider key in Settings."
+                    : "Set FAL_KEY or configure a FAL API key in Settings."
+                return toolFailure(tool: name, code: "not_configured", message: message, retryable: false)
+            }
+            provider = providerFactory(selectedProvider, credential.apiKey, credential.apiBaseURL)
         }
 
         let rawSources = sourceArguments(arguments)
@@ -114,7 +141,6 @@ struct ImagesGenerateTool: CoreTool {
             sourceImages: sources,
             seed: seed
         )
-        let provider = providerFactory(config.provider, credential.apiKey, credential.apiBaseURL)
         let generated: ImageGenerationResult
         do {
             generated = try await provider.generate(request: request, model: model, timeoutMs: config.timeoutMs)
@@ -129,12 +155,13 @@ struct ImagesGenerateTool: CoreTool {
 
         let artifact: StoredImageArtifact
         do {
+            try Task.checkCancellation()
             if let imageData = generated.imageData {
                 artifact = try ImageArtifactService.create(
                     data: imageData,
                     mediaType: generated.mediaType,
                     prompt: prompt,
-                    provider: config.provider.rawValue,
+                    provider: selectedProvider.rawValue,
                     model: model.id,
                     modality: request.modality,
                     seed: generated.seed,
@@ -146,7 +173,7 @@ struct ImagesGenerateTool: CoreTool {
                 artifact = try await ImageArtifactService.create(
                     remoteURL: imageURL,
                     prompt: prompt,
-                    provider: config.provider.rawValue,
+                    provider: selectedProvider.rawValue,
                     model: model.id,
                     modality: request.modality,
                     seed: generated.seed,
@@ -174,7 +201,7 @@ struct ImagesGenerateTool: CoreTool {
         ))
 
         var data: [String: JSONValue] = [
-            "provider": .string(config.provider.rawValue),
+            "provider": .string(selectedProvider.rawValue),
             "model": .string(model.id),
             "modality": .string(request.modality.rawValue),
             "artifact": .object([
@@ -221,6 +248,26 @@ private enum SourceImageError: Error {
     }
 }
 
+enum ImageGenerationRouting {
+    typealias Provider = CoreConfig.ImageGeneration.ProviderID
+
+    static func resolve(_ configured: Provider, turnModel: String?, models: [CoreConfig.ModelConfig]) -> Provider? {
+        guard configured == .followAgent else { return configured }
+        guard let turnModel else { return nil }
+        if turnModel.hasPrefix("openai-oauth:") { return .codex }
+        if turnModel.hasPrefix("openai-api:") { return .openAI }
+        if let matching = models.first(where: { CoreModelProviderFactory.resolvedIdentifier(for: $0) == turnModel && !$0.disabled }),
+           matching.providerCatalogId == "openai-api" { return .openAI }
+        return nil
+    }
+
+    static func codexHost(preferred: String?, catalog: [String]) -> String? {
+        if let preferred, catalog.contains(preferred) { return preferred }
+        if catalog.contains("gpt-6.2-sol") { return "gpt-6.2-sol" }
+        return catalog.max { $0.compare($1, options: .numeric) == .orderedAscending }
+    }
+}
+
 enum ImageGenerationCredentialResolver {
     struct Credential: Sendable, Equatable {
         var apiKey: String
@@ -232,9 +279,12 @@ enum ImageGenerationCredentialResolver {
         config: CoreConfig.ImageGeneration,
         models: [CoreConfig.ModelConfig],
         environmentOverrides: [String: String],
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        followedAPIEnvironment: (@Sendable (String) -> String?)? = nil
     ) -> Credential {
         switch provider {
+        case .followAgent, .codex:
+            return Credential(apiKey: "", apiBaseURL: nil)
         case .fal:
             let candidates = [
                 environmentOverrides["FAL_KEY"],
@@ -244,6 +294,13 @@ enum ImageGenerationCredentialResolver {
             let key = candidates.compactMap(trimmed).first { !$0.isEmpty } ?? ""
             return Credential(apiKey: key, apiBaseURL: nil)
         case .openAI:
+            if let followedAPIEnvironment {
+                guard let connection = OpenAIModelProviderFactory.apiConnection(modelConfigs: models, environmentLookup: followedAPIEnvironment),
+                      connection.baseURL.scheme == "https", connection.baseURL.host?.isEmpty == false else {
+                    return Credential(apiKey: "", apiBaseURL: nil)
+                }
+                return Credential(apiKey: connection.apiKey, apiBaseURL: connection.baseURL)
+            }
             let configured = models.first { model in
                 model.providerCatalogId == "openai-api"
                     && !model.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

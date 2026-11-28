@@ -1290,10 +1290,11 @@ export function normalizeConfig(config) {
   normalized.searchTools.providers.brave.apiKey = String(config?.searchTools?.providers?.brave?.apiKey || "");
   normalized.searchTools.providers.perplexity.apiKey = String(config?.searchTools?.providers?.perplexity?.apiKey || "");
   normalized.imageGeneration.enabled = Boolean(config?.imageGeneration?.enabled);
-  normalized.imageGeneration.provider = String(config?.imageGeneration?.provider || "fal").trim().toLowerCase() === "openai"
-    ? "openai"
-    : "fal";
-  const defaultImageModel = normalized.imageGeneration.provider === "openai" ? "gpt-image-2" : "fal-ai/flux-2";
+  const rawImageProvider = String(config?.imageGeneration?.provider || "fal").trim().toLowerCase();
+  normalized.imageGeneration.provider = rawImageProvider === "followagent"
+    ? "followAgent"
+    : rawImageProvider === "codex" || rawImageProvider === "openai" ? rawImageProvider : "fal";
+  const defaultImageModel = normalized.imageGeneration.provider === "fal" ? "fal-ai/flux-2" : "gpt-image-2";
   normalized.imageGeneration.model = String(config?.imageGeneration?.model || defaultImageModel).trim() || defaultImageModel;
   normalized.imageGeneration.fal.apiKey = String(config?.imageGeneration?.fal?.apiKey || "");
   normalized.imageGeneration.timeoutMs = Math.min(
